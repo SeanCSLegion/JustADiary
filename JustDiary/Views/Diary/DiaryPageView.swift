@@ -179,6 +179,7 @@ struct DiaryPageView: View {
                     .padding(.vertical, 8)
                     .background {
                         Capsule().fill(Theme.primaryContainer())
+                            .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
                             .shadow(color: Theme.glowColor(), radius: 10, y: 2)
                     }
                     .onTapGesture {
@@ -213,11 +214,7 @@ struct DiaryPageView: View {
                 }
             }
         }
-        .padding(8)
-        .background {
-            GlassCapsule(cornerRadius: 30, blur: 26)
-                .opacity(0.35 + 0.65 * 1)
-        }
+        .padding(.horizontal, 4)
     }
 
     @State private var editingOriginalParts: [ContentPart] = []
@@ -262,6 +259,7 @@ struct DiaryPageView: View {
                     .padding(.vertical, 4)
                     .background {
                         Capsule().fill(Theme.primaryContainer())
+                            .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
                     }
                 Button {
                     stepHit(-1)
@@ -270,9 +268,10 @@ struct DiaryPageView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Theme.onSurface())
                         .frame(width: 26, height: 26)
-                        .background(Circle().fill(Theme.glassDim()))
+                        .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
                 Button {
                     stepHit(1)
                 } label: {
@@ -280,18 +279,15 @@ struct DiaryPageView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Theme.onSurface())
                         .frame(width: 26, height: 26)
-                        .background(Circle().fill(Theme.glassDim()))
+                        .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
             }
         }
         .padding(.horizontal, 12)
         .frame(height: 46)
-        .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
+        .diaryGlassCard(cornerRadius: 18, interactive: true)
     }
 
     private func computeHits() {
@@ -343,7 +339,10 @@ struct DiaryPageView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
-                            .background(Capsule().fill(Theme.primary()))
+                            .background {
+                                Capsule().fill(Theme.primary())
+                                    .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
+                            }
                             .shadow(color: Theme.glowColor(), radius: 6, y: 1)
                     }
                 }
@@ -365,11 +364,7 @@ struct DiaryPageView: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
+        .diaryGlassCard(cornerRadius: 18)
         .padding(.bottom, 2)
     }
 
@@ -401,7 +396,10 @@ struct DiaryPageView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(Capsule().fill(Theme.primary()))
+                        .background {
+                            Capsule().fill(Theme.primary())
+                                .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
+                        }
                 }
             }
             ReadTextView(parts: parts,
@@ -414,11 +412,7 @@ struct DiaryPageView: View {
             })
         }
         .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
+        .diaryGlassCard(cornerRadius: 18)
         .scaleEffect(pressedIndex == index ? 0.98 : 1)
         .contentShape(Rectangle())
         .onTapGesture {
@@ -499,11 +493,7 @@ struct DiaryPageView: View {
                 .frame(minHeight: 160)
         }
         .padding(10)
-        .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .glassEffect(.regular.tint(Theme.primary()), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        }
+        .diaryGlassCard(cornerRadius: 20, interactive: true)
     }
 
     private var locationLabel: String {
@@ -518,25 +508,14 @@ struct DiaryPageView: View {
         actualDayKey = key
         hits = []
         hitIndex = 0
-        let settings = SettingsStore.load()
-        let isToday = key == DateUtil.dayKeyOf(Date())
+        startUtc = Int64(Date().timeIntervalSince1970 * 1000)
         if let diary = await DiaryRepository.shared.getDiaryByDay(key) {
             blocks = await DiaryRepository.shared.getBlocks(diaryId: diary.id)
-            if !blocks.isEmpty {
-                isRead = true
-            } else {
-                isRead = isToday || settings.allowHistoryEdit ? false : true
-                startUtc = Int64(Date().timeIntervalSince1970 * 1000)
-            }
         } else {
             blocks = []
-            isRead = isToday || settings.allowHistoryEdit ? false : true
-            startUtc = Int64(Date().timeIntervalSince1970 * 1000)
         }
+        isRead = true
         loaded = true
-        if !isRead {
-            beginLocateIfNeeded()
-        }
     }
 
     private func beginLocateIfNeeded() {

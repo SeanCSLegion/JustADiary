@@ -7,7 +7,7 @@ struct HomeView: View {
     @State private var monthPage = DateUtil.monthFirst(Date())
     @State private var yearPage: Int? = DateUtil.calendar.component(.year, from: Date())
     @State private var yearMode = false
-    @State private var pageID: Int? = 1
+    @State private var pageID: Int? = nil
     @State private var flags: Set<String> = []
     @State private var cardInfo: DiaryCardInfo?
     @State private var cardLoading = false
@@ -19,16 +19,16 @@ struct HomeView: View {
                 VStack(spacing: 0) {
                     header(geo: geo)
                         .padding(.horizontal, 16)
-                        .padding(.top, 8)
+                        .padding(.top, 20)
                     calendarArea(geo: geo)
                         .padding(.horizontal, 16)
                     if !yearMode {
                         diaryCardArea(geo: geo)
                             .padding(.horizontal, 16)
-                            .padding(.top, 14)
+                            .padding(.top, 16)
                             .transition(.opacity.combined(with: .move(edge: .top)))
                     }
-                    Spacer(minLength: 24)
+                    Spacer(minLength: 20)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -38,10 +38,15 @@ struct HomeView: View {
             if showFutureToast {
                 Text(L10n.str("index_future_toast"))
                     .font(.system(size: 13))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.onSurface())
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Capsule().fill(.black.opacity(0.75)))
+                    .background {
+                        Capsule()
+                            .fill(Color(.secondarySystemGroupedBackground))
+                            .glassEffect(tintedGlass(nil, interactive: true), in: Capsule())
+                    }
+                    .shadow(color: Theme.shadowColor(), radius: 12, y: 4)
                     .padding(.bottom, 120)
                     .transition(.opacity)
             }
@@ -103,11 +108,15 @@ struct HomeView: View {
                             .font(.system(size: 25, weight: .medium))
                             .foregroundStyle(Theme.onSurface())
                             .opacity(yearMode ? 0 : 1)
+                            .contentTransition(.numericText(value: monthPage.timeIntervalSince1970))
                         Text(L10n.yearTitle(yearPage ?? DateUtil.calendar.component(.year, from: monthPage)))
                             .font(.system(size: 25, weight: .medium))
                             .foregroundStyle(Theme.onSurface())
                             .opacity(yearMode ? 1 : 0)
+                            .contentTransition(.numericText())
                     }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Theme.onSurfaceVariant())
@@ -116,48 +125,18 @@ struct HomeView: View {
             }
             .buttonStyle(.plain)
 
-            InfoCapsule(text: relativeDayLabel(), action: {
-                selectDate(Date())
-            })
-
             Spacer()
 
-            HStack(spacing: 6) {
-                pageButton(systemName: "chevron.left", action: {
-                    if yearMode {
-                        shiftYear(-1)
-                    } else {
-                        shiftMonth(-1)
+            InfoCapsule(text: relativeDayLabel(), action: {
+                if yearMode {
+                    withAnimation(.easeOut(duration: 0.36)) {
+                        yearMode = false
                     }
-                })
-                pageButton(systemName: "chevron.right", action: {
-                    if yearMode {
-                        shiftYear(1)
-                    } else {
-                        shiftMonth(1)
-                    }
-                })
-            }
-        }
-        .frame(height: 52)
-    }
-
-    private func pageButton(systemName: String, action: @escaping () -> Void) -> some View {
-        Button {
-            Haptics.tap()
-            action()
-        } label: {
-            Image(systemName: systemName)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Theme.onSurface())
-                .frame(width: 38, height: 38)
-                .background {
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .glassEffect(.regular, in: Circle())
                 }
+                selectDate(Date())
+            })
         }
-        .buttonStyle(.plain)
+        .frame(height: 56)
     }
 
     private func relativeDayLabel() -> String {
@@ -165,19 +144,6 @@ struct HomeView: View {
         if diff == 0 { return L10n.str("index_today") }
         if diff < 0 { return L10n.fmt("index_days_ago", -diff) }
         return L10n.fmt("index_days_later", diff)
-    }
-
-    private func shiftMonth(_ delta: Int) {
-        monthPage = DateUtil.monthFirst(DateUtil.addMonths(monthPage, delta))
-        selectedDate = clampToMonth(selectedDate, month: monthPage)
-        reloadCard()
-    }
-
-    private func shiftYear(_ delta: Int) {
-        let current = yearPage ?? DateUtil.calendar.component(.year, from: Date())
-        yearPage = current + delta
-        selectedDate = clampToMonth(selectedDate, month: monthPage)
-        reloadCard()
     }
 
     private func selectDate(_ date: Date) {
@@ -200,40 +166,44 @@ struct HomeView: View {
     private func calendarArea(geo: GeometryProxy) -> some View {
         ZStack {
             monthLayer(geo: geo)
+                .scaleEffect(yearMode ? monthCellScale(geo: geo) : 1, anchor: cameraAnchor(geo: geo).month)
                 .opacity(yearMode ? 0 : 1)
-                .scaleEffect(yearMode ? 0.94 : 1)
-                .offset(y: yearMode ? -12 : 0)
 
             yearLayer(geo: geo)
-                .scaleEffect(yearMode ? 1 : yearZoom(geo: geo), anchor: .topLeading)
-                .offset(x: yearMode ? 0 : yearOffsetX(geo: geo),
-                        y: yearMode ? 0 : yearOffsetY(geo: geo))
+                .scaleEffect(yearMode ? 1 : yearZoomScale(geo: geo), anchor: cameraAnchor(geo: geo).year)
                 .opacity(yearMode ? 1 : 0)
                 .allowsHitTesting(yearMode)
         }
         .frame(height: yearMode ? 520 : 330)
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
     }
 
-    private func yearZoom(geo: GeometryProxy) -> CGFloat {
+    // MARK: - Camera transition (zoom in/out between month and year)
+
+    private func cameraAnchor(geo: GeometryProxy) -> (month: UnitPoint, year: UnitPoint) {
+        let calWidth = geo.size.width - 32
+        let cardW = (calWidth - 4 - 16) / 3
+        let cardH = (520.0 - 4 - 3 * 8) / 4
+        let month = DateUtil.calendar.component(.month, from: selectedDate) - 1
+        let col = CGFloat(month % 3)
+        let row = CGFloat(month / 3)
+        let cellX = 2 + col * (cardW + 8) + cardW / 2
+        let cellY = 2 + row * (cardH + 8) + cardH / 2
+        let monthY = cellY - (520 - 330) / 2
+        return (UnitPoint(x: cellX / calWidth, y: monthY / 330),
+                UnitPoint(x: cellX / calWidth, y: cellY / 520))
+    }
+
+    private func yearZoomScale(geo: GeometryProxy) -> CGFloat {
         let calWidth = geo.size.width - 32
         let cardW = (calWidth - 4 - 16) / 3
         return max(1, calWidth / cardW)
     }
 
-    private func yearOffsetX(geo: GeometryProxy) -> CGFloat {
+    private func monthCellScale(geo: GeometryProxy) -> CGFloat {
         let calWidth = geo.size.width - 32
-        let month = DateUtil.calendar.component(.month, from: selectedDate) - 1
-        let col = CGFloat(month % 3)
-        let centerX = col * ((calWidth - 4 - 16) / 3 + 8) + (calWidth - 4 - 16) / 3 / 2
-        return (calWidth / 2) - yearZoom(geo: geo) * centerX
-    }
-
-    private func yearOffsetY(geo: GeometryProxy) -> CGFloat {
-        let cardH = (520.0 - 3 * 8 - 4) / 4
-        let month = DateUtil.calendar.component(.month, from: selectedDate) - 1
-        let row = CGFloat(month / 3)
-        let centerY = row * (cardH + 8) + cardH / 2
-        return (330.0 / 2) - yearZoom(geo: geo) * centerY
+        let cardW = (calWidth - 4 - 16) / 3
+        return cardW / calWidth
     }
 
     private func monthLayer(geo: GeometryProxy) -> some View {
@@ -261,14 +231,24 @@ struct HomeView: View {
         }
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $pageID, anchor: .center)
+        .defaultScrollAnchor(.center)
         .scrollDisabled(yearMode)
         .onChange(of: pageID) { _, newID in
-            guard let newID, newID != 1 else { return }
-            let delta = newID == 0 ? -1 : 1
-            monthPage = DateUtil.monthFirst(DateUtil.addMonths(monthPage, delta))
+            guard let newID else { return }
+            let centerKey = monthPageKey(monthPage, 0)
+            guard newID != centerKey else { return }
+            let target = dateForMonthKey(newID)
+            monthPage = DateUtil.monthFirst(target)
             selectedDate = clampToMonth(selectedDate, month: monthPage)
-            pageID = 1
             reloadCard()
+        }
+        .onChange(of: monthPage) { _, _ in
+            pageID = monthPageKey(monthPage, 0)
+        }
+        .onAppear {
+            if pageID == nil {
+                pageID = monthPageKey(monthPage, 0)
+            }
         }
         .frame(height: 330)
         .background {
@@ -296,31 +276,39 @@ struct HomeView: View {
     private func yearLayer(geo: GeometryProxy) -> some View {
         let year = yearPage ?? DateUtil.calendar.component(.year, from: Date())
         return ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(spacing: 16) {
-                ForEach([year - 1, year, year + 1], id: \.self) { y in
-                    YearGrid(year: y,
-                             selectedDate: selectedDate,
-                             flags: flags,
-                             weekStart: SettingsStore.load().weekStart,
-                             onSelectMonth: { month in
-                        var comps = DateComponents()
-                        comps.year = y
-                        comps.month = month
-                        comps.day = 1
-                        guard let date = DateUtil.calendar.date(from: comps) else { return }
-                        selectDate(date)
-                        withAnimation(.easeOut(duration: 0.36)) {
-                            yearMode = false
-                        }
-                    })
-                    .frame(width: geo.size.width - 32)
-                    .id(y)
+            ScrollViewReader { proxy in
+                LazyHStack(spacing: 16) {
+                    ForEach([year - 1, year, year + 1], id: \.self) { y in
+                        YearGrid(year: y,
+                                 selectedDate: selectedDate,
+                                 flags: flags,
+                                 weekStart: SettingsStore.load().weekStart,
+                                 onSelectMonth: { month in
+                            var comps = DateComponents()
+                            comps.year = y
+                            comps.month = month
+                            comps.day = 1
+                            guard let date = DateUtil.calendar.date(from: comps) else { return }
+                            selectDate(date)
+                            withAnimation(.easeOut(duration: 0.36)) {
+                                yearMode = false
+                            }
+                        })
+                        .frame(width: geo.size.width - 32)
+                        .id(y)
+                    }
+                }
+                .scrollTargetLayout()
+                .onChange(of: yearMode) { _, mode in
+                    guard mode else { return }
+                    let target = yearPage ?? DateUtil.calendar.component(.year, from: Date())
+                    proxy.scrollTo(target, anchor: .center)
                 }
             }
-            .scrollTargetLayout()
         }
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $yearPage, anchor: .center)
+        .defaultScrollAnchor(.center)
         .onChange(of: yearPage) { _, newID in
             guard let newID else { return }
             let year = yearPage ?? DateUtil.calendar.component(.year, from: Date())
@@ -345,7 +333,7 @@ struct HomeView: View {
                         openEditor(dayKey(selectedDate))
                     })
                 } else {
-                    EmptyDiaryCardView(isFuture: selectedDate > DateUtil.startOfDay(Date()),
+                    EmptyDiaryCardView(isFuture: dayKey(selectedDate) > dayKey(Date()),
                                        action: {
                         openEditor(dayKey(selectedDate))
                     })
@@ -407,16 +395,23 @@ struct MonthGridCanvas: View {
                     let isToday = dayKey == todayKey
                     let isFuture = dayKey > todayKey
                     let hasDiary = flags.contains(dayKey)
+                    var alpha = 1.0
+                    if isFuture { alpha = AppLanguage.isZh ? 0.32 : 0.42 }
+                    let circleCenterY = cy - 3
+                    let circleD = min(cellW - 16, cellH - 16)
                     if isSelected {
-                        let rect = CGRect(x: cx - cellW / 2 + 3, y: cy - cellH / 2 + 3, width: cellW - 6, height: cellH - 6)
-                        context.fill(Path(roundedRect: rect.insetBy(dx: -4, dy: -4), cornerRadius: 16),
+                        let glowR = circleD / 2 + 6
+                        context.fill(Path(ellipseIn: CGRect(x: cx - glowR, y: circleCenterY - glowR,
+                                                            width: glowR * 2, height: glowR * 2)),
                                      with: .color(Theme.glowColor()))
-                        context.fill(Path(roundedRect: rect, cornerRadius: 16),
+                        context.fill(Path(ellipseIn: CGRect(x: cx - circleD / 2, y: circleCenterY - circleD / 2,
+                                                            width: circleD, height: circleD)),
                                      with: .color(Theme.primary()))
                     } else if isToday {
-                        let rect = CGRect(x: cx - cellW / 2 + 3, y: cy - cellH / 2 + 3, width: cellW - 6, height: cellH - 6)
-                        let path = Path(roundedRect: rect, cornerRadius: 16)
-                        context.stroke(path, with: .color(Theme.primary()), lineWidth: 1)
+                        let ringD = circleD - 6
+                        context.stroke(Path(ellipseIn: CGRect(x: cx - ringD / 2, y: circleCenterY - ringD / 2,
+                                                              width: ringD, height: ringD)),
+                                       with: .color(Theme.primary()), lineWidth: 1.5)
                     }
                     let textColor: Color
                     if isSelected {
@@ -428,13 +423,13 @@ struct MonthGridCanvas: View {
                     } else {
                         textColor = Theme.onSurface().opacity(0.4)
                     }
-                    var alpha = 1.0
-                    if isFuture { alpha = AppLanguage.isZh ? 0.32 : 0.42 }
-                    drawCenteredText(context, text: "\(day)", at: CGPoint(x: cx, y: cy - 4),
+                    drawCenteredText(context, text: "\(day)", at: CGPoint(x: cx, y: circleCenterY - 3),
                                      fontSize: 15, color: textColor.opacity(alpha))
                     if hasDiary {
-                        context.fill(Path(ellipseIn: CGRect(x: cx - 2, y: cy + 8, width: 4, height: 4)),
-                                     with: .color(isSelected ? Theme.onPrimary() : Theme.primary().opacity(alpha)))
+                        let dotColor: Color = isSelected ? Theme.onPrimary() : Theme.primary().opacity(alpha)
+                        let dotY = isSelected ? circleCenterY + circleD * 0.28 : cy + 9
+                        context.fill(Path(ellipseIn: CGRect(x: cx - 2, y: dotY - 2, width: 4, height: 4)),
+                                     with: .color(dotColor))
                     }
                 }
             }
@@ -514,8 +509,9 @@ struct YearGrid: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background {
                                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(selectedYear == year && selectedMonth == month
-                                          ? Theme.primaryContainer() : Theme.surface1())
+                                    .fill(Color(.secondarySystemGroupedBackground))
+                                    .glassEffect(tintedGlass(nil),
+                                                 in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                                     .overlay {
                                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                                             .stroke(selectedYear == year && selectedMonth == month
@@ -636,8 +632,9 @@ struct DiaryCardView: View {
             .frame(height: 100)
             .background {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .fill(Color(.secondarySystemGroupedBackground))
+                    .glassEffect(tintedGlass(nil, interactive: true),
+                                 in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
             .scaleEffect(0.98)
         }
@@ -665,11 +662,7 @@ struct EmptyDiaryCardView: View {
                     .foregroundStyle(Theme.onSurfaceVariant())
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
+            .diaryGlassCard(cornerRadius: 20)
         }
         .buttonStyle(.plain)
     }

@@ -25,7 +25,7 @@ struct Theme {
 
     static func glowColor() -> Color { seed.opacity(0.15) }
 
-    static func flowMaskColor() -> Color { seed.opacity(0.12) }
+    static func flowMaskColor() -> Color { seed.opacity(0.05) }
 
     static func primaryUIColor() -> UIColor {
         UIColor { trait in seed.resolved(rgb: trait) }

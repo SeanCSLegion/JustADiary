@@ -166,6 +166,7 @@
 "read_start_loc" = "于%@开始写";
 "search_title" = "搜索";
 "search_placeholder" = "搜索日记内容…";
+"search_cancel" = "取消";
 "search_all_time" = "全部时间";
 "search_7d" = "近 7 天";
 "search_30d" = "近 30 天";
@@ -229,6 +230,9 @@
 "map_retry" = "重试";
 "map_loc_failed" = "无法获取当前位置";
 "map_time_all" = "全部";
+"map_level_global" = "全球";
+"map_level_national" = "全国";
+"map_level_province" = "全省";
 "map_stat_provinces" = "省市";
 "map_stat_cities" = "城市";
 "map_stat_countries" = "国家";

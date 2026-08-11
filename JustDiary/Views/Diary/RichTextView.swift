@@ -139,11 +139,11 @@ struct FontToolbar: View {
                 .background {
                     Capsule().fill(active ? Theme.primary() : .clear)
                 }
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(disabled)
         .opacity(disabled ? 0.35 : 1)
-        .scaleEffect(1)
     }
 
     var body: some View {
@@ -178,12 +178,13 @@ struct FontToolbar: View {
                     controller.toggleUnderline()
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
         .background {
             GlassCapsule(cornerRadius: 26, blur: 24)
                 .shadow(color: Theme.shadowColor(), radius: 14, y: 4)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
     }
 }

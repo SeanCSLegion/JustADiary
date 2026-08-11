@@ -28,6 +28,8 @@ struct SearchView: View {
     @State private var locSearch = ""
     @State private var locLoading = false
     @State private var searchTask: Task<Void, Never>?
+    @FocusState private var searchFocused: Bool
+    @FocusState private var locSearchFocused: Bool
 
     var body: some View {
         content
@@ -52,10 +54,10 @@ struct SearchView: View {
                 .padding(.top, 10)
             filterPanel
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.top, 12)
             resultsList
         }
-        .padding(.top, 8)
+        .padding(.top, 12)
     }
 
     private var header: some View {
@@ -90,6 +92,11 @@ struct SearchView: View {
             TextField(L10n.str("search_placeholder"), text: $keyword)
                 .font(.system(size: 15))
                 .tint(Theme.primary())
+                .focused($searchFocused)
+                .submitLabel(.search)
+                .onSubmit {
+                    searchFocused = false
+                }
                 .onChange(of: keyword) { _, _ in
                     searchTask?.cancel()
                     searchTask = Task {
@@ -108,14 +115,22 @@ struct SearchView: View {
                 }
                 .buttonStyle(.plain)
             }
+            if searchFocused {
+                Button {
+                    searchFocused = false
+                } label: {
+                    Text(L10n.str("search_cancel"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Theme.primary())
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+            }
         }
         .padding(.horizontal, 14)
         .frame(height: 46)
-        .background {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        }
+        .diaryGlassCard(cornerRadius: 28, interactive: true)
+        .animation(.easeOut(duration: 0.2), value: searchFocused)
     }
 
     private var filterPanel: some View {
@@ -145,11 +160,7 @@ struct SearchView: View {
             }
         }
         .padding(10)
-        .background {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        }
+        .diaryGlassCard(cornerRadius: 22)
     }
 
     private var locFilterLabel: String {
@@ -160,35 +171,19 @@ struct SearchView: View {
     }
 
     private func timeChip(_ label: String, kind: TimeRangeKind) -> some View {
-        Button {
-            Haptics.tap()
+        GlassChip(label: label, active: timeKind == kind) {
             if kind == .custom {
                 showTimeSheet = true
             } else {
                 timeKind = kind
                 Task { await doSearch(reset: true) }
             }
-        } label: {
-            Text(label)
-                .font(.system(size: 13))
-                .foregroundStyle(timeKind == kind ? Theme.primary() : Theme.onSurface())
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background {
-                    Capsule().fill(timeKind == kind ? Theme.primaryContainer() : Theme.glassDim())
-                }
-                .overlay {
-                    Capsule().stroke(timeKind == kind ? Theme.primary() : .clear, lineWidth: 1)
-                }
-                .shadow(color: timeKind == kind ? Theme.glowColor() : .clear, radius: 6, y: 2)
         }
-        .buttonStyle(.plain)
     }
 
     private func locChip(_ label: String, country: String, region1: String, noLoc: Bool, force: Bool = false) -> some View {
         let active = force || (locFilter.country == country && locFilter.region1 == region1 && locFilter.noLoc == noLoc)
-        return Button {
-            Haptics.tap()
+        return GlassChip(label: label, active: active && force) {
             if force {
                 if locFilter.country.isEmpty && !locFilter.noLoc {
                     showLocSheet = true
@@ -200,20 +195,7 @@ struct SearchView: View {
                 locFilter = LocFilter(country: "", region1: "", noLoc: false)
                 Task { await doSearch(reset: true) }
             }
-        } label: {
-            Text(label)
-                .font(.system(size: 13))
-                .foregroundStyle(active && force ? Theme.primary() : Theme.onSurface())
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background {
-                    Capsule().fill(active && force ? Theme.primaryContainer() : Theme.glassDim())
-                }
-                .overlay {
-                    Capsule().stroke(active && force ? Theme.primary() : .clear, lineWidth: 1)
-                }
         }
-        .buttonStyle(.plain)
     }
 
     private var resultsList: some View {
@@ -231,14 +213,12 @@ struct SearchView: View {
                     } label: {
                         Text(L10n.str("search_load_more"))
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Theme.primary())
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 20)
                             .padding(.vertical, 10)
                             .background {
-                                Capsule().fill(Theme.primaryContainer())
-                                    .overlay {
-                                        Capsule().stroke(Theme.primary(), lineWidth: 1)
-                                    }
+                                Capsule().fill(Theme.primary())
+                                    .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
                                     .shadow(color: Theme.glowColor(), radius: 8, y: 2)
                             }
                     }
@@ -254,6 +234,7 @@ struct SearchView: View {
             .padding(.horizontal, 16)
             .padding(.top, 10)
         }
+        .scrollDismissesKeyboard(.immediately)
     }
 
     @ViewBuilder
@@ -312,11 +293,7 @@ struct SearchView: View {
                 .foregroundStyle(Theme.onSurfaceVariant())
         }
         .padding(14)
-        .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        }
+        .diaryGlassCard(cornerRadius: 20)
     }
 
     // MARK: - Search logic
@@ -401,9 +378,10 @@ struct SearchView: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Theme.onSurfaceVariant())
                         .frame(width: 32, height: 32)
-                        .background(Circle().fill(Theme.glassDim()))
+                        .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
             }
             HStack(spacing: 8) {
                 quickRangeChip(L10n.str("search_7d")) {
@@ -471,6 +449,7 @@ struct SearchView: View {
                         .padding(.vertical, 12)
                         .background {
                             Capsule().fill(Theme.glassDim())
+                                .glassEffect(.regular, in: Capsule())
                         }
                 }
                 .buttonStyle(.plain)
@@ -486,12 +465,13 @@ struct SearchView: View {
                         .padding(.vertical, 12)
                         .background {
                             Capsule().fill(Theme.primary())
+                                .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
                                 .shadow(color: Theme.glowColor(), radius: 10, y: 3)
                         }
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.top, 8)
+            .padding(.top, 12)
         }
         .padding(20)
         .padding(.bottom, 8)
@@ -502,10 +482,13 @@ struct SearchView: View {
             Text(label)
                 .font(.system(size: 13))
                 .foregroundStyle(Theme.primary())
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
                 .background {
                     Capsule().fill(Theme.primaryContainer())
+                        .glassEffect(tintedGlass(nil), in: Capsule())
                 }
         }
         .buttonStyle(.plain)
@@ -525,9 +508,10 @@ struct SearchView: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Theme.onSurfaceVariant())
                         .frame(width: 32, height: 32)
-                        .background(Circle().fill(Theme.glassDim()))
+                        .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
             }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
@@ -536,12 +520,19 @@ struct SearchView: View {
                 TextField(L10n.str("search_loc_search"), text: $locSearch)
                     .font(.system(size: 14))
                     .tint(Theme.primary())
+                    .focused($locSearchFocused)
+                    .submitLabel(.search)
+                    .onSubmit {
+                        locSearchFocused = false
+                    }
             }
             .padding(.horizontal, 12)
             .frame(height: 42)
             .background {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(Theme.glassDim())
+                    .glassEffect(tintedGlass(nil),
+                                 in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .stroke(Theme.glassBorder(), lineWidth: 1)
@@ -569,6 +560,7 @@ struct SearchView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.immediately)
         }
         .padding(20)
         .padding(.bottom, 8)

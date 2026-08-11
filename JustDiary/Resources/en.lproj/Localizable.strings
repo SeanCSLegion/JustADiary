@@ -166,6 +166,7 @@
 "read_start_loc" = "Started in %@";
 "search_title" = "Search";
 "search_placeholder" = "Search diary content…";
+"search_cancel" = "Cancel";
 "search_all_time" = "All time";
 "search_7d" = "Last 7 days";
 "search_30d" = "Last 30 days";
@@ -229,6 +230,9 @@
 "map_retry" = "Retry";
 "map_loc_failed" = "Cannot get current location";
 "map_time_all" = "All";
+"map_level_global" = "World";
+"map_level_national" = "China";
+"map_level_province" = "Province";
 "map_stat_provinces" = "Provinces";
 "map_stat_cities" = "Cities";
 "map_stat_countries" = "Countries";

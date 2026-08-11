@@ -102,8 +102,9 @@ final class RichEditorController {
     }
 
     func currentHeadingLevel() -> Int {
-        guard let tv = textView else { return 0 }
+        guard let tv = textView, tv.textStorage.length > 0 else { return 0 }
         let range = paragraphRange(around: tv.selectedRange)
+        guard range.location < tv.textStorage.length else { return 0 }
         let font = tv.textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont
         let size = font?.pointSize ?? 15
         if size >= 22 { return 1 }
@@ -128,8 +129,9 @@ final class RichEditorController {
     }
 
     func isCenterActive() -> Bool {
-        guard let tv = textView else { return false }
+        guard let tv = textView, tv.textStorage.length > 0 else { return false }
         let range = paragraphRange(around: tv.selectedRange)
+        guard range.location < tv.textStorage.length else { return false }
         let style = tv.textStorage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
         return style?.alignment == .center
     }
@@ -153,7 +155,9 @@ final class RichEditorController {
               let para = tv.tokenizer.rangeEnclosingPosition(startPos, with: .paragraph, inDirection: .storage(.backward)) else { return }
         let lineRange = NSRange(location: tv.offset(from: tv.beginningOfDocument, to: para.start),
                                 length: tv.offset(from: para.start, to: para.end))
-        let payload = tv.textStorage.attribute(.attachment, at: lineRange.location, effectiveRange: nil) as? AttachmentPayload
+        let payload: AttachmentPayload? = lineRange.location < tv.textStorage.length
+            ? tv.textStorage.attribute(.attachment, at: lineRange.location, effectiveRange: nil) as? AttachmentPayload
+            : nil
         apply { attributed in
             if isMarked(payload) {
                 attributed.replaceCharacters(in: NSRange(location: lineRange.location, length: 1), with: "")
@@ -189,8 +193,9 @@ final class RichEditorController {
     }
 
     func isQuoteActive() -> Bool {
-        guard let tv = textView, tv.selectedRange.length == 0 else { return false }
+        guard let tv = textView, tv.textStorage.length > 0, tv.selectedRange.length == 0 else { return false }
         let range = paragraphRange(around: tv.selectedRange)
+        guard range.location < tv.textStorage.length else { return false }
         let bg = tv.textStorage.attribute(.backgroundColor, at: range.location, effectiveRange: nil) as? UIColor
         return bg != nil && !bg!.isEqual(UIColor.clear)
     }

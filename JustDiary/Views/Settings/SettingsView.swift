@@ -22,6 +22,7 @@ struct SettingsView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 12) {
+                header
                 generalCard
                 rulesCard
                 reminderCard
@@ -30,11 +31,14 @@ struct SettingsView: View {
                 Color.clear.frame(height: 120)
             }
             .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.top, 12)
         }
         .task { await refreshStatus() }
         .onReceive(NotificationCenter.default.publisher(for: .uiTickChanged)) { _ in
             settings = SettingsStore.load()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            Task { await refreshStatus() }
         }
         .sheet(isPresented: $showExportSheet) {
             if let url = exportURL {
@@ -93,11 +97,7 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 32)
                     .padding(.vertical, 26)
-                    .background {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    }
+                    .diaryGlassCard(cornerRadius: 18)
                 }
                 .transition(.opacity)
             }
@@ -108,6 +108,18 @@ struct SettingsView: View {
         let id = UUID()
         var title: String
         var message: String
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack {
+            Text(L10n.str("settings_title"))
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(Theme.onSurface())
+            Spacer()
+        }
+        .frame(height: 52)
     }
 
     // MARK: - Status
@@ -129,11 +141,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             content()
         }
-        .background {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        }
+        .diaryGlassCard(cornerRadius: 22)
     }
 
     private func sectionTitle(_ text: String) -> some View {
@@ -151,8 +159,9 @@ struct SettingsView: View {
             HStack(spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .fill(Color(.secondarySystemGroupedBackground))
+                        .glassEffect(tintedGlass(nil),
+                                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .frame(width: 38, height: 38)
                     Image(systemName: icon)
                         .font(.system(size: 16))
@@ -188,6 +197,8 @@ struct SettingsView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Theme.glassDim())
+                    .glassEffect(tintedGlass(nil),
+                                 in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .frame(width: 38, height: 38)
                     .overlay {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -223,7 +234,7 @@ struct SettingsView: View {
     // MARK: - General
 
     private var generalCard: some View {
-        VStack(spacing: 0) {
+        card {
             sectionTitle(L10n.str("settings_section_general"))
             valueRow(icon: "globe", title: L10n.str("settings_language"),
                      sub: L10n.str("settings_language_sub"),
@@ -336,14 +347,18 @@ struct SettingsView: View {
     }
 
     private func handleLocPermission() {
-        if LocStatus.isAuthorized {
+        switch LocStatus.current() {
+        case .notDetermined:
+            LocationService.shared.requestPermission()
+        default:
             if let url = URL(string: UIApplication.openSettingsURLString) {
                 UIApplication.shared.open(url)
             }
-        } else {
-            LocationService.shared.requestPermission()
         }
-        Task { await refreshStatus() }
+        Task {
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            await refreshStatus()
+        }
     }
 
     private func applyDayStart() {
@@ -530,6 +545,7 @@ struct SettingsView: View {
                     .padding(.vertical, 12)
                     .background {
                         Capsule().fill(Theme.primary())
+                            .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
                             .shadow(color: Theme.glowColor(), radius: 10, y: 3)
                     }
             }

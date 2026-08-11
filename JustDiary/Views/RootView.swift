@@ -60,6 +60,7 @@ struct RootView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        .tint(Theme.primary())
         .preferredColorScheme(AppConfigService.colorScheme)
         .fullScreenCover(isPresented: $presentEditor, onDismiss: {
             DiaryRepository.shared.bumpDiaryVersion()

@@ -74,12 +74,31 @@ struct GlassCapsule: View {
     var cornerRadius: CGFloat = 28
     var blur: CGFloat = 26
     var opacity: Double = 1
+    var tint: Color? = nil
+    var interactive = false
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(.ultraThinMaterial)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .fill(Color(.secondarySystemGroupedBackground))
+            .glassEffect(tintedGlass(tint, interactive: interactive),
+                         in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .opacity(opacity)
+    }
+}
+
+func tintedGlass(_ tint: Color?, interactive: Bool = false) -> Glass {
+    let g = tint.map { Glass.regular.tint($0) } ?? .regular
+    return interactive ? g.interactive() : g
+}
+
+extension View {
+    func diaryGlassCard(tint: Color? = nil, cornerRadius: CGFloat = 20, interactive: Bool = false) -> some View {
+        background {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+                .glassEffect(tintedGlass(tint, interactive: interactive),
+                             in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
     }
 }
 
@@ -127,23 +146,18 @@ struct InfoCapsule: View {
             Haptics.tap()
             action?()
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "calendar")
-                    .font(.system(size: 12))
-                Text(text)
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .foregroundStyle(Theme.onSurface())
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background {
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .glassEffect(.regular, in: Capsule())
-            }
-            .scaleEffect(pressed ? 0.94 : 1)
+            Text(text)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.onSurface())
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .scaleEffect(pressed ? 0.94 : 1)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in pressed = true }
@@ -186,8 +200,9 @@ struct GlassMenu: View {
         .frame(width: 216)
         .background {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .fill(Color(.secondarySystemGroupedBackground))
+                .glassEffect(tintedGlass(nil, interactive: true),
+                             in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
     }
@@ -211,7 +226,6 @@ struct PressableGlassIcon: View {
     var size: CGFloat = 40
     var active = false
     var action: () -> Void
-    @State private var pressed = false
 
     var body: some View {
         Button {
@@ -220,20 +234,37 @@ struct PressableGlassIcon: View {
         } label: {
             Image(systemName: systemName)
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(active ? Theme.primary() : Theme.onSurface())
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(active ? AnyShapeStyle(Theme.primary()) : AnyShapeStyle(Theme.onSurface()))
                 .frame(width: size, height: size)
-                .background {
-                    Circle()
-                        .fill(active ? AnyShapeStyle(Theme.primaryContainer()) : AnyShapeStyle(.ultraThinMaterial))
-                        .glassEffect(.regular.tint(active ? Theme.primary() : nil), in: Circle())
-                }
-                .scaleEffect(pressed ? 0.86 : 1)
+                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in pressed = true }
-                .onEnded { _ in pressed = false }
-        )
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .symbolEffect(.bounce, value: active)
+    }
+}
+
+struct GlassChip: View {
+    var label: String
+    var active = false
+    var action: () -> Void
+
+    var body: some View {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
+            Text(label)
+                .font(.system(size: 13))
+                .foregroundStyle(active ? Theme.primary() : Theme.onSurface())
+                .lineLimit(1)
+                .minimumScaleFactor(0.9)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
     }
 }

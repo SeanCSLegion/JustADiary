@@ -12,6 +12,8 @@ struct TravelStats {
 struct MapView: View {
     var openDiary: (String) -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
     @State private var geoData = GeoDataSet()
     @State private var camera = GeoCamera()
     @State private var level = 1
@@ -59,7 +61,7 @@ struct MapView: View {
                 .padding(.top, 10)
             Spacer(minLength: 24)
         }
-        .padding(.top, 8)
+        .padding(.top, 12)
         .task { await load() }
         .onReceive(NotificationCenter.default.publisher(for: .diaryVersionChanged)) { _ in
             Task { await reloadPoints() }
@@ -147,37 +149,25 @@ struct MapView: View {
     // MARK: - UI
 
     private func yearChip(_ label: String, value: String) -> some View {
-        Button {
-            Haptics.tap()
+        GlassChip(label: label, active: yearFilter == value) {
             yearFilter = value
             Task { await reloadPoints() }
-        } label: {
-            Text(label)
-                .font(.system(size: 13))
-                .foregroundStyle(yearFilter == value ? Theme.primary() : Theme.onSurface())
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background {
-                    Capsule().fill(yearFilter == value ? Theme.primaryContainer() : Theme.glassDim())
-                }
-                .overlay {
-                    Capsule().stroke(yearFilter == value ? Theme.primary() : .clear, lineWidth: 1)
-                }
         }
-        .buttonStyle(.plain)
     }
 
     private var mapArea: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                .fill(Color(.secondarySystemGroupedBackground))
+                .glassEffect(tintedGlass(nil),
+                             in: RoundedRectangle(cornerRadius: 26, style: .continuous))
             GeoMapCanvas(geoData: geoData,
                          camera: camera,
                          level: level,
                          focusProvince: focusFeature,
                          points: points,
                          isZh: AppLanguage.isZh,
+                         isDark: colorScheme == .dark,
                          selectedPoint: selectedPoint)
             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
             .gesture(mapGestures)
@@ -292,40 +282,34 @@ struct MapView: View {
     // MARK: - Level selector
 
     private var levelSelector: some View {
-        VStack(spacing: 6) {
-            levelDot(0, label: L10n.str("map_time_all"))
-            levelDot(1, label: L10n.str("map_time_all"))
-            levelDot(2, label: L10n.str("map_time_all"))
+        VStack(spacing: 4) {
+            levelButton(0, label: L10n.str("map_level_global"))
+            levelButton(1, label: L10n.str("map_level_national"))
+            levelButton(2, label: L10n.str("map_level_province"))
         }
         .padding(6)
         .background {
-            GlassCapsule(cornerRadius: 19, blur: 22, opacity: 1)
-                .frame(width: 38)
+            GlassCapsule(cornerRadius: 20, blur: 22)
         }
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onEnded { value in
-                    let delta = Int(value.translation.height / 38)
-                    switchLevel(min(max(0, level + delta), 2))
-                }
-        )
     }
 
-    private func levelDot(_ lvl: Int, label: String) -> some View {
+    private func levelButton(_ lvl: Int, label: String) -> some View {
         Button {
             Haptics.tap()
             switchLevel(lvl)
         } label: {
-            ZStack {
-                Circle()
-                    .fill(level == lvl ? Theme.primary() : Theme.glassDim())
-                    .frame(width: 26, height: 26)
-                    .shadow(color: level == lvl ? Theme.glowColor() : .clear, radius: 6, y: 2)
-                Circle()
-                    .fill(level == lvl ? Color.white : Theme.onSurfaceVariant())
-                    .frame(width: 6, height: 6)
-            }
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(level == lvl ? .white : Theme.onSurfaceVariant())
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(width: 46, height: 26)
+                .background {
+                    if level == lvl {
+                        Capsule().fill(Theme.primary())
+                            .glassEffect(tintedGlass(Theme.primary()), in: Capsule())
+                    }
+                }
         }
         .buttonStyle(.plain)
     }
@@ -350,7 +334,7 @@ struct MapView: View {
                 flyTo(lng: 105, lat: 35, zoom: 3.6)
             }
         } else if lvl == 0 {
-            flyTo(lng: 105, lat: 25, zoom: 2.4)
+            flyTo(lng: 105, lat: 25, zoom: 0.5)
         } else if lvl == 2 {
             if let feat = focusFeature {
                 flyTo(lng: feat.cx, lat: feat.cy, zoom: 5.5, isPixel: true)
@@ -365,33 +349,43 @@ struct MapView: View {
     private var zoomBar: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: 2.5)
                     .fill(Theme.onSurfaceVariant().opacity(0.4))
-                    .frame(width: 4)
+                    .frame(width: 5)
                 Circle()
                     .fill(Theme.primary())
-                    .frame(width: 20, height: 20)
+                    .frame(width: 24, height: 24)
+                    .glassEffect(tintedGlass(Theme.primary()), in: Circle())
                     .overlay {
                         Circle().stroke(Color.white, lineWidth: 2)
                     }
-                    .offset(y: zoomBarOffset(geo.size.height) - 10)
+                    .offset(y: zoomBarOffset(geo.size.height) - 12)
             }
-            .frame(width: 32, height: geo.size.height)
+            .frame(width: 36, height: geo.size.height)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        let pct = value.location.y / geo.size.height
-                        let zoom = 2 + pct * 15
-                        camera.zoom = GeoMath.clampZoom(zoom)
+                        let range = zoomRange()
+                        let pct = min(1, max(0, value.location.y / geo.size.height))
+                        camera.zoom = GeoMath.clampZoom(range.min + pct * (range.max - range.min))
                     }
             )
         }
-        .frame(width: 32)
+        .frame(width: 36)
+    }
+
+    private func zoomRange() -> (min: Double, max: Double) {
+        switch level {
+        case 0: return (0.5, 6)
+        case 2: return (4, 14)
+        default: return (2, 9)
+        }
     }
 
     private func zoomBarOffset(_ height: CGFloat) -> CGFloat {
-        let pct = (camera.zoom - 2) / 15
+        let range = zoomRange()
+        let pct = min(1, max(0, (camera.zoom - range.min) / (range.max - range.min)))
         return height * pct
     }
 
@@ -428,21 +422,18 @@ struct MapView: View {
             } label: {
                 Text(L10n.str("map_open_diary"))
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Theme.primary())
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background {
-                        Capsule().fill(Theme.primaryContainer())
+                        Capsule().fill(Theme.primary())
+                            .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
                     }
             }
             .buttonStyle(.plain)
         }
         .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
+        .diaryGlassCard(cornerRadius: 16)
         .frame(maxWidth: 260)
     }
 
@@ -459,11 +450,8 @@ struct MapView: View {
         .padding(.vertical, 12)
         .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Theme.surface1())
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Theme.outlineVariant().opacity(0.5), lineWidth: 1)
-                }
+                .fill(.ultraThinMaterial)
+                .glassEffect(tintedGlass(nil), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 
@@ -487,6 +475,7 @@ struct GeoMapCanvas: View {
     var focusProvince: GeoFeature?
     var points: [MapPoint]
     var isZh: Bool
+    var isDark: Bool
     var selectedPoint: MapPoint?
 
     var body: some View {
@@ -496,7 +485,7 @@ struct GeoMapCanvas: View {
             let s = GeoMath.camScale(camera.zoom)
             let centerX = GeoMath.lngToX(camera.centerLng)
             let centerY = GeoMath.latToY(camera.centerLat)
-            let dark = UITraitCollection.current.userInterfaceStyle == .dark
+            let dark = isDark
             let water = dark ? UIColor(hex: 0x20242C) : UIColor(hex: 0xDCE8F2)
 
             context.fill(Path(CGRect(x: 0, y: 0, width: vpW, height: vpH)), with: .color(Color(uiColor: water)))

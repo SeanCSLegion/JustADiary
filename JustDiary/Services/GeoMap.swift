@@ -83,7 +83,7 @@ enum GeoMath {
     }
 
     static func clampZoom(_ z: Double) -> Double {
-        max(2, min(17, z))
+        max(0.5, min(17, z))
     }
 
     static func screenToWorld(_ sx: Double, _ sy: Double, cam: GeoCamera, vpW: Double, vpH: Double) -> GeoXY {
@@ -207,10 +207,17 @@ enum GeoMap {
     }
 
     static func loadJson(_ name: String) -> [[String: Any]] {
-        guard let url = Bundle.main.url(forResource: name, withExtension: "json", subdirectory: "map"),
+        for (sub, file) in [("map", name), ("Resources/map", name), (nil, name)] {
+            if let features = tryLoad(sub, file) { return features }
+        }
+        return []
+    }
+
+    private static func tryLoad(_ sub: String?, _ file: String) -> [[String: Any]]? {
+        guard let url = Bundle.main.url(forResource: file, withExtension: "json", subdirectory: sub),
               let data = try? Data(contentsOf: url),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let features = json["features"] as? [[String: Any]] else { return [] }
+              let features = json["features"] as? [[String: Any]] else { return nil }
         return features
     }
 
@@ -229,10 +236,15 @@ enum GeoMap {
         if let cached = geo.cities[provinceAdcode] {
             return !cached.isEmpty
         }
-        let features = loadJson("map/cities/\(provinceAdcode)")
-        let list = features.compactMap { parseFeature($0, level: "city") }
-        geo.cities[provinceAdcode] = list
-        return !list.isEmpty
+        let list: [[String: Any]] = {
+            for (sub, file) in [("map/cities", provinceAdcode), ("cities", provinceAdcode), (nil, provinceAdcode)] {
+                if let features = tryLoad(sub, file) { return features }
+            }
+            return []
+        }()
+        let parsed = list.compactMap { parseFeature($0, level: "city") }
+        geo.cities[provinceAdcode] = parsed
+        return !parsed.isEmpty
     }
 
     static func displayName(_ name: String, isZh: Bool, level: String) -> String {
