@@ -66,9 +66,6 @@ struct DragPagePager<Key: Hashable, Page: View>: View {
                     withAnimation(.snappy(duration: 0.3)) {
                         offset = delta
                     } completion: {
-                        var tr = Transaction()
-                        tr.disablesAnimations = true
-                        withTransaction(tr) { offset = 0 }
                         if let target { onPageChange(target) }
                     }
                 } else {

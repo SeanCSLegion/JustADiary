@@ -248,14 +248,14 @@ withTransaction(tr) {
 
     private func todayTapped() {
         guard !morphing else { return }
-        Haptics.tap()
         let now = Date()
         switch mode {
         case .year:
-            withAnimation(.snappy(duration: 0.3)) {
-                yearPage = DateUtil.calendar.component(.year, from: now)
-            }
+            selectedDate = now
+            yearPage = DateUtil.calendar.component(.year, from: now)
+            openMonthFromYear(DateUtil.calendar.component(.month, from: now))
         case .month:
+            Haptics.tap()
             withAnimation(.snappy(duration: 0.3)) {
                 selectedDate = now
                 monthPage = DateUtil.monthFirst(now)
@@ -263,6 +263,7 @@ withTransaction(tr) {
             }
             Task { await reloadDayBlocks() }
         case .week:
+            Haptics.tap()
             withAnimation(.snappy(duration: 0.3)) {
                 selectedDate = now
                 monthPage = DateUtil.monthFirst(now)
