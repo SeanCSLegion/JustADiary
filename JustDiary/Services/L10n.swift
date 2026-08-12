@@ -73,16 +73,6 @@ enum L10n {
         return fmt("date_day_only", monthName(month), day)
     }
 
-    static func monthTitle(_ date: Date) -> String {
-        let cal = Calendar.current
-        let month = cal.component(.month, from: date)
-        let year = cal.component(.year, from: date)
-        if AppLanguage.isZh {
-            return "\(year)年\(monthName(month))"
-        }
-        return "\(monthName(month)) \(year)"
-    }
-
     static func monthFull(_ date: Date) -> String {
         let f = DateFormatter()
         f.locale = AppLanguage.locale
@@ -97,10 +87,6 @@ enum L10n {
         let d = cal.component(.day, from: date)
         let wd = cal.component(.weekday, from: date)
         return fmt("index_week_head", y, monthName(m), d, weekdayShort(wd))
-    }
-
-    static func yearTitle(_ year: Int) -> String {
-        fmt("date_year", year)
     }
 
     static func formatDayKey(_ dayKey: String) -> String {

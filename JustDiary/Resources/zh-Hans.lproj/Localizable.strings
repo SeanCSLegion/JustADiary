@@ -223,6 +223,11 @@
 "map_retry" = "重试";
 "map_loc_failed" = "无法获取当前位置";
 "map_time_all" = "全部";
+"map_time_custom" = "自定义";
+"map_time_filter" = "时间筛选";
+"map_time_month" = "月份";
+"map_time_clear" = "清除";
+"map_time_apply" = "应用";
 "map_level_global" = "全球";
 "map_level_national" = "全国";
 "map_level_province" = "全省";

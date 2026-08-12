@@ -259,6 +259,14 @@ enum GeoMap {
         }
         return name
     }
+
+    static func countryKey(_ name: String) -> String {
+        if countryZh[name] != nil { return name }
+        for (en, zh) in countryZh where zh == name {
+            return en
+        }
+        return name
+    }
 }
 
 private let provinceEn: [String: String] = [

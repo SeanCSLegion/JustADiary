@@ -19,6 +19,8 @@ struct MapView: View {
     @State private var level = 1
     @State private var focusProvince: String?
     @State private var focusFeature: GeoFeature?
+    @State private var focusCountry: GeoFeature?
+    @State private var levelExpanded = false
     @State private var points: [MapPoint] = []
     @State private var unlocated = 0
     @State private var yearFilter = "all"
@@ -26,7 +28,6 @@ struct MapView: View {
     @State private var monthFilter = "all"
     @State private var years: [String] = []
     @State private var stats = TravelStats()
-    @State private var selectedPoint: MapPoint?
     @State private var loaded = false
     @State private var showLabels = false
     @State private var labelHideTask: Task<Void, Never>?
@@ -34,20 +35,17 @@ struct MapView: View {
     @State private var animating = false
     @State private var panVelocity: CGPoint = .zero
     @State private var lastPanTime: Date = .now
+    @State private var lastPanTranslation: CGSize = .zero
     @State private var showTimeFilter = false
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(L10n.str("map_title"))
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundStyle(Theme.onSurface())
-                Spacer()
+            PageHeader(title: L10n.str("map_title")) {
                 Text(L10n.fmt("map_summary", locatedCount, unlocated))
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.onSurfaceVariant())
+                    .lineLimit(1)
             }
-            .frame(height: 56)
             .padding(.horizontal, 16)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -58,16 +56,12 @@ struct MapView: View {
                     Button {
                         showTimeFilter = true
                     } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "calendar")
-                                .font(.system(size: 12))
-                            Text(L10n.str("map_time_custom"))
-                                .font(.system(size: 12, weight: .medium))
-                        }
-                        .foregroundStyle(Theme.primary())
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .contentShape(Capsule())
+                        Text(L10n.str("map_time_custom"))
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Theme.primary())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .contentShape(Capsule())
                     }
                     .buttonStyle(.glass)
                     .buttonBorderShape(.capsule)
@@ -167,7 +161,7 @@ struct MapView: View {
     private func frameToFirstDiary(_ rows: [MapPointRow]) {
         let located = rows.filter { $0.latitude != 0 || $0.longitude != 0 }
         guard !located.isEmpty else {
-            camera = GeoCamera()
+            flyTo(lng: 104, lat: 35, zoom: zoomRange().min + 0.3)
             return
         }
         if let newest = located.max(by: { $0.startTimeUtc < $1.startTimeUtc }) {
@@ -175,10 +169,12 @@ struct MapView: View {
             let province = newest.region1
             if country == "中国" || country == "China", !province.isEmpty {
                 if let feat = geoData.china.first(where: { $0.name == province }) {
+                    focusCountry = nil
                     focusProvince = province
                     focusFeature = feat
                     level = 2
-                    flyTo(lng: feat.cx, lat: feat.cy, zoom: 5.5, isPixel: true)
+                    loadCityDataIfNeeded(feat)
+                    flyToFeatureBounds(feat)
                     return
                 }
             }
@@ -203,34 +199,28 @@ struct MapView: View {
 
     private var mapArea: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-                .glassEffect(tintedGlass(nil),
-                             in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            GlassCapsule(cornerRadius: 26)
             GeoMapCanvas(geoData: geoData,
                          camera: camera,
                          level: level,
                          focusProvince: focusFeature,
+                         focusCountry: focusCountry,
                          points: points,
                          isZh: AppLanguage.isZh,
-                         isDark: colorScheme == .dark,
-                         selectedPoint: selectedPoint)
+                         isDark: colorScheme == .dark)
             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
             .highPriorityGesture(mapGestures)
             VStack {
-                HStack {
+                Spacer()
+                HStack(alignment: .bottom) {
                     levelSelector
                     Spacer()
                     zoomBar
                 }
-                Spacer()
-                if let point = selectedPoint {
-                    infoCard(point)
-                }
             }
             .padding(12)
         }
-        .frame(height: mainScreenHeight() * 0.55)
+        .frame(height: Screen.height * 0.55)
     }
 
     private var mapGestures: some Gesture {
@@ -257,73 +247,149 @@ struct MapView: View {
 
     private func handlePinch(_ scale: CGFloat) {
         guard !animating else { return }
-        let target = GeoMath.clampZoom(camera.zoom + log2(max(0.25, scale)))
-        camera.zoom = target
+        let range = zoomRange()
+        let target = camera.zoom + log2(max(0.25, scale))
+        camera.zoom = min(max(target, range.min), range.max)
     }
 
-    private func mainScreenHeight() -> CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }.first?.screen.bounds.height ?? 852
-    }
+    private static let panSensitivity: CGFloat = 0.7
 
     private func handlePanChanged(_ value: DragGesture.Value) {
         guard !animating else { return }
         let now = Date()
         let dt = now.timeIntervalSince(lastPanTime)
+        let dx = value.translation.width - lastPanTranslation.width
+        let dy = value.translation.height - lastPanTranslation.height
+        lastPanTranslation = value.translation
         if dt > 0.001 {
-            panVelocity = CGPoint(x: value.translation.width / CGFloat(dt) * 0.03,
-                                  y: value.translation.height / CGFloat(dt) * 0.03)
+            let instant = CGPoint(x: dx / CGFloat(dt), y: dy / CGFloat(dt))
+            let alpha = 0.35
+            panVelocity = CGPoint(x: panVelocity.x * (1 - alpha) + instant.x * alpha,
+                                  y: panVelocity.y * (1 - alpha) + instant.y * alpha)
             lastPanTime = now
         }
         let s = GeoMath.camScale(camera.zoom)
-        camera.centerLng = GeoMath.xToLng(GeoMath.lngToX(camera.centerLng) - Double(value.translation.width) / s * 0.6)
-        camera.centerLat = GeoMath.yToLat(GeoMath.latToY(camera.centerLat) - Double(value.translation.height) / s * 0.6)
+        camera.centerLng = GeoMath.xToLng(GeoMath.lngToX(camera.centerLng) - Double(dx) * Double(Self.panSensitivity) / s)
+        camera.centerLat = GeoMath.yToLat(GeoMath.latToY(camera.centerLat) - Double(dy) * Double(Self.panSensitivity) / s)
     }
 
     private func handlePanEnded(_ value: DragGesture.Value) {
         guard !animating else { return }
         let velocity = panVelocity
+        panVelocity = .zero
+        lastPanTranslation = .zero
         let velocityMagnitude = sqrt(velocity.x * velocity.x + velocity.y * velocity.y)
-        guard velocityMagnitude > 50 else { return }
+        guard velocityMagnitude > 250 else { return }
         let s = GeoMath.camScale(camera.zoom)
-        let targetLng = GeoMath.xToLng(GeoMath.lngToX(camera.centerLng) - Double(velocity.x) / s)
-        let targetLat = GeoMath.yToLat(GeoMath.latToY(camera.centerLat) - Double(velocity.y) / s)
+        let decay: CGFloat = 0.3 * Self.panSensitivity
+        var dx = velocity.x * decay / CGFloat(s)
+        var dy = velocity.y * decay / CGFloat(s)
+        let maxDelta = Double(Screen.width) * 1.2 / s
+        let mag = hypot(dx, dy)
+        if mag > maxDelta {
+            dx = CGFloat(maxDelta) * dx / mag
+            dy = CGFloat(maxDelta) * dy / mag
+        }
+        let targetLng = GeoMath.xToLng(GeoMath.lngToX(camera.centerLng) - Double(dx))
+        let targetLat = GeoMath.yToLat(GeoMath.latToY(camera.centerLat) - Double(dy))
         let clampedLat = max(-85, min(85, targetLat))
         animateCamera(to: GeoCamera(centerLng: targetLng, centerLat: clampedLat, zoom: camera.zoom))
-        panVelocity = .zero
     }
 
     private func handleMapTap(at location: CGPoint) {
-        selectedPoint = nil
-        let screen = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }.first?.screen.bounds ?? CGRect(x: 0, y: 0, width: 393, height: 852)
-        let mapRect = CGRect(x: 0, y: 0, width: screen.width - 32, height: screen.height * 0.55)
+        let mapRect = CGRect(x: 0, y: 0, width: Screen.width - 32, height: Screen.height * 0.55)
         let point = CGPoint(x: location.x, y: location.y)
         guard mapRect.contains(point) else { return }
         let world = GeoMath.screenToWorld(Double(point.x), Double(point.y), cam: camera,
                                           vpW: Double(mapRect.width), vpH: Double(mapRect.height))
         let s = GeoMath.camScale(camera.zoom)
-        var best: MapPoint?
-        var bestDist = 30.0
-        for p in points {
-            let projected = GeoMath.projectPoint(p.lat, p.lng)
-            let dx = (projected.wx - world.wx) * s
-            let dy = (projected.wy - world.wy) * s
-            let dist = sqrt(dx * dx + dy * dy)
-            if dist < bestDist {
-                bestDist = dist
-                best = p
+        guard !animating else { return }
+        drillDown(at: world, scale: s)
+    }
+
+    // MARK: - Drill-down
+
+    private func drillDown(at world: GeoXY, scale s: Double) {
+        let tolerance = 12.0 / s
+        switch level {
+        case 0:
+            if let country = hitFeature(geoData.world, at: world, tolerance: tolerance) {
+                Haptics.medium()
+                focusCountry = country
+                focusFeature = country
+                level = 1
+                flyToFeatureBounds(country)
+            }
+        case 1:
+            if let province = hitFeature(geoData.china, at: world, tolerance: tolerance) {
+                Haptics.medium()
+                focusCountry = nil
+                focusFeature = province
+                level = 2
+                loadCityDataIfNeeded(province)
+                flyToFeatureBounds(province)
+            }
+        default:
+            break
+        }
+    }
+
+    private func hitFeature(_ list: [GeoFeature], at world: GeoXY, tolerance: Double) -> GeoFeature? {
+        for f in list where GeoMath.pointInFeature(world.wx, world.wy, f) {
+            return f
+        }
+        var best: GeoFeature?
+        var bestD = tolerance * tolerance
+        for f in list {
+            let dx = f.cx - world.wx
+            let dy = f.cy - world.wy
+            let d = dx * dx + dy * dy
+            if d < bestD {
+                bestD = d
+                best = f
             }
         }
-        if let best {
-            selectedPoint = best
+        return best
+    }
+
+    private func flyToFeatureBounds(_ f: GeoFeature) {
+        flyTo(lng: GeoMath.xToLng((f.minX + f.maxX) / 2),
+              lat: GeoMath.yToLat((f.minY + f.maxY) / 2),
+              zoom: fitZoom(of: f))
+    }
+
+    private func fitZoom(of f: GeoFeature) -> Double {
+        let vpW = Screen.width - 32
+        let vpH = Screen.height * 0.55
+        return min(log2(vpW * 0.75 / max(f.maxX - f.minX, 1)),
+                   log2(vpH * 0.75 / max(f.maxY - f.minY, 1)))
+    }
+
+    private func chinaFallback() -> GeoFeature? {
+        guard let first = geoData.china.first else { return nil }
+        var minX = first.minX, maxX = first.maxX, minY = first.minY, maxY = first.maxY
+        for f in geoData.china.dropFirst() {
+            minX = min(minX, f.minX); maxX = max(maxX, f.maxX)
+            minY = min(minY, f.minY); maxY = max(maxY, f.maxY)
+        }
+        return GeoFeature(name: "", adcode: "", level: "", rings: [],
+                          minX: minX, maxX: maxX, minY: minY, maxY: maxY,
+                          cx: (minX + maxX) / 2, cy: (minY + maxY) / 2)
+    }
+
+    private func loadCityDataIfNeeded(_ feature: GeoFeature?) {
+        guard let feature, !feature.adcode.isEmpty else { return }
+        if geoData.cities[feature.adcode] == nil {
+            _ = GeoMap.loadCityData(&geoData, provinceAdcode: feature.adcode)
         }
     }
 
     private func flyTo(lng: Double, lat: Double, zoom: Double, isPixel: Bool = false) {
+        let range = zoomRange()
+        let z = min(max(zoom, range.min), range.max)
         let target = GeoCamera(centerLng: isPixel ? GeoMath.xToLng(lng) : lng,
                                centerLat: isPixel ? GeoMath.yToLat(lat) : lat,
-                               zoom: GeoMath.clampZoom(zoom))
+                               zoom: z)
         animateCamera(to: target)
     }
 
@@ -331,7 +397,10 @@ struct MapView: View {
         animating = true
         let from = camera
         let start = Date()
-        let duration = 0.6
+        let s = GeoMath.camScale(camera.zoom)
+        let distPts = hypot(GeoMath.lngToX(target.centerLng) - GeoMath.lngToX(from.centerLng),
+                            GeoMath.latToY(target.centerLat) - GeoMath.latToY(from.centerLat)) * s
+        let duration = min(0.7, max(0.2, distPts / Screen.width * 0.6))
         Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { timer in
             let t = min(1, Date().timeIntervalSince(start) / duration)
             let k = t * t * (3 - 2 * t)
@@ -351,44 +420,97 @@ struct MapView: View {
     // MARK: - Level selector
 
     private var levelSelector: some View {
-        HStack(spacing: 6) {
+        Group {
+            if levelExpanded {
+                expandedLevelSelector
+                    .transition(.scale(scale: 0.55, anchor: .bottomLeading).combined(with: .opacity))
+            } else {
+                collapsedLevelSelector
+                    .transition(.scale(scale: 0.55, anchor: .bottomLeading).combined(with: .opacity))
+            }
+        }
+        .task(id: levelExpanded) {
+            guard levelExpanded else { return }
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                levelExpanded = false
+            }
+        }
+    }
+
+    private func levelIcon(_ lvl: Int) -> String {
+        switch lvl {
+        case 0: return "globe"
+        case 2: return "mappin.circle.fill"
+        default: return "map"
+        }
+    }
+
+    private var collapsedLevelSelector: some View {
+        Button {
+            Haptics.tap()
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
+                levelExpanded = true
+            }
+        } label: {
+            Image(systemName: levelIcon(level))
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background {
+                    Capsule()
+                        .fill(Theme.primary())
+                        .glassEffect(tintedGlass(Theme.primary()), in: Capsule())
+                        .shadow(color: Theme.glowColor(), radius: 8, y: 2)
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var expandedLevelSelector: some View {
+        VStack(spacing: 6) {
             levelButton(0, icon: "globe", label: L10n.str("map_level_global"))
             levelButton(1, icon: "map", label: L10n.str("map_level_national"))
             levelButton(2, icon: "mappin.circle.fill", label: L10n.str("map_level_province"))
         }
-        .padding(5)
+        .padding(6)
         .background {
-            GlassCapsule(cornerRadius: 22, blur: 20)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+                .glassEffect(tintedGlass(nil, interactive: true),
+                             in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
+        .shadow(color: Theme.shadowColor(), radius: 12, y: 4)
     }
 
     private func levelButton(_ lvl: Int, icon: String, label: String) -> some View {
         Button {
             Haptics.tap()
             switchLevel(lvl)
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                levelExpanded = false
+            }
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: 6) {
                 Image(systemName: icon)
+                    .font(.system(size: 14, weight: .medium))
+                Text(label)
                     .font(.system(size: 13, weight: .medium))
-                if level == lvl {
-                    Text(label)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                }
+                    .lineLimit(1)
             }
             .foregroundStyle(level == lvl ? .white : Theme.onSurfaceVariant())
-            .padding(.horizontal, level == lvl ? 12 : 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
             .background {
                 if level == lvl {
                     Capsule().fill(Theme.primary())
                         .glassEffect(tintedGlass(Theme.primary()), in: Capsule())
                 }
             }
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .animation(.easeInOut(duration: 0.2), value: level)
     }
 
     private func switchLevel(_ lvl: Int) {
@@ -400,22 +522,25 @@ struct MapView: View {
             if let b = bounds {
                 let dx = max(GeoMath.lngToX(b.maxLng) - GeoMath.lngToX(b.minLng), 1)
                 let dy = max(GeoMath.latToY(b.maxLat) - GeoMath.latToY(b.minLat), 1)
-                let screen = UIApplication.shared.connectedScenes
-                    .compactMap { $0 as? UIWindowScene }.first?.screen.bounds ?? CGRect(x: 0, y: 0, width: 393, height: 852)
-                let vpW = screen.width - 32
-                let vpH = screen.height * 0.55
-                let zoom = min(log2(vpW * 0.8 / dx), log2(vpH * 0.8 / dy))
-                flyTo(lng: (b.minLng + b.maxLng) / 2, lat: (b.minLat + b.maxLat) / 2,
-                      zoom: min(zoom, 5.0))
+                let vpW = Screen.width - 32
+                let vpH = Screen.height * 0.55
+                let zoom = min(log2(vpW * 0.75 / dx), log2(vpH * 0.75 / dy))
+                flyTo(lng: (b.minLng + b.maxLng) / 2, lat: (b.minLat + b.maxLat) / 2, zoom: zoom)
             } else {
                 flyTo(lng: 105, lat: 35, zoom: 3.6)
             }
         } else if lvl == 0 {
-            flyTo(lng: 105, lat: 30, zoom: 1.5)
+            focusCountry = nil
+            flyTo(lng: 105, lat: 30, zoom: zoomRange().min + 0.3)
         } else if lvl == 2 {
             if let feat = focusFeature {
-                flyTo(lng: feat.cx, lat: feat.cy, zoom: 6.0, isPixel: true)
+                loadCityDataIfNeeded(feat)
+                flyToFeatureBounds(feat)
             } else {
+                let target = GeoMath.nearestFeature(geoData.china,
+                                                    wx: GeoMath.lngToX(105),
+                                                    wy: GeoMath.latToY(35))
+                loadCityDataIfNeeded(target)
                 flyTo(lng: 105, lat: 35, zoom: 6.0)
             }
         }
@@ -445,73 +570,44 @@ struct MapView: View {
                     .onChanged { value in
                         let range = zoomRange()
                         let pct = min(1, max(0, value.location.y / geo.size.height))
-                        camera.zoom = GeoMath.clampZoom(range.min + pct * (range.max - range.min))
+                        camera.zoom = GeoMath.clampZoom(range.max - pct * (range.max - range.min))
                     }
             )
         }
-        .frame(width: 40)
+        .frame(width: 40, height: 170)
     }
 
     private func zoomRange() -> (min: Double, max: Double) {
+        let fit: Double
         switch level {
-        case 0: return (1.0, 5.5)
-        case 2: return (5.0, 16)
-        default: return (3.0, 8.0)
+        case 0:
+            fit = min(log2((Screen.width - 32) * 0.75 / 256),
+                      log2(Screen.height * 0.55 * 0.75 / 256))
+        case 1:
+            if let c = focusCountry {
+                fit = fitZoom(of: c)
+            } else if let f = chinaFallback() {
+                fit = fitZoom(of: f)
+            } else {
+                fit = 2.5
+            }
+        default:
+            if let f = focusFeature {
+                fit = fitZoom(of: f)
+            } else if let f = chinaFallback() {
+                fit = fitZoom(of: f)
+            } else {
+                fit = 5.0
+            }
         }
+        let minZ = max(0.5, fit - 0.35)
+        return (minZ, minZ + 2.0)
     }
 
     private func zoomBarOffset(_ height: CGFloat) -> CGFloat {
         let range = zoomRange()
         let pct = min(1, max(0, (camera.zoom - range.min) / (range.max - range.min)))
-        return height * pct
-    }
-
-    // MARK: - Info card
-
-    private func infoCard(_ point: MapPoint) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(L10n.formatDayKey(point.dayKey))
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Theme.onSurface())
-                Spacer()
-                Button {
-                    selectedPoint = nil
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Theme.onSurfaceVariant())
-                }
-                .buttonStyle(.plain)
-            }
-            if !point.locText.isEmpty {
-                Text(point.locText)
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.onSurfaceVariant())
-                    .lineLimit(1)
-            }
-            Text(point.summary)
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.onSurface())
-                .lineLimit(2)
-            Button {
-                openDiary(point.dayKey)
-            } label: {
-                Text(L10n.str("map_open_diary"))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background {
-                        Capsule().fill(Theme.primary())
-                            .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
-                    }
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(14)
-        .diaryGlassCard(cornerRadius: 18)
-        .frame(maxWidth: 280)
+        return height * (1 - pct)
     }
 
     // MARK: - Stats
@@ -548,68 +644,31 @@ struct MapView: View {
 
     private var timeFilterSheet: some View {
         VStack(spacing: 16) {
-            HStack {
-                Text(L10n.str("map_time_filter"))
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(Theme.onSurface())
-                Spacer()
-                Button {
-                    showTimeFilter = false
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Theme.onSurfaceVariant())
-                        .frame(width: 32, height: 32)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
+            GlassSheetHeader(title: L10n.str("map_time_filter")) {
+                showTimeFilter = false
             }
             if !months.isEmpty {
                 Text(L10n.str("map_time_month"))
-                    .font(.system(size: 13))
+                    .font(.system(size: 14))
                     .foregroundStyle(Theme.onSurfaceVariant())
                     .frame(maxWidth: .infinity, alignment: .leading)
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 8) {
-                    monthChip("全部", value: "all")
+                    monthChip(L10n.str("map_time_all"), value: "all")
                     ForEach(months, id: \.self) { m in
-                        monthChip("\(m)月", value: m)
+                        monthChip("\(m)", value: m)
                     }
                 }
             }
             HStack(spacing: 12) {
-                Button {
+                GlassSecondaryButton(title: L10n.str("map_time_clear"), fullWidth: true) {
                     monthFilter = "all"
                     showTimeFilter = false
                     Task { await reloadPoints() }
-                } label: {
-                    Text(L10n.str("map_time_clear"))
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Theme.onSurfaceVariant())
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background {
-                            Capsule().fill(Theme.glassDim())
-                                .glassEffect(.regular, in: Capsule())
-                        }
                 }
-                .buttonStyle(.plain)
-                Button {
+                GlassPrimaryButton(title: L10n.str("map_time_apply"), fullWidth: true) {
                     showTimeFilter = false
                     Task { await reloadPoints() }
-                } label: {
-                    Text(L10n.str("map_time_apply"))
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background {
-                            Capsule().fill(Theme.primary())
-                                .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
-                                .shadow(color: Theme.glowColor(), radius: 10, y: 3)
-                        }
                 }
-                .buttonStyle(.plain)
             }
             .padding(.top, 8)
         }
@@ -647,10 +706,10 @@ struct GeoMapCanvas: View {
     var camera: GeoCamera
     var level: Int
     var focusProvince: GeoFeature?
+    var focusCountry: GeoFeature?
     var points: [MapPoint]
     var isZh: Bool
     var isDark: Bool
-    var selectedPoint: MapPoint?
 
     var body: some View {
         Canvas { context, size in
@@ -681,11 +740,15 @@ struct GeoMapCanvas: View {
             if level == 0 {
                 drawWorld(context, isZh: isZh, dark: dark, s: s, centerX: centerX, centerY: centerY, vpW: vpW, vpH: vpH)
             } else if level == 1 {
-                drawChina(context, dark: dark, s: s, centerX: centerX, centerY: centerY, vpW: vpW, vpH: vpH, isVisible: isVisible, toScreen: toScreen)
+                if let country = focusCountry, country.name != "China" {
+                    drawForeignCountry(context, country, dark: dark, s: s, centerX: centerX, centerY: centerY,
+                                       vpW: vpW, vpH: vpH, isVisible: isVisible, toScreen: toScreen)
+                } else {
+                    drawChina(context, dark: dark, s: s, centerX: centerX, centerY: centerY, vpW: vpW, vpH: vpH, isVisible: isVisible, toScreen: toScreen)
+                }
             } else {
                 drawProvince(context, dark: dark, s: s, centerX: centerX, centerY: centerY, vpW: vpW, vpH: vpH, isVisible: isVisible, toScreen: toScreen)
             }
-            drawPoints(context, dark: dark, s: s, centerX: centerX, centerY: centerY, vpW: vpW, vpH: vpH)
         }
         .contentShape(Rectangle())
     }
@@ -696,6 +759,8 @@ struct GeoMapCanvas: View {
                            s: Double, centerX: Double, centerY: Double, vpW: Double, vpH: Double) {
         let land = dark ? UIColor(hex: 0x2A2F38) : UIColor(hex: 0xEFECE3)
         let borderColor = dark ? UIColor(hex: 0x3D4350) : UIColor(hex: 0xC8C4BC)
+        let counts = countriesWithCounts()
+        let maxCount = max(1, counts.values.max() ?? 1)
         for f in geoData.world {
             let a = CGPoint(x: (f.minX - centerX) * s + vpW / 2, y: (f.minY - centerY) * s + vpH / 2)
             let b = CGPoint(x: (f.maxX - centerX) * s + vpW / 2, y: (f.maxY - centerY) * s + vpH / 2)
@@ -713,11 +778,13 @@ struct GeoMapCanvas: View {
                 }
                 path.closeSubpath()
             }
-            context.fill(path, with: .color(Color(uiColor: land)))
+            let count = counts[f.name] ?? 0
+            let fill = heatColor(count: count, maxCount: maxCount, dark: dark, fallback: land)
+            context.fill(path, with: .color(fill))
             context.stroke(path, with: .color(Color(uiColor: borderColor)), lineWidth: 0.5)
         }
         let labelColor = dark ? UIColor(hex: 0x9AA3B2) : UIColor(hex: 0x667085)
-        let counted = countriesWithCounts()
+        let counted = counts
         for f in geoData.world where counted[f.name] != nil {
             let p = CGPoint(x: (f.cx - centerX) * s + vpW / 2, y: (f.cy - centerY) * s + vpH / 2)
             guard p.x > -20, p.x < vpW + 20, p.y > -20, p.y < vpH + 20 else { continue }
@@ -731,7 +798,7 @@ struct GeoMapCanvas: View {
     private func countriesWithCounts() -> [String: Int] {
         var map: [String: Int] = [:]
         for p in points where !p.country.isEmpty {
-            map[p.country, default: 0] += 1
+            map[GeoMap.countryKey(p.country), default: 0] += 1
         }
         return map
     }
@@ -782,6 +849,33 @@ struct GeoMapCanvas: View {
             map[p.region1, default: 0] += 1
         }
         return map
+    }
+
+    // MARK: - Foreign country (drill-down target at national level)
+
+    private func drawForeignCountry(_ context: GraphicsContext, _ f: GeoFeature, dark: Bool,
+                                    s: Double, centerX: Double, centerY: Double, vpW: Double, vpH: Double,
+                                    isVisible: (GeoFeature) -> Bool, toScreen: (Double, Double) -> CGPoint) {
+        let land = dark ? UIColor(hex: 0x2A2F38) : UIColor(hex: 0xEFECE3)
+        guard isVisible(f) else { return }
+        var path = Path()
+        for ring in f.rings {
+            let pts = ring.pts
+            guard pts.count >= 6 else { continue }
+            path.move(to: toScreen(pts[0], pts[1]))
+            var i = 2
+            while i < pts.count {
+                path.addLine(to: toScreen(pts[i], pts[i + 1]))
+                i += 2
+            }
+            path.closeSubpath()
+        }
+        context.fill(path, with: .color(Color(uiColor: land)))
+        context.stroke(path, with: .color(Theme.primary()), lineWidth: 2)
+        let p = toScreen(f.cx, f.cy)
+        let labelColor = dark ? UIColor(hex: 0xF5F6F8) : UIColor(hex: 0x191C20)
+        let name = GeoMap.countryName(f.name, isZh: isZh)
+        drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 10), size: 17, color: labelColor, stroke: true)
     }
 
     private func heatColor(count: Int, maxCount: Int, dark: Bool, fallback: UIColor) -> Color {
@@ -858,7 +952,10 @@ struct GeoMapCanvas: View {
         } else {
             let p = toScreen(target.cx, target.cy)
             let labelColor = dark ? UIColor(hex: 0xF5F6F8) : UIColor(hex: 0x191C20)
-            let name = GeoMap.displayName(target.name, isZh: isZh, level: "province")
+            let isForeign = focusCountry.map { $0.name != "China" } ?? false
+            let name = isForeign
+                ? GeoMap.countryName(target.name, isZh: isZh)
+                : GeoMap.displayName(target.name, isZh: isZh, level: "province")
             let count = provinceCounts()[target.name] ?? 0
             drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 10), size: 17, color: labelColor, stroke: true)
             drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 18), size: 22, color: labelColor, stroke: false)
@@ -875,31 +972,6 @@ struct GeoMapCanvas: View {
 
     private func nearestFeatureAtCenter(s: Double, centerX: Double, centerY: Double) -> GeoFeature? {
         GeoMath.nearestFeature(geoData.china, wx: centerX, wy: centerY)
-    }
-
-    // MARK: - Points
-
-    private func drawPoints(_ context: GraphicsContext, dark: Bool, s: Double, centerX: Double, centerY: Double,
-                            vpW: Double, vpH: Double) {
-        let dotRadius = min(7.0, max(4.0, 5.0 * log2(s + 1) / 4))
-        let isSelectedRadius = dotRadius * 2.2
-        for p in points {
-            let pt = GeoMath.projectPoint(p.lat, p.lng)
-            let screen = CGPoint(x: (pt.wx - centerX) * s + vpW / 2, y: (pt.wy - centerY) * s + vpH / 2)
-            guard screen.x > -10, screen.x < vpW + 10, screen.y > -10, screen.y < vpH + 10 else { continue }
-            let isSelected = selectedPoint?.id == p.id
-            if isSelected {
-                context.fill(Path(ellipseIn: CGRect(x: screen.x - isSelectedRadius, y: screen.y - isSelectedRadius,
-                                                     width: isSelectedRadius * 2, height: isSelectedRadius * 2)),
-                             with: .color(Theme.glowColor()))
-            }
-            context.fill(Path(ellipseIn: CGRect(x: screen.x - dotRadius, y: screen.y - dotRadius,
-                                                 width: dotRadius * 2, height: dotRadius * 2)),
-                         with: .color(Theme.primary()))
-            context.stroke(Path(ellipseIn: CGRect(x: screen.x - dotRadius, y: screen.y - dotRadius,
-                                                   width: dotRadius * 2, height: dotRadius * 2)),
-                           with: .color(.white), lineWidth: 1.5)
-        }
     }
 
     private func drawText(_ context: GraphicsContext, text: String, at point: CGPoint, size: Double, color: UIColor, stroke: Bool = false) {

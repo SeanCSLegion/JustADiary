@@ -14,25 +14,14 @@ struct Theme {
         return blend(seed, isDark ? Color(hex: 0x101318) : .white, 0.78)
     }
 
-    static func onPrimaryContainer(_ trait: UITraitCollection? = nil) -> Color {
-        let isDark = (trait?.userInterfaceStyle ?? .light) == .dark
-        return isDark ? blend(seed, .white, 0.75) : darken(seed, 0.52)
-    }
-
-    static func primaryShadow() -> Color { seed.opacity(0.20) }
+    static func glowColor() -> Color { seed.opacity(0.15) }
 
     static func flowLightColor() -> Color { seed.opacity(0.40) }
-
-    static func glowColor() -> Color { seed.opacity(0.15) }
 
     static func flowMaskColor() -> Color { seed.opacity(0.05) }
 
     static func primaryUIColor() -> UIColor {
         UIColor { trait in seed.resolved(rgb: trait) }
-    }
-
-    static func glowUIColor() -> UIColor {
-        UIColor(red: 0x2B/255, green: 0x5D/255, blue: 0xB7/255, alpha: 0.15)
     }
 
     static func primaryContainerUIColor() -> UIColor {
@@ -49,18 +38,6 @@ struct Theme {
         dynamic(light: 0xFAF9FD, dark: 0x101318, trait: trait)
     }
 
-    static func surface1(_ trait: UITraitCollection? = nil) -> Color {
-        dynamic(light: 0xF1F4FA, dark: 0x1E222B, trait: trait)
-    }
-
-    static func surface2(_ trait: UITraitCollection? = nil) -> Color {
-        dynamic(light: 0xE9EDF6, dark: 0x262B36, trait: trait)
-    }
-
-    static func quoteBg(_ trait: UITraitCollection? = nil) -> Color {
-        dynamic(light: 0xE4EAF9, dark: 0x2B3344, trait: trait)
-    }
-
     static func onSurface(_ trait: UITraitCollection? = nil) -> Color {
         dynamic(light: 0x191C20, dark: 0xE1E2E8, trait: trait)
     }
@@ -71,14 +48,6 @@ struct Theme {
 
     static func outlineVariant(_ trait: UITraitCollection? = nil) -> Color {
         dynamic(light: 0xC5C6D0, dark: 0x44474F, trait: trait)
-    }
-
-    static func glass(_ trait: UITraitCollection? = nil) -> Color {
-        dynamic(light: 0x9EFCFFFF, dark: 0x94304348, trait: trait)
-    }
-
-    static func glassStrong(_ trait: UITraitCollection? = nil) -> Color {
-        dynamic(light: 0xC9FFFFFF, dark: 0xCC20262F, trait: trait)
     }
 
     static func glassDim(_ trait: UITraitCollection? = nil) -> Color {
@@ -105,8 +74,6 @@ struct Theme {
         dynamic(light: 0x6EBBE9FF, dark: 0x6E264678, trait: trait)
     }
 
-    static func imageScrim() -> Color { Color(hex: 0xCC000000) }
-
     static func shadowColor(_ trait: UITraitCollection? = nil) -> Color {
         dynamic(light: 0x14000000, dark: 0x26000000, trait: trait)
     }
@@ -124,11 +91,6 @@ struct Theme {
         return Color(red: ac.r + (bc.r - ac.r) * ratio,
                      green: ac.g + (bc.g - ac.g) * ratio,
                      blue: ac.b + (bc.b - ac.b) * ratio)
-    }
-
-    static func darken(_ color: Color, _ ratio: Double) -> Color {
-        let c = color.resolvedRGB()
-        return Color(red: c.r * (1 - ratio), green: c.g * (1 - ratio), blue: c.b * (1 - ratio))
     }
 
     private static func blendUIColor(_ a: UIColor, _ b: UIColor, _ ratio: Double) -> UIColor {

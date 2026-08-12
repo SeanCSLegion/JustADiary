@@ -35,14 +35,13 @@ struct SearchView: View {
             resultsList
         }
         .padding(.top, 12)
+        .onChange(of: vm.keyword) { _, _ in
+            vm.onKeywordChanged()
+        }
     }
 
     private var header: some View {
-        HStack {
-            Text(L10n.str("search_title"))
-                .font(.system(size: 24, weight: .medium))
-                .foregroundStyle(Theme.onSurface())
-            Spacer()
+        PageHeader(title: L10n.str("search_title")) {
             if vm.total > 0 {
                 HStack(spacing: 5) {
                     Circle().fill(Theme.primary()).frame(width: 6, height: 6)
@@ -58,35 +57,14 @@ struct SearchView: View {
                 }
             }
         }
-        .frame(height: 52)
     }
 
     private var searchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 15))
-                .foregroundStyle(Theme.onSurfaceVariant())
-            TextField(L10n.str("search_placeholder"), text: $vm.keyword)
-                .font(.system(size: 15))
-                .tint(Theme.primary())
-                .focused($searchFocused)
-                .submitLabel(.search)
-                .onSubmit {
-                    searchFocused = false
-                }
-                .onChange(of: vm.keyword) { _, _ in
-                    vm.onKeywordChanged()
-                }
-            if !vm.keyword.isEmpty {
-                Button {
-                    vm.keyword = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(Theme.onSurfaceVariant())
-                }
-                .buttonStyle(.plain)
-            }
+        GlassSearchField(text: $vm.keyword,
+                         placeholder: L10n.str("search_placeholder"),
+                         focus: $searchFocused,
+                         onSubmit: { searchFocused = false },
+                         trailing: {
             if searchFocused {
                 Button {
                     searchFocused = false
@@ -98,10 +76,7 @@ struct SearchView: View {
                 .buttonStyle(.plain)
                 .transition(.opacity)
             }
-        }
-        .padding(.horizontal, 14)
-        .frame(height: 46)
-        .diaryGlassCard(cornerRadius: 28, interactive: true)
+        })
         .animation(.easeOut(duration: 0.2), value: searchFocused)
     }
 
@@ -115,6 +90,8 @@ struct SearchView: View {
                     timeChip(L10n.str("search_all_time"), kind: .all)
                     timeChip(L10n.str("search_7d"), kind: .d7)
                     timeChip(L10n.str("search_30d"), kind: .d30)
+                    timeChip(L10n.str("search_time_month"), kind: .thisMonth)
+                    timeChip(L10n.str("search_time_year"), kind: .thisYear)
                     timeChip(L10n.str("search_custom"), kind: .custom)
                 }
             }
@@ -127,7 +104,7 @@ struct SearchView: View {
                     locChip(L10n.str("search_all_loc"),
                             country: "", region1: "", noLoc: false)
                     locChip(vm.locFilterLabel, country: vm.locFilter.country, region1: vm.locFilter.region1,
-                            noLoc: vm.locFilter.noLoc, force: true)
+                            noLoc: vm.locFilter.noLoc)
                 }
             }
         }
@@ -145,17 +122,15 @@ struct SearchView: View {
         }
     }
 
-    private func locChip(_ label: String, country: String, region1: String, noLoc: Bool, force: Bool = false) -> some View {
-        let active = force || (vm.locFilter.country == country && vm.locFilter.region1 == region1 && vm.locFilter.noLoc == noLoc)
-        return GlassChip(label: label, active: active && force) {
-            if force {
-                if vm.locFilter.country.isEmpty && !vm.locFilter.noLoc {
-                    vm.showLocSheet = true
-                } else {
-                    vm.resetLocFilter()
-                }
-            } else {
+    private func locChip(_ label: String, country: String, region1: String, noLoc: Bool) -> some View {
+        let active = vm.locFilter.country == country && vm.locFilter.region1 == region1 && vm.locFilter.noLoc == noLoc
+        return GlassChip(label: label, active: active) {
+            if active {
                 vm.resetLocFilter()
+            } else if country.isEmpty && !noLoc {
+                vm.showLocSheet = true
+            } else {
+                vm.selectLocRow(country: country, region1: region1, noLoc: noLoc)
             }
         }
     }
@@ -166,25 +141,14 @@ struct SearchView: View {
                 ForEach(vm.results, id: \.id) { item in
                     resultItem(item)
                         .onTapGesture {
+                            Haptics.tap()
                             vm.openDiary?(item.dayKey)
                         }
                 }
                 if vm.hasMore {
-                    Button {
+                    GlassPrimaryButton(title: L10n.str("search_load_more"), compact: true) {
                         vm.loadMore()
-                    } label: {
-                        Text(L10n.str("search_load_more"))
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 10)
-                            .background {
-                                Capsule().fill(Theme.primary())
-                                    .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
-                                    .shadow(color: Theme.glowColor(), radius: 8, y: 2)
-                            }
                     }
-                    .buttonStyle(.plain)
                     .padding(.vertical, 8)
                 }
                 if vm.results.isEmpty, !vm.searching {
@@ -258,22 +222,8 @@ struct SearchView: View {
 
     private var timeSheet: some View {
         VStack(spacing: 16) {
-            HStack {
-                Text(L10n.str("search_time_title"))
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Theme.onSurface())
-                Spacer()
-                Button {
-                    vm.showTimeSheet = false
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Theme.onSurfaceVariant())
-                        .frame(width: 32, height: 32)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
+            GlassSheetHeader(title: L10n.str("search_time_title")) {
+                vm.showTimeSheet = false
             }
             HStack(spacing: 8) {
                 quickRangeChip(L10n.str("search_7d")) {
@@ -283,17 +233,10 @@ struct SearchView: View {
                     vm.applyQuickRange(.d30)
                 }
                 quickRangeChip(L10n.str("search_time_month")) {
-                    vm.applyQuickRange(.custom,
-                                       customFrom: DateUtil.monthFirst(Date()),
-                                       customTo: Date())
+                    vm.applyQuickRange(.thisMonth)
                 }
                 quickRangeChip(L10n.str("search_time_year")) {
-                    var comps = Calendar.current.dateComponents([.year], from: Date())
-                    comps.month = 1
-                    comps.day = 1
-                    vm.applyQuickRange(.custom,
-                                       customFrom: Calendar.current.date(from: comps),
-                                       customTo: Date())
+                    vm.applyQuickRange(.thisYear)
                 }
             }
             VStack(alignment: .leading, spacing: 8) {
@@ -319,35 +262,12 @@ struct SearchView: View {
                     .tint(Theme.primary())
             }
             HStack(spacing: 12) {
-                Button {
+                GlassSecondaryButton(title: L10n.str("search_time_clear"), fullWidth: true) {
                     vm.clearTimeFilter()
-                } label: {
-                    Text(L10n.str("search_time_clear"))
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Theme.onSurfaceVariant())
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background {
-                            Capsule().fill(Theme.glassDim())
-                                .glassEffect(.regular, in: Capsule())
-                        }
                 }
-                .buttonStyle(.plain)
-                Button {
+                GlassPrimaryButton(title: L10n.str("search_time_apply"), fullWidth: true) {
                     vm.applyCustomTime()
-                } label: {
-                    Text(L10n.str("search_time_apply"))
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background {
-                            Capsule().fill(Theme.primary())
-                                .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
-                                .shadow(color: Theme.glowColor(), radius: 10, y: 3)
-                        }
                 }
-                .buttonStyle(.plain)
             }
             .padding(.top, 12)
         }
@@ -374,22 +294,8 @@ struct SearchView: View {
 
     private var locSheet: some View {
         VStack(spacing: 10) {
-            HStack {
-                Text(L10n.str("search_loc_title"))
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Theme.onSurface())
-                Spacer()
-                Button {
-                    vm.showLocSheet = false
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Theme.onSurfaceVariant())
-                        .frame(width: 32, height: 32)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
+            GlassSheetHeader(title: L10n.str("search_loc_title")) {
+                vm.showLocSheet = false
             }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
@@ -406,16 +312,7 @@ struct SearchView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 42)
-            .background {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Theme.glassDim())
-                    .glassEffect(tintedGlass(nil),
-                                 in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Theme.glassBorder(), lineWidth: 1)
-                    }
-            }
+            .diaryGlassCard(cornerRadius: 18, interactive: true)
             Text(L10n.str("search_loc_sort_hint"))
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.onSurfaceVariant())

@@ -117,13 +117,7 @@ struct SettingsView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack {
-            Text(L10n.str("settings_title"))
-                .font(.system(size: 24, weight: .medium))
-                .foregroundStyle(Theme.onSurface())
-            Spacer()
-        }
-        .frame(height: 52)
+        PageHeader(title: L10n.str("settings_title"))
     }
 
     // MARK: - Status
@@ -161,16 +155,7 @@ struct SettingsView: View {
     private func valueRow(icon: String, title: String, sub: String?, value: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(.secondarySystemGroupedBackground))
-                        .glassEffect(tintedGlass(nil),
-                                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .frame(width: 38, height: 38)
-                    Image(systemName: icon)
-                        .font(.system(size: 16))
-                        .foregroundStyle(Theme.onSurface())
-                }
+                GlassIconBadge(systemName: icon)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.system(size: 14))
@@ -198,20 +183,7 @@ struct SettingsView: View {
 
     private func switchRow(icon: String, title: String, sub: String?, isOn: Binding<Bool>, onChange: @escaping (Bool) -> Void) -> some View {
         HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Theme.glassDim())
-                    .glassEffect(tintedGlass(nil),
-                                 in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .frame(width: 38, height: 38)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(Theme.glassBorder(), lineWidth: 1)
-                    }
-                Image(systemName: icon)
-                    .font(.system(size: 16))
-                    .foregroundStyle(Theme.onSurface())
-            }
+            GlassIconBadge(systemName: icon)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 14))
@@ -250,7 +222,7 @@ struct SettingsView: View {
                 Button(L10n.str("settings_lang_zh")) { setLanguage("zh") }
                 Button(L10n.str("settings_lang_en")) { setLanguage("en") }
             }
-            Divider().overlay(Theme.outlineVariant().opacity(0.5)).padding(.horizontal, 12)
+            RowDivider(horizontalPadding: 12)
             valueRow(icon: "paintpalette", title: L10n.str("settings_theme"),
                      sub: L10n.str("settings_theme_sub"),
                      value: themeLabel) {
@@ -303,7 +275,7 @@ struct SettingsView: View {
                      value: L10n.dayStartLabel(settings.dayStartHour)) {
                 showDayStartPicker = true
             }
-            Divider().overlay(Theme.outlineVariant().opacity(0.5)).padding(.horizontal, 12)
+            RowDivider(horizontalPadding: 12)
             valueRow(icon: "calendar", title: L10n.str("settings_week_start"),
                      sub: L10n.str("settings_week_start_sub"),
                      value: settings.weekStart == "sunday" ? L10n.str("settings_week_sunday") : L10n.str("settings_week_monday")) {
@@ -313,12 +285,12 @@ struct SettingsView: View {
                 Button(L10n.str("settings_week_monday")) { setWeekStart("monday") }
                 Button(L10n.str("settings_week_sunday")) { setWeekStart("sunday") }
             }
-            Divider().overlay(Theme.outlineVariant().opacity(0.5)).padding(.horizontal, 12)
+            RowDivider(horizontalPadding: 12)
             switchRow(icon: "clock", title: L10n.str("settings_auto_time"),
                       sub: L10n.str("settings_auto_time_sub"),
                       isOn: Binding(get: { settings.autoTime },
                                     set: { settings.autoTime = $0; SettingsStore.save(settings) })) { _ in }
-            Divider().overlay(Theme.outlineVariant().opacity(0.5)).padding(.horizontal, 12)
+            RowDivider(horizontalPadding: 12)
             switchRow(icon: "location", title: L10n.str("settings_auto_loc"),
                       sub: L10n.str("settings_auto_loc_sub"),
                       isOn: Binding(get: { settings.autoLoc },
@@ -329,14 +301,14 @@ struct SettingsView: View {
                 }
             }
             if settings.autoLoc {
-                Divider().overlay(Theme.outlineVariant().opacity(0.5)).padding(.horizontal, 12)
+                RowDivider(horizontalPadding: 12)
                 valueRow(icon: "location.circle", title: L10n.str("settings_loc_permission"),
                          sub: L10n.str("settings_loc_permission_sub"),
                          value: locStatusText) {
                     handleLocPermission()
                 }
             }
-            Divider().overlay(Theme.outlineVariant().opacity(0.5)).padding(.horizontal, 12)
+            RowDivider(horizontalPadding: 12)
             switchRow(icon: "pencil", title: L10n.str("settings_history_edit"),
                       sub: L10n.str("settings_history_edit_sub"),
                       isOn: Binding(get: { settings.allowHistoryEdit },
@@ -405,7 +377,7 @@ struct SettingsView: View {
                 }
             }
             if settings.remindEnabled {
-                Divider().overlay(Theme.outlineVariant().opacity(0.5)).padding(.horizontal, 12)
+                RowDivider(horizontalPadding: 12)
                 valueRow(icon: "clock.badge", title: L10n.str("settings_remind_time"),
                          sub: L10n.str("settings_remind_time_sub"),
                          value: DateUtil.hourMinuteLabel(settings.remindHour, minute: settings.remindMinute)) {
@@ -413,7 +385,7 @@ struct SettingsView: View {
                 }
             }
             if settings.remindEnabled && notifStatusText == L10n.str("settings_notif_off") {
-                Divider().overlay(Theme.outlineVariant().opacity(0.5)).padding(.horizontal, 12)
+                RowDivider(horizontalPadding: 12)
                 valueRow(icon: "bell.badge", title: L10n.str("settings_notif_permission"),
                          sub: L10n.str("settings_notif_permission_sub"),
                          value: notifStatusText) {
@@ -439,7 +411,7 @@ struct SettingsView: View {
                 Button(L10n.str("settings_export_data_only")) { runExport(includeSettings: false) }
                 Button(L10n.str("settings_export_data_settings")) { runExport(includeSettings: true) }
             }
-            Divider().overlay(Theme.outlineVariant().opacity(0.5)).padding(.horizontal, 12)
+            RowDivider(horizontalPadding: 12)
             valueRow(icon: "square.and.arrow.down", title: L10n.str("settings_import"),
                      sub: L10n.str("settings_import_sub"), value: "") {
                 showImportPicker = true
@@ -537,22 +509,10 @@ struct SettingsView: View {
                 .pickerStyle(.wheel)
                 .frame(width: 90)
             }
-            Button {
+            GlassPrimaryButton(title: L10n.str("save"), fullWidth: true) {
                 onApply()
                 isPresented.wrappedValue = false
-            } label: {
-                Text(L10n.str("save"))
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background {
-                        Capsule().fill(Theme.primary())
-                            .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
-                            .shadow(color: Theme.glowColor(), radius: 10, y: 3)
-                    }
             }
-            .buttonStyle(.plain)
         }
         .padding(20)
     }

@@ -36,7 +36,7 @@ struct DiaryPageView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            BlobBackgroundDense()
+            BlobBackground(dense: true)
             content
             if !isRead {
                 FontToolbar(controller: controller, onTap: {
@@ -50,10 +50,7 @@ struct DiaryPageView: View {
         .task { await load() }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             if let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
-                let screenHeight = UIApplication.shared.connectedScenes
-                    .compactMap { $0 as? UIWindowScene }.first?.screen.bounds.height
-                    ?? 852
-                keyboardHeight = frame.origin.y < screenHeight ? frame.height : 0
+                keyboardHeight = frame.origin.y < Screen.height ? frame.height : 0
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .diaryVersionChanged)) { _ in
@@ -61,6 +58,15 @@ struct DiaryPageView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .uiTickChanged)) { _ in
             settings = SettingsStore.load()
+        }
+        .onChange(of: searchText) { _, _ in
+            let gen = searchGen + 1
+            searchGen = gen
+            Task {
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard searchGen == gen else { return }
+                await MainActor.run { computeHits() }
+            }
         }
         .sheet(isPresented: $showPhotoPicker) {
             PhotoPicker { image in
@@ -230,31 +236,10 @@ struct DiaryPageView: View {
     // MARK: - In-page search
 
     private var readSearchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 14))
-                .foregroundStyle(Theme.onSurfaceVariant())
-            TextField(L10n.str("read_search_placeholder"), text: $searchText)
-                .font(.system(size: 14))
-                .tint(Theme.primary())
-                .onChange(of: searchText) { _, _ in
-                    Task {
-                        try? await Task.sleep(nanoseconds: 150_000_000)
-                        await MainActor.run { computeHits() }
-                    }
-                }
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                    hits = []
-                    hitIndex = 0
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Theme.onSurfaceVariant())
-                }
-                .buttonStyle(.plain)
-            }
+        GlassSearchField(text: $searchText,
+                         placeholder: L10n.str("read_search_placeholder"),
+                         cornerRadius: 18,
+                         trailing: {
             if hits.count > 0 {
                 Text("\(min(hitIndex + 1, hits.count))/\(hits.count)")
                     .font(.system(size: 12, weight: .medium))
@@ -265,34 +250,17 @@ struct DiaryPageView: View {
                         Capsule().fill(Theme.primaryContainer())
                             .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
                     }
-                Button {
+                GlassIconButton(systemName: "chevron.up", size: 26) {
                     stepHit(-1)
-                } label: {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.onSurface())
-                        .frame(width: 26, height: 26)
-                        .contentShape(Circle())
                 }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                Button {
+                GlassIconButton(systemName: "chevron.down", size: 26) {
                     stepHit(1)
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.onSurface())
-                        .frame(width: 26, height: 26)
-                        .contentShape(Circle())
                 }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
             }
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 46)
-        .diaryGlassCard(cornerRadius: 18, interactive: true)
+        })
     }
+
+    @State private var searchGen = 0
 
     private func computeHits() {
         let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -532,30 +500,20 @@ struct DiaryPageView: View {
             LocationService.shared.requestPermission()
             Task {
                 try? await Task.sleep(nanoseconds: 600_000_000)
-                await beginLocateAfterPermission()
+                guard LocStatus.isAuthorized else {
+                    await MainActor.run { locating = false }
+                    return
+                }
+                await MainActor.run { locating = true }
+                await fetchLocation()
             }
             return
         }
         locating = true
-        Task {
-            guard let loc = await LocationService.shared.currentLocation() else {
-                locating = false
-                return
-            }
-            let snapshot = await LocationResolver.resolve(location: loc)
-            await MainActor.run {
-                location = snapshot
-                locating = false
-            }
-        }
+        Task { await fetchLocation() }
     }
 
-    private func beginLocateAfterPermission() async {
-        guard LocStatus.isAuthorized else {
-            await MainActor.run { locating = false }
-            return
-        }
-        await MainActor.run { locating = true }
+    private func fetchLocation() async {
         guard let loc = await LocationService.shared.currentLocation() else {
             await MainActor.run { locating = false }
             return
@@ -844,9 +802,10 @@ final class FittedTextView: UITextView {
 
 struct ReadTextView: UIViewRepresentable {
     var parts: [ContentPart]
-    var keyword: String
-    var onToggleTodo: (Int, Int) -> Void
-    var onImageTap: (String, CGFloat) -> Void
+    var keyword: String = ""
+    var onToggleTodo: ((Int, Int) -> Void)? = nil
+    var onImageTap: ((String, CGFloat) -> Void)? = nil
+    var textContainerInset: UIEdgeInsets = .zero
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -855,7 +814,7 @@ struct ReadTextView: UIViewRepresentable {
         tv.isEditable = false
         tv.isScrollEnabled = false
         tv.backgroundColor = .clear
-        tv.textContainerInset = .zero
+        tv.textContainerInset = textContainerInset
         tv.textContainer.lineFragmentPadding = 0
         tv.delegate = nil
         tv.isSelectable = false
@@ -886,138 +845,49 @@ struct ReadTextView: UIViewRepresentable {
 
         func rebuild() {
             guard let tv = textView else { return }
-            let attributed = NSMutableAttributedString()
+            let attributed = NSMutableAttributedString(attributedString: PartsCodec.attributedString(from: parent.parts))
             todoRanges = []
             todoCallbacks = []
             imageRanges = []
             imageCallbacks = []
-            for (pi, part) in parent.parts.enumerated() {
-                switch part.type {
-                case ContentPartType.h1:
-                    appendRuns(part, to: attributed, size: 22)
-                case ContentPartType.h2:
-                    appendRuns(part, to: attributed, size: 18)
-                case ContentPartType.quote:
-                    appendRuns(part, to: attributed, size: 13, background: Theme.quoteBgUIColor())
-                case ContentPartType.list:
-                    for item in part.items ?? [] {
-                        appendMarkerLine("bullet", done: false, text: item, to: attributed,
-                                         strike: false, alpha: 1)
-                    }
-                case ContentPartType.todo:
-                    let items = part.items ?? []
-                    let done = part.done ?? Array(repeating: false, count: items.count)
-                    for (ii, item) in items.enumerated() {
-                        let isDone = done.indices.contains(ii) && done[ii]
-                        let start = attributed.length
-                        appendMarkerLine("todo", done: isDone, text: item, to: attributed,
-                                         strike: isDone, alpha: isDone ? 0.45 : 1)
-                        todoRanges.append(NSRange(location: start, length: 1 + (item as NSString).length))
-                        todoCallbacks.append((pi, ii))
-                    }
-                case ContentPartType.image:
-                    if let src = part.src, let image = UIImage(contentsOfFile: ImagePathUtil.resolveImagePath(src)) {
-                        let attachment = NSTextAttachment()
-                        attachment.image = image
-                        let w = CGFloat(part.w ?? 300)
-                        let h = CGFloat(part.h ?? 200)
-                        attachment.bounds = CGRect(x: 0, y: 0, width: w, height: h)
-                        let att = NSMutableAttributedString(attachment: attachment)
-                        let start = attributed.length
-                        attributed.append(att)
-                        attributed.append(NSAttributedString(string: "\n"))
-                        imageRanges.append(NSRange(location: start, length: 1))
-                        imageCallbacks.append((src, h / max(1, w)))
-                    }
-                default:
-                    appendRuns(part, to: attributed, size: 15)
-                }
+            var todoOrder: [(Int, Int)] = []
+            for (pi, part) in parent.parts.enumerated() where part.type == ContentPartType.todo {
+                for ii in (part.items ?? []).indices { todoOrder.append((pi, ii)) }
             }
-            let highlighted = NSMutableAttributedString(attributedString: attributed)
+            var todoIdx = 0
+            let ns = attributed.string as NSString
+            var cursor = 0
+            while cursor < ns.length {
+                var effective = NSRange()
+                guard let payload = attributed.attribute(.attachment, at: cursor, effectiveRange: &effective) as? AttachmentPayload else {
+                    cursor += 1
+                    continue
+                }
+                let markerRange = effective
+                if payload.kind == "todo" {
+                    let lineEnd = ns.rangeOfCharacter(from: .newlines, options: [],
+                                                      range: NSRange(location: markerRange.location,
+                                                                     length: ns.length - markerRange.location))
+                    let end = lineEnd.location == NSNotFound ? ns.length : lineEnd.location
+                    todoRanges.append(NSRange(location: markerRange.location, length: end - markerRange.location))
+                    if todoIdx < todoOrder.count { todoCallbacks.append(todoOrder[todoIdx]) }
+                    todoIdx += 1
+                } else if payload.kind == "image", !payload.src.isEmpty {
+                    imageRanges.append(NSRange(location: markerRange.location, length: 1))
+                    imageCallbacks.append((payload.src, payload.h / max(1, payload.w)))
+                }
+                cursor = markerRange.location + markerRange.length
+            }
             if !parent.keyword.isEmpty {
-                applyHighlight(highlighted)
+                applyHighlight(attributed)
             }
-            if !highlighted.isEqual(to: tv.attributedText) {
-                tv.attributedText = highlighted
+            if !attributed.isEqual(to: tv.attributedText) {
+                tv.attributedText = attributed
             }
-        }
-
-        private func appendPlain(_ text: String, to target: NSMutableAttributedString, size: CGFloat,
-                                 strike: Bool = false, alpha: CGFloat = 1) {
-            var attrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: size),
-                .foregroundColor: Theme.onSurfaceUIColor().withAlphaComponent(alpha)
-            ]
-            if strike { attrs[.strikethroughStyle] = 1 }
-            target.append(NSAttributedString(string: text, attributes: attrs))
-        }
-
-        private func appendMarkerLine(_ kind: String, done: Bool, text: String,
-                                      to target: NSMutableAttributedString,
-                                      strike: Bool, alpha: CGFloat) {
-            let symbol = kind == "todo" ? (done ? "checkmark.square.fill" : "square") : "circle.fill"
-            let config = UIImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-            let tint = kind == "todo" && done ? Theme.primaryUIColor() : Theme.onSurfaceVariantUIColor()
-            let image = UIImage(systemName: symbol, withConfiguration: config)?
-                .withTintColor(tint, renderingMode: .alwaysTemplate)
-            let attachment = NSTextAttachment()
-            attachment.image = image
-            attachment.bounds = CGRect(x: 0, y: -2, width: 15, height: 15)
-            let marker = NSMutableAttributedString(attachment: attachment)
-            marker.addAttribute(.attachment,
-                                value: AttachmentPayload(kind: kind, done: done),
-                                range: NSRange(location: 0, length: 1))
-            target.append(marker)
-            var attrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 15),
-                .foregroundColor: Theme.onSurfaceUIColor().withAlphaComponent(alpha)
-            ]
-            if strike { attrs[.strikethroughStyle] = 1 }
-            target.append(NSAttributedString(string: text, attributes: attrs))
-            target.append(NSAttributedString(string: "\n"))
-        }
-
-        private func appendRuns(_ part: ContentPart, to target: NSMutableAttributedString, size: CGFloat,
-                                background: UIColor? = nil) {
-            let runs = part.runs ?? []
-            if runs.isEmpty, let text = part.text {
-                appendRun(TextRun(text: text), to: target, size: size, background: background, center: part.align == "center")
-            } else {
-                for run in runs {
-                    appendRun(run, to: target, size: size, background: background, center: part.align == "center")
-                }
-            }
-            target.append(NSAttributedString(string: "\n"))
-        }
-
-        private func appendRun(_ run: TextRun, to target: NSMutableAttributedString, size: CGFloat,
-                               background: UIColor?, center: Bool) {
-            let bold = run.bold == true
-            var font = UIFont.systemFont(ofSize: size, weight: bold ? .bold : .regular)
-            var attrs: [NSAttributedString.Key: Any] = [
-                .font: font,
-                .foregroundColor: Theme.onSurfaceUIColor()
-            ]
-            if run.italic == true, let desc = font.fontDescriptor.withSymbolicTraits(.traitItalic) {
-                font = UIFont(descriptor: desc, size: size)
-                attrs[.font] = font
-            }
-            if run.strike == true { attrs[.strikethroughStyle] = 1 }
-            if run.underline == true { attrs[.underlineStyle] = 1 }
-            if let runSize = run.size, runSize > 0, runSize != size {
-                attrs[.font] = UIFont.systemFont(ofSize: runSize, weight: bold ? .bold : .regular)
-            }
-            if let bg = background { attrs[.backgroundColor] = bg }
-            let style = NSMutableParagraphStyle()
-            style.alignment = center ? .center : .left
-            style.lineSpacing = size == 13 ? 7 : 2
-            attrs[.paragraphStyle] = style
-            target.append(NSAttributedString(string: run.text, attributes: attrs))
         }
 
         private func applyHighlight(_ attributed: NSMutableAttributedString) {
             let segments = SearchUtil.highlightSegments(attributed.string, keyword: parent.keyword)
-            let ns = attributed.string as NSString
             var cursor = 0
             for seg in segments {
                 let len = (seg.text as NSString).length
@@ -1029,7 +899,6 @@ struct ReadTextView: UIViewRepresentable {
                 }
                 cursor += len
             }
-            _ = ns
         }
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -1042,12 +911,12 @@ struct ReadTextView: UIViewRepresentable {
             let offset = tv.offset(from: tv.beginningOfDocument, to: position)
             for (i, range) in todoRanges.enumerated() where NSLocationInRange(offset, range) {
                 let cb = todoCallbacks[i]
-                parent.onToggleTodo(cb.0, cb.1)
+                parent.onToggleTodo?(cb.0, cb.1)
                 return
             }
             for (i, range) in imageRanges.enumerated() where NSLocationInRange(offset, range) {
                 let cb = imageCallbacks[i]
-                parent.onImageTap(cb.0, cb.1)
+                parent.onImageTap?(cb.0, cb.1)
                 return
             }
         }

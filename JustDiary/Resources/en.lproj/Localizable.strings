@@ -223,6 +223,11 @@
 "map_retry" = "Retry";
 "map_loc_failed" = "Cannot get current location";
 "map_time_all" = "All";
+"map_time_custom" = "Custom";
+"map_time_filter" = "Time Filter";
+"map_time_month" = "Month";
+"map_time_clear" = "Clear";
+"map_time_apply" = "Apply";
 "map_level_global" = "World";
 "map_level_national" = "China";
 "map_level_province" = "Province";

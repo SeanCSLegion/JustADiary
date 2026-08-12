@@ -118,16 +118,6 @@ enum CalendarLayout {
                       height: card.height - miniPad * 2 - miniTitleH)
     }
 
-    static func miniMetrics(month: Int, in size: CGSize, width: CGFloat) -> DayMetrics {
-        let g = miniGridRect(month: month, in: size)
-        return DayMetrics(cellW: g.width / 7,
-                          cellH: g.height / 6,
-                          dayFont: 11,
-                          lunarFont: 6,
-                          lunarAlpha: 0,
-                          dividerAlpha: 0)
-    }
-
     static func fullMonthGridRect(in size: CGSize) -> CGRect {
         CGRect(x: 0,
                y: bigTitleH + weekdayHeaderH,

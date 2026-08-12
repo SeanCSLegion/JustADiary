@@ -4,6 +4,8 @@ enum TimeRangeKind: String {
     case all
     case d7
     case d30
+    case thisMonth
+    case thisYear
     case custom
 }
 
@@ -175,6 +177,12 @@ final class SearchViewModel {
             return (DateUtil.dayKeyOf(DateUtil.addDays(DateUtil.startOfDay(today), -6)), DateUtil.dayKeyOf(today))
         case .d30:
             return (DateUtil.dayKeyOf(DateUtil.addDays(DateUtil.startOfDay(today), -29)), DateUtil.dayKeyOf(today))
+        case .thisMonth:
+            return (DateUtil.dayKeyOf(DateUtil.monthFirst(today)), DateUtil.dayKeyOf(today))
+        case .thisYear:
+            let year = DateUtil.calendar.component(.year, from: today)
+            let start = DateUtil.calendar.date(from: DateComponents(year: year, month: 1, day: 1)) ?? today
+            return (DateUtil.dayKeyOf(start), DateUtil.dayKeyOf(today))
         case .custom:
             let from = customFrom ?? DateUtil.startOfDay(today)
             let to = customTo ?? DateUtil.startOfDay(today)
