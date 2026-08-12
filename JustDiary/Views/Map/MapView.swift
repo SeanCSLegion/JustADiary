@@ -30,6 +30,9 @@ struct MapView: View {
     @State private var labelHideTask: Task<Void, Never>?
     @State private var lastMaxTimeUtc: Int64 = 0
     @State private var animating = false
+    @State private var panVelocity: CGPoint = .zero
+    @State private var lastPanTime: Date = .now
+    @State private var panStartCenter: (lng: Double, lat: Double)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -198,7 +201,10 @@ struct MapView: View {
                 },
             DragGesture(minimumDistance: 1)
                 .onChanged { value in
-                    handlePan(value)
+                    handlePanChanged(value)
+                }
+                .onEnded { value in
+                    handlePanEnded(value)
                 }
         )
         .simultaneously(with: SpatialTapGesture(count: 1).onEnded { value in
@@ -217,11 +223,31 @@ struct MapView: View {
             .compactMap { $0 as? UIWindowScene }.first?.screen.bounds.height ?? 852
     }
 
-    private func handlePan(_ value: DragGesture.Value) {
+    private func handlePanChanged(_ value: DragGesture.Value) {
         guard !animating else { return }
+        let now = Date()
+        let dt = now.timeIntervalSince(lastPanTime)
+        if dt > 0.001 {
+            panVelocity = CGPoint(x: value.translation.width / CGFloat(dt) * 0.1,
+                                  y: value.translation.height / CGFloat(dt) * 0.1)
+            lastPanTime = now
+        }
         let s = GeoMath.camScale(camera.zoom)
         camera.centerLng = GeoMath.xToLng(GeoMath.lngToX(camera.centerLng) - Double(value.translation.width) / s)
         camera.centerLat = GeoMath.yToLat(GeoMath.latToY(camera.centerLat) - Double(value.translation.height) / s)
+    }
+
+    private func handlePanEnded(_ value: DragGesture.Value) {
+        guard !animating else { return }
+        let velocity = panVelocity
+        let velocityMagnitude = sqrt(velocity.x * velocity.x + velocity.y * velocity.y)
+        guard velocityMagnitude > 50 else { return }
+        let s = GeoMath.camScale(camera.zoom)
+        let targetLng = GeoMath.xToLng(GeoMath.lngToX(camera.centerLng) - Double(velocity.x) / s)
+        let targetLat = GeoMath.yToLat(GeoMath.latToY(camera.centerLat) - Double(velocity.y) / s)
+        let clampedLat = max(-85, min(85, targetLat))
+        animateCamera(to: GeoCamera(centerLng: targetLng, centerLat: clampedLat, zoom: camera.zoom))
+        panVelocity = .zero
     }
 
     private func handleMapTap(at location: CGPoint) {
@@ -334,7 +360,7 @@ struct MapView: View {
                 flyTo(lng: 105, lat: 35, zoom: 3.6)
             }
         } else if lvl == 0 {
-            flyTo(lng: 105, lat: 25, zoom: 0.5)
+            flyTo(lng: 105, lat: 30, zoom: 1.5)
         } else if lvl == 2 {
             if let feat = focusFeature {
                 flyTo(lng: feat.cx, lat: feat.cy, zoom: 5.5, isPixel: true)
@@ -377,8 +403,8 @@ struct MapView: View {
 
     private func zoomRange() -> (min: Double, max: Double) {
         switch level {
-        case 0: return (0.5, 6)
-        case 2: return (4, 14)
+        case 0: return (1.0, 6)
+        case 2: return (4, 16)
         default: return (2, 9)
         }
     }
@@ -521,6 +547,7 @@ struct GeoMapCanvas: View {
     private func drawWorld(_ context: GraphicsContext, isZh: Bool, dark: Bool,
                            s: Double, centerX: Double, centerY: Double, vpW: Double, vpH: Double) {
         let land = dark ? UIColor(hex: 0x2A2F38) : UIColor(hex: 0xEFECE3)
+        let borderColor = dark ? UIColor(hex: 0x3D4350) : UIColor(hex: 0xC8C4BC)
         for f in geoData.world {
             let a = CGPoint(x: (f.minX - centerX) * s + vpW / 2, y: (f.minY - centerY) * s + vpH / 2)
             let b = CGPoint(x: (f.maxX - centerX) * s + vpW / 2, y: (f.maxY - centerY) * s + vpH / 2)
@@ -539,6 +566,7 @@ struct GeoMapCanvas: View {
                 path.closeSubpath()
             }
             context.fill(path, with: .color(Color(uiColor: land)))
+            context.stroke(path, with: .color(Color(uiColor: borderColor)), lineWidth: 0.5)
         }
         let labelColor = dark ? UIColor(hex: 0x9AA3B2) : UIColor(hex: 0x667085)
         let counted = countriesWithCounts()
@@ -547,8 +575,8 @@ struct GeoMapCanvas: View {
             guard p.x > -20, p.x < vpW + 20, p.y > -20, p.y < vpH + 20 else { continue }
             let name = GeoMap.countryName(f.name, isZh: isZh)
             let count = counted[f.name] ?? 0
-            drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 8), size: 13, color: labelColor)
-            drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 12), size: 17, color: labelColor)
+            drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 8), size: 13, color: labelColor, stroke: true)
+            drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 12), size: 17, color: labelColor, stroke: false)
         }
     }
 
@@ -565,6 +593,7 @@ struct GeoMapCanvas: View {
     private func drawChina(_ context: GraphicsContext, dark: Bool, s: Double, centerX: Double, centerY: Double,
                            vpW: Double, vpH: Double, isVisible: (GeoFeature) -> Bool, toScreen: (Double, Double) -> CGPoint) {
         let land = dark ? UIColor(hex: 0x2A2F38) : UIColor(hex: 0xEFECE3)
+        let borderColor = dark ? UIColor(hex: 0x3D4350) : UIColor(hex: 0xC8C4BC)
         let counts = provinceCounts()
         let maxCount = max(1, counts.values.max() ?? 1)
         for f in geoData.china {
@@ -584,6 +613,7 @@ struct GeoMapCanvas: View {
             let count = counts[f.name] ?? 0
             let fill = heatColor(count: count, maxCount: maxCount, dark: dark, fallback: land)
             context.fill(path, with: .color(fill))
+            context.stroke(path, with: .color(Color(uiColor: borderColor)), lineWidth: 0.8)
             if count > 0 {
                 let p = toScreen(f.cx, f.cy)
                 if p.x > -20, p.x < vpW + 20, p.y > -20, p.y < vpH + 20 {
@@ -591,8 +621,8 @@ struct GeoMapCanvas: View {
                     let countSize = s < 32 ? 13.0 : (s < 64 ? 17.0 : 21.0)
                     let labelColor = dark ? UIColor(hex: 0xF5F6F8) : UIColor(hex: 0x191C20)
                     let name = GeoMap.displayName(f.name, isZh: isZh, level: "province")
-                    drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 10), size: fontSize, color: labelColor)
-                    drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + fontSize / 2 + 8), size: countSize, color: labelColor)
+                    drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 10), size: fontSize, color: labelColor, stroke: true)
+                    drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + fontSize / 2 + 8), size: countSize, color: labelColor, stroke: false)
                 }
             }
         }
@@ -608,9 +638,17 @@ struct GeoMapCanvas: View {
 
     private func heatColor(count: Int, maxCount: Int, dark: Bool, fallback: UIColor) -> Color {
         guard count > 0 else { return Color(uiColor: fallback) }
-        let k = 0.14 + 0.78 * sqrt(Double(count) / Double(maxCount))
-        let primary = UIColor(hex: 0x2B5DB7)
-        return Color(uiColor: primary.withAlphaComponent(k))
+        let ratio = Double(count) / Double(maxCount)
+        let k = sqrt(ratio)
+        let r: CGFloat = dark ? lerp(42, 90, k) : lerp(43, 80, k)
+        let g: CGFloat = dark ? lerp(47, 70, k) : lerp(93, 100, k)
+        let b: CGFloat = dark ? lerp(56, 183, k) : lerp(183, 210, k)
+        let alpha: CGFloat = dark ? lerp(0.3, 0.9, k) : lerp(0.15, 0.85, k)
+        return Color(red: r/255, green: g/255, blue: b/255).opacity(alpha)
+    }
+
+    private func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat {
+        a + (b - a) * t
     }
 
     // MARK: - Level 2
@@ -659,8 +697,8 @@ struct GeoMapCanvas: View {
                     let p = toScreen(f.cx, f.cy)
                     let labelColor = dark ? UIColor(hex: 0xF5F6F8) : UIColor(hex: 0x191C20)
                     let name = GeoMap.displayName(f.name, isZh: isZh, level: "city")
-                    drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 8), size: 12, color: labelColor)
-                    drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 10), size: 15, color: labelColor)
+                    drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 8), size: 12, color: labelColor, stroke: true)
+                    drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 10), size: 15, color: labelColor, stroke: false)
                 }
             }
         } else {
@@ -668,8 +706,8 @@ struct GeoMapCanvas: View {
             let labelColor = dark ? UIColor(hex: 0xF5F6F8) : UIColor(hex: 0x191C20)
             let name = GeoMap.displayName(target.name, isZh: isZh, level: "province")
             let count = provinceCounts()[target.name] ?? 0
-            drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 10), size: 16, color: labelColor)
-            drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 18), size: 21, color: labelColor)
+            drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 10), size: 16, color: labelColor, stroke: true)
+            drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 18), size: 21, color: labelColor, stroke: false)
         }
     }
 
@@ -689,23 +727,37 @@ struct GeoMapCanvas: View {
 
     private func drawPoints(_ context: GraphicsContext, dark: Bool, s: Double, centerX: Double, centerY: Double,
                             vpW: Double, vpH: Double) {
+        let dotRadius = min(6.0, max(3.0, 4.0 * log2(s + 1) / 4))
+        let isSelectedRadius = dotRadius * 2
         for p in points {
             let pt = GeoMath.projectPoint(p.lat, p.lng)
             let screen = CGPoint(x: (pt.wx - centerX) * s + vpW / 2, y: (pt.wy - centerY) * s + vpH / 2)
             guard screen.x > -10, screen.x < vpW + 10, screen.y > -10, screen.y < vpH + 10 else { continue }
             let isSelected = selectedPoint?.id == p.id
             if isSelected {
-                context.fill(Path(ellipseIn: CGRect(x: screen.x - 8, y: screen.y - 8, width: 16, height: 16)),
+                context.fill(Path(ellipseIn: CGRect(x: screen.x - isSelectedRadius, y: screen.y - isSelectedRadius,
+                                                     width: isSelectedRadius * 2, height: isSelectedRadius * 2)),
                              with: .color(Theme.glowColor()))
             }
-            context.fill(Path(ellipseIn: CGRect(x: screen.x - 4, y: screen.y - 4, width: 8, height: 8)),
+            context.fill(Path(ellipseIn: CGRect(x: screen.x - dotRadius, y: screen.y - dotRadius,
+                                                 width: dotRadius * 2, height: dotRadius * 2)),
                          with: .color(Theme.primary()))
-            context.stroke(Path(ellipseIn: CGRect(x: screen.x - 4, y: screen.y - 4, width: 8, height: 8)),
+            context.stroke(Path(ellipseIn: CGRect(x: screen.x - dotRadius, y: screen.y - dotRadius,
+                                                   width: dotRadius * 2, height: dotRadius * 2)),
                            with: .color(.white), lineWidth: 1.5)
         }
     }
 
-    private func drawText(_ context: GraphicsContext, text: String, at point: CGPoint, size: Double, color: UIColor) {
+    private func drawText(_ context: GraphicsContext, text: String, at point: CGPoint, size: Double, color: UIColor, stroke: Bool = false) {
+        if stroke {
+            let strokeColor = color == UIColor(hex: 0xF5F6F8) || color == UIColor(hex: 0x191C20)
+                ? UIColor.white.withAlphaComponent(0.8)
+                : UIColor.black.withAlphaComponent(0.3)
+            let strokeResolved = context.resolve(Text(text)
+                .font(.system(size: size))
+                .foregroundStyle(Color(uiColor: strokeColor)))
+            context.draw(strokeResolved, at: point, anchor: .center)
+        }
         let resolved = context.resolve(Text(text)
             .font(.system(size: size))
             .foregroundStyle(Color(uiColor: color)))
