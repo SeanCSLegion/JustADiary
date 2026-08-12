@@ -24,6 +24,8 @@
 "index_card_today" = "今日";
 "index_day_empty" = "这一天没有留下日记。";
 "index_written" = "已记录";
+"index_week_title" = "%1$@ 第%2$ld周";
+
 "index_notif_title" = "通知权限已关闭";
 "index_notif_msg" = "开启通知后，才能在未写日记时收到提醒。";
 "settings_title" = "设置";
@@ -238,3 +240,5 @@
 "map_stat_countries" = "国家";
 "map_stat_blocks" = "片段";
 "map_stat_days" = "天数";
+
+"index_week_head" = "%1$ld年%2$@%3$ld日 – %4$@";

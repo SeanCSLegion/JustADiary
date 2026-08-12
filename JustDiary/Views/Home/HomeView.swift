@@ -1,38 +1,54 @@
 import SwiftUI
 
+
+private enum MorphLog {
+    static let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("morph_log.txt")
+    static func write(_ name: String, _ v: Double) {
+        NSLog("MORPHLOG \(name) \(v)")
+        let line = "\(ProcessInfo.processInfo.environment["SLOW_MORPH"] ?? "?" ) \(name) \(v)\n"
+        if let h = try? FileHandle(forWritingTo: url) {
+            h.seekToEndOfFile()
+            h.write(line.data(using: .utf8)!)
+            try? h.close()
+        } else {
+            try? line.data(using: .utf8)?.write(to: url)
+        }
+    }
+}
+
 struct HomeView: View {
     var openEditor: (String) -> Void
 
+    init(openEditor: @escaping (String) -> Void) {
+        self.openEditor = openEditor
+        NSLog("MORPHLOG HomeView.init")
+    }
+
     @State private var selectedDate = Date()
     @State private var monthPage = DateUtil.monthFirst(Date())
-    @State private var yearPage: Int? = DateUtil.calendar.component(.year, from: Date())
-    @State private var yearMode = false
-    @State private var pageID: Int? = nil
+    @State private var yearPage = DateUtil.calendar.component(.year, from: Date())
+    @State private var mode: CalendarMode = .month
+    @State private var zoom: Double = 0
+    @State private var ymMorph: (year: Int, month: Date)?
+    @State private var expand: Double = 0
+    @State private var mwMorphMonth: Date?
     @State private var flags: Set<String> = []
-    @State private var cardInfo: DiaryCardInfo?
-    @State private var cardLoading = false
+    @State private var dayBlocks: [EditBlock]?
     @State private var showFutureToast = false
+
+    private var weekStart: String { SettingsStore.load().weekStart }
+    private var showsLunar: Bool { AppLanguage.isZh }
 
     var body: some View {
         GeometryReader { geo in
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    header(geo: geo)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 20)
-                    calendarArea(geo: geo)
-                        .padding(.horizontal, 16)
-                    if !yearMode {
-                        diaryCardArea(geo: geo)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                    Spacer(minLength: 20)
-                }
-                .frame(maxWidth: .infinity)
+            let size = geo.size
+            VStack(spacing: 0) {
+                header
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                calendarArea(size: size)
             }
-            .animation(.easeOut(duration: 0.36), value: yearMode)
         }
         .overlay(alignment: .bottom) {
             if showFutureToast {
@@ -47,96 +63,89 @@ struct HomeView: View {
                             .glassEffect(tintedGlass(nil, interactive: true), in: Capsule())
                     }
                     .shadow(color: Theme.shadowColor(), radius: 12, y: 4)
-                    .padding(.bottom, 120)
+                    .padding(.bottom, 24)
                     .transition(.opacity)
             }
         }
         .task { await loadInitial() }
+        .onChange(of: zoom) { _, v in MorphLog.write("zoom", v) }
+        .onChange(of: expand) { _, v in MorphLog.write("expand", v) }
         .onReceive(NotificationCenter.default.publisher(for: .diaryVersionChanged)) { _ in
-            Task { await reloadFlagsAndCard() }
+            Task { await loadInitial() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .uiTickChanged)) { _ in
-            yearMode = false
-            monthPage = DateUtil.monthFirst(Date())
-            selectedDate = Date()
-            Task { await reloadFlagsAndCard() }
+            resetToToday()
         }
     }
 
     // MARK: - Data
 
     private func loadInitial() async {
-        await reloadFlagsAndCard()
-    }
-    private func reloadFlagsAndCard() async {
+        MorphLog.write("startup", 0)
         let thisYear = DateUtil.calendar.component(.year, from: Date())
         let pageYear = DateUtil.calendar.component(.year, from: monthPage)
         let from = "\(min(thisYear, pageYear) - 1)-01-01"
         let to = "\(max(thisYear, pageYear) + 1)-12-31"
-        let all = await DiaryRepository.shared.getDiaryFlagsRange(fromKey: from, toKey: to)
-        flags = Set(all)
+        flags = Set(await DiaryRepository.shared.getDiaryFlagsRange(fromKey: from, toKey: to))
+        await reloadDayBlocks()
+    }
+
+    private func reloadDayBlocks() async {
         let key = DateUtil.dayKeyOf(selectedDate)
-        cardInfo = await DiaryRepository.shared.getDiaryCardInfo(dayKey: key)
-        cardLoading = false
-    }
-
-    private func dayKey(_ date: Date) -> String {
-        DateUtil.dayKeyOf(date)
-    }
-
-    private func reloadCard() {
-        cardLoading = true
-        Task {
-            cardInfo = await DiaryRepository.shared.getDiaryCardInfo(dayKey: dayKey(selectedDate))
-            cardLoading = false
+        if let diary = await DiaryRepository.shared.getDiaryByDay(key) {
+            dayBlocks = await DiaryRepository.shared.getBlocks(diaryId: diary.id)
+        } else {
+            dayBlocks = nil
         }
     }
 
     // MARK: - Header
 
-    private func header(geo: GeometryProxy) -> some View {
+    private var titleText: String {
+        switch mode {
+        case .year:
+            return L10n.fmt("date_year", yearPage)
+        case .month:
+            return L10n.fmt("date_year", DateUtil.calendar.component(.year, from: monthPage))
+        case .week:
+            return L10n.monthFull(monthPage)
+        }
+    }
+
+    private var header: some View {
         HStack(spacing: 10) {
             Button {
                 Haptics.tap()
-                withAnimation(.easeOut(duration: 0.36)) {
-                    yearMode.toggle()
-                }
+                goBack()
             } label: {
-                HStack(spacing: 4) {
-                    ZStack {
-                        Text(L10n.monthTitle(monthPage))
-                            .font(.system(size: 25, weight: .medium))
-                            .foregroundStyle(Theme.onSurface())
-                            .opacity(yearMode ? 0 : 1)
-                            .contentTransition(.numericText(value: monthPage.timeIntervalSince1970))
-                        Text(L10n.yearTitle(yearPage ?? DateUtil.calendar.component(.year, from: monthPage)))
-                            .font(.system(size: 25, weight: .medium))
-                            .foregroundStyle(Theme.onSurface())
-                            .opacity(yearMode ? 1 : 0)
-                            .contentTransition(.numericText())
-                    }
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Theme.onSurfaceVariant())
-                        .rotationEffect(.degrees(yearMode ? 180 : 0))
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text(titleText)
+                        .font(.system(size: 18, weight: .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .contentTransition(.opacity)
+                }
+                .foregroundStyle(Theme.onSurface())
+                .padding(.horizontal, 14)
+                .frame(height: 44)
+                .background {
+                    Capsule()
+                        .fill(Color(.secondarySystemGroupedBackground))
+                        .glassEffect(tintedGlass(nil, interactive: true), in: Capsule())
                 }
             }
             .buttonStyle(.plain)
+            .opacity(mode == .year ? 0 : 1)
+            .allowsHitTesting(mode != .year)
 
             Spacer()
 
-            InfoCapsule(text: relativeDayLabel(), action: {
-                if yearMode {
-                    withAnimation(.easeOut(duration: 0.36)) {
-                        yearMode = false
-                    }
-                }
-                selectDate(Date())
-            })
+            InfoCapsule(text: relativeDayLabel(), action: todayTapped)
         }
-        .frame(height: 56)
+        .frame(height: 52)
+        .animation(.easeInOut(duration: 0.25), value: mode)
     }
 
     private func relativeDayLabel() -> String {
@@ -146,524 +155,428 @@ struct HomeView: View {
         return L10n.fmt("index_days_later", diff)
     }
 
-    private func selectDate(_ date: Date) {
+    // MARK: - Transitions
+
+    private var morphing: Bool { ymMorph != nil || mwMorphMonth != nil }
+
+    private func openMonthFromYear(_ month: Int) {
+        guard ymMorph == nil else { return }
         Haptics.tap()
-        selectedDate = date
-        monthPage = DateUtil.monthFirst(date)
-        reloadCard()
+        var comps = DateComponents()
+        comps.year = yearPage
+        comps.month = month
+        comps.day = 1
+        let monthDate = DateUtil.calendar.date(from: comps) ?? monthPage
+        var tr = Transaction()
+        tr.disablesAnimations = true
+        withTransaction(tr) {
+            monthPage = monthDate
+            ymMorph = (yearPage, monthDate)
+            mode = .month
+            zoom = 1
+        }
+        MorphLog.write("ym-tx", zoom)
+        withAnimation(CalendarLayout.morphAnimation) {
+            zoom = 0
+        }
+        MorphLog.write("ym-anim", zoom)
+        DispatchQueue.main.asyncAfter(deadline: .now() + CalendarLayout.morphDuration + 0.05) {
+            ymMorph = nil
+        }
     }
 
-    private func clampToMonth(_ date: Date, month: Date) -> Date {
-        let day = DateUtil.calendar.component(.day, from: date)
-        let days = DateUtil.daysInMonth(month)
-        var comps = DateUtil.calendar.dateComponents([.year, .month], from: month)
-        comps.day = min(day, days)
-        return DateUtil.calendar.date(from: comps) ?? month
+    private func openDay(_ day: Date) {
+        guard mwMorphMonth == nil else { return }
+        Haptics.tap()
+        var tr = Transaction()
+        tr.disablesAnimations = true
+        withTransaction(tr) {
+            selectedDate = day
+            monthPage = DateUtil.monthFirst(day)
+            mwMorphMonth = monthPage
+            mode = .week
+            expand = 0
+        }
+        withAnimation(CalendarLayout.morphAnimation) {
+            expand = 1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + CalendarLayout.morphDuration + 0.05) {
+            mwMorphMonth = nil
+        }
+        Task { await reloadDayBlocks() }
+    }
+
+    private func goBack() {
+        guard !morphing else { return }
+        switch mode {
+        case .week:
+            var tr = Transaction()
+            tr.disablesAnimations = true
+            withTransaction(tr) {
+                monthPage = DateUtil.monthFirst(selectedDate)
+                mwMorphMonth = monthPage
+                mode = .month
+                expand = 1
+            }
+            withAnimation(CalendarLayout.morphAnimation) {
+                expand = 0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + CalendarLayout.morphDuration + 0.05) {
+                mwMorphMonth = nil
+            }
+        case .month:
+            var tr = Transaction()
+            tr.disablesAnimations = true
+withTransaction(tr) {
+            yearPage = DateUtil.calendar.component(.year, from: monthPage)
+            ymMorph = (yearPage, monthPage)
+            mode = .year
+            zoom = 0
+        }
+        MorphLog.write("my-tx", zoom)
+        withAnimation(CalendarLayout.morphAnimation) {
+            zoom = 1
+        }
+        MorphLog.write("my-anim", zoom)
+            DispatchQueue.main.asyncAfter(deadline: .now() + CalendarLayout.morphDuration + 0.05) {
+                ymMorph = nil
+            }
+        case .year:
+            break
+        }
+    }
+
+    private func todayTapped() {
+        guard !morphing else { return }
+        Haptics.tap()
+        let now = Date()
+        switch mode {
+        case .year:
+            withAnimation(.snappy(duration: 0.3)) {
+                yearPage = DateUtil.calendar.component(.year, from: now)
+            }
+        case .month:
+            withAnimation(.snappy(duration: 0.3)) {
+                selectedDate = now
+                monthPage = DateUtil.monthFirst(now)
+                yearPage = DateUtil.calendar.component(.year, from: now)
+            }
+            Task { await reloadDayBlocks() }
+        case .week:
+            withAnimation(.snappy(duration: 0.3)) {
+                selectedDate = now
+                monthPage = DateUtil.monthFirst(now)
+            }
+            Task { await reloadDayBlocks() }
+        }
+    }
+
+    private func resetToToday() {
+        ymMorph = nil
+        mwMorphMonth = nil
+        zoom = 0
+        expand = 0
+        mode = .month
+        selectedDate = Date()
+        monthPage = DateUtil.monthFirst(selectedDate)
+        yearPage = DateUtil.calendar.component(.year, from: selectedDate)
+        Task { await loadInitial() }
     }
 
     // MARK: - Calendar area
 
-    private func calendarArea(geo: GeometryProxy) -> some View {
-        ZStack {
-            monthLayer(geo: geo)
-                .scaleEffect(yearMode ? monthCellScale(geo: geo) : 1, anchor: cameraAnchor(geo: geo).month)
-                .opacity(yearMode ? 0 : 1)
-
-            yearLayer(geo: geo)
-                .scaleEffect(yearMode ? 1 : yearZoomScale(geo: geo), anchor: cameraAnchor(geo: geo).year)
-                .opacity(yearMode ? 1 : 0)
-                .allowsHitTesting(yearMode)
-        }
-        .frame(height: yearMode ? 520 : 330)
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-    }
-
-    // MARK: - Camera transition (zoom in/out between month and year)
-
-    private func cameraAnchor(geo: GeometryProxy) -> (month: UnitPoint, year: UnitPoint) {
-        let calWidth = geo.size.width - 32
-        let cardW = (calWidth - 4 - 16) / 3
-        let cardH = (520.0 - 4 - 3 * 8) / 4
-        let month = DateUtil.calendar.component(.month, from: selectedDate) - 1
-        let col = CGFloat(month % 3)
-        let row = CGFloat(month / 3)
-        let cellX = 2 + col * (cardW + 8) + cardW / 2
-        let cellY = 2 + row * (cardH + 8) + cardH / 2
-        let monthY = cellY - (520 - 330) / 2
-        return (UnitPoint(x: cellX / calWidth, y: monthY / 330),
-                UnitPoint(x: cellX / calWidth, y: cellY / 520))
-    }
-
-    private func yearZoomScale(geo: GeometryProxy) -> CGFloat {
-        let calWidth = geo.size.width - 32
-        let cardW = (calWidth - 4 - 16) / 3
-        return max(1, calWidth / cardW)
-    }
-
-    private func monthCellScale(geo: GeometryProxy) -> CGFloat {
-        let calWidth = geo.size.width - 32
-        let cardW = (calWidth - 4 - 16) / 3
-        return cardW / calWidth
-    }
-
-    private func monthLayer(geo: GeometryProxy) -> some View {
-        let ids = [monthPageKey(monthPage, -1), monthPageKey(monthPage, 0), monthPageKey(monthPage, 1)]
-        return ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(spacing: 16) {
-                ForEach(ids, id: \.self) { id in
-                    let monthDate = dateForMonthKey(id)
-                    MonthGridCanvas(month: monthDate,
-                                    selectedDate: selectedDate,
-                                    flags: flags,
-                                    isZh: AppLanguage.isZh,
-                                    onSelect: { day in
-                        var comps = DateUtil.calendar.dateComponents([.year, .month], from: monthDate)
-                        comps.day = day
-                        if let date = DateUtil.calendar.date(from: comps) {
-                            selectDate(date)
-                        }
-                    })
-                    .frame(width: geo.size.width - 32)
-                    .id(id)
-                }
+    private func calendarArea(size: CGSize) -> some View {
+        let w = size.width
+        let h = max(320, size.height - 64)
+        return ZStack(alignment: .top) {
+            yearLayer(w: w, h: h)
+                .opacity(mode == .year && ymMorph == nil ? 1 : 0)
+                .allowsHitTesting(mode == .year && ymMorph == nil)
+            monthLayer(w: w, h: h)
+                .opacity(mode == .month && !morphing ? 1 : 0)
+                .allowsHitTesting(mode == .month && !morphing)
+            weekLayer(w: w, h: h)
+                .opacity(mode == .week && mwMorphMonth == nil ? 1 : 0)
+                .allowsHitTesting(mode == .week && mwMorphMonth == nil)
+            if let m = ymMorph {
+                YearMonthMorphView(progress: zoom,
+                                   year: m.year,
+                                   month: m.month,
+                                   size: CGSize(width: w, height: h),
+                                   weekStart: weekStart,
+                                   selectedDate: selectedDate,
+                                   flags: flags,
+                                   showsLunar: showsLunar)
             }
-            .scrollTargetLayout()
-        }
-        .scrollTargetBehavior(.paging)
-        .scrollPosition(id: $pageID, anchor: .center)
-        .defaultScrollAnchor(.center)
-        .scrollDisabled(yearMode)
-        .onChange(of: pageID) { _, newID in
-            guard let newID else { return }
-            let centerKey = monthPageKey(monthPage, 0)
-            guard newID != centerKey else { return }
-            let target = dateForMonthKey(newID)
-            monthPage = DateUtil.monthFirst(target)
-            selectedDate = clampToMonth(selectedDate, month: monthPage)
-            reloadCard()
-        }
-        .onChange(of: monthPage) { _, _ in
-            pageID = monthPageKey(monthPage, 0)
-        }
-        .onAppear {
-            if pageID == nil {
-                pageID = monthPageKey(monthPage, 0)
-            }
-        }
-        .frame(height: 330)
-        .background {
-            GlassCapsule(cornerRadius: 26, blur: 26)
-        }
-    }
-
-    private func monthPageKey(_ month: Date, _ delta: Int) -> Int {
-        let target = DateUtil.addMonths(month, delta)
-        let m = DateUtil.calendar.component(.month, from: target)
-        let y = DateUtil.calendar.component(.year, from: target)
-        return y * 100 + m
-    }
-
-    private func dateForMonthKey(_ key: Int) -> Date {
-        let y = key / 100
-        let m = key % 100
-        var comps = DateComponents()
-        comps.year = y
-        comps.month = m
-        comps.day = 1
-        return DateUtil.calendar.date(from: comps) ?? monthPage
-    }
-
-    private func yearLayer(geo: GeometryProxy) -> some View {
-        let year = yearPage ?? DateUtil.calendar.component(.year, from: Date())
-        return ScrollView(.horizontal, showsIndicators: false) {
-            ScrollViewReader { proxy in
-                LazyHStack(spacing: 16) {
-                    ForEach([year - 1, year, year + 1], id: \.self) { y in
-                        YearGrid(year: y,
-                                 selectedDate: selectedDate,
-                                 flags: flags,
-                                 weekStart: SettingsStore.load().weekStart,
-                                 onSelectMonth: { month in
-                            var comps = DateComponents()
-                            comps.year = y
-                            comps.month = month
-                            comps.day = 1
-                            guard let date = DateUtil.calendar.date(from: comps) else { return }
-                            selectDate(date)
-                            withAnimation(.easeOut(duration: 0.36)) {
-                                yearMode = false
-                            }
-                        })
-                        .frame(width: geo.size.width - 32)
-                        .id(y)
-                    }
-                }
-                .scrollTargetLayout()
-                .onChange(of: yearMode) { _, mode in
-                    guard mode else { return }
-                    let target = yearPage ?? DateUtil.calendar.component(.year, from: Date())
-                    proxy.scrollTo(target, anchor: .center)
+            if let mm = mwMorphMonth {
+                MonthWeekMorphView(progress: expand,
+                                   month: mm,
+                                   selectedDate: selectedDate,
+                                   flags: flags,
+                                   weekStart: weekStart,
+                                   size: CGSize(width: w, height: h),
+                                   showsLunar: showsLunar) {
+                    dayContentBlock(w: w, h: h)
                 }
             }
         }
-        .scrollTargetBehavior(.paging)
-        .scrollPosition(id: $yearPage, anchor: .center)
-        .defaultScrollAnchor(.center)
-        .onChange(of: yearPage) { _, newID in
-            guard let newID else { return }
-            let year = yearPage ?? DateUtil.calendar.component(.year, from: Date())
-            if newID != year {
-                yearPage = newID
-                reloadCard()
-            }
-        }
-        .frame(height: 520)
-        .background {
-            GlassCapsule(cornerRadius: 26, blur: 26)
-        }
+        .frame(width: w, height: h)
+        .clipped()
     }
 
-    // MARK: - Diary card
+    private func yearLayer(w: CGFloat, h: CGFloat) -> some View {
+        DragPagePager(keys: CalendarLayout.allYears,
+                      current: yearPage,
+                      axis: .vertical,
+                      pageSize: h,
+                      disabled: morphing,
+                      onPageChange: { yearPage = $0 }) { y in
+            YearPageView(year: y,
+                         selectedDate: selectedDate,
+                         flags: flags,
+                         weekStart: weekStart,
+                         containerSize: CGSize(width: w, height: h),
+                         onSelectMonth: openMonthFromYear)
+        }
+        .frame(height: h)
+    }
 
-    private func diaryCardArea(geo: GeometryProxy) -> some View {
-        Group {
-            if let card = cardInfo {
-                if card.hasDiary {
-                    DiaryCardView(card: card, todayKey: dayKey(Date()), action: {
-                        openEditor(dayKey(selectedDate))
-                    })
-                } else {
-                    EmptyDiaryCardView(isFuture: dayKey(selectedDate) > dayKey(Date()),
-                                       action: {
-                        openEditor(dayKey(selectedDate))
-                    })
-                }
-            } else if cardLoading {
-                ProgressView()
-                    .frame(height: 100)
-                    .frame(maxWidth: .infinity)
-            } else {
-                EmptyDiaryCardView(isFuture: false, action: {
-                    openEditor(dayKey(selectedDate))
+    private func monthLayer(w: CGFloat, h: CGFloat) -> some View {
+        DragPagePager(keys: CalendarLayout.allMonthKeys,
+                      current: CalendarLayout.monthKey(monthPage),
+                      axis: .vertical,
+                      pageSize: h,
+                      disabled: morphing,
+                      onPageChange: { key in
+            monthPage = CalendarLayout.dateForMonthKey(key)
+        }) { key in
+            let d = CalendarLayout.dateForMonthKey(key)
+            VStack(spacing: 0) {
+                MonthBigTitle(month: d)
+                WeekdayHeaderView(weekStart: weekStart, cellW: w / 7)
+                    .frame(width: w, height: CalendarLayout.weekdayHeaderH)
+                MonthCanvas(weeks: CalendarLayout.weeks(inMonth: d, ws: weekStart),
+                            anchorMonth: d,
+                            metrics: CalendarLayout.monthMetrics(width: w, areaH: h, lunar: showsLunar),
+                            selectedDate: selectedDate,
+                            flags: flags,
+                            showAdjacent: false,
+                            onTapDay: openDay)
+            }
+            .frame(width: w, height: h)
+        }
+        .frame(height: h)
+    }
+
+    private func weekLayer(w: CGFloat, h: CGFloat) -> some View {
+        return VStack(spacing: 0) {
+            WeekdayHeaderView(weekStart: weekStart, cellW: w / 7)
+                .frame(width: w, height: CalendarLayout.weekdayHeaderH)
+            DragPagePager(keys: CalendarLayout.allWeekKeys(weekStart: weekStart),
+                          current: CalendarLayout.weekKey(selectedDate, ws: weekStart),
+                          axis: .horizontal,
+                          pageSize: w,
+                          disabled: morphing,
+                          onPageChange: { key in
+                let newStart = CalendarLayout.dateForWeekKey(key)
+                let curStart = CalendarLayout.weekStart(of: selectedDate, ws: weekStart)
+                let delta = DateUtil.calendar.dateComponents([.day], from: curStart, to: newStart).day ?? 0
+                guard delta != 0 else { return }
+                selectedDate = DateUtil.addDays(selectedDate, delta)
+                monthPage = DateUtil.monthFirst(selectedDate)
+                Task { await reloadDayBlocks() }
+            }) { key in
+                let start = CalendarLayout.dateForWeekKey(key)
+                WeekRowCanvas(week: CalendarLayout.weekOf(start, ws: weekStart),
+                              metrics: CalendarLayout.weekMetrics(width: w, lunar: showsLunar),
+                              selectedDate: selectedDate,
+                              flags: flags,
+                              onTapDay: { day in
+                    Haptics.tap()
+                    selectedDate = day
+                    monthPage = DateUtil.monthFirst(day)
+                    Task { await reloadDayBlocks() }
                 })
+                .frame(width: w, height: CalendarLayout.weekStripH)
             }
+            .frame(width: w, height: CalendarLayout.weekStripH)
+            dayContentBlock(w: w, h: h)
         }
-        .frame(height: 100)
+        .frame(width: w, height: h)
+    }
+
+    private func dayContentBlock(w: CGFloat, h: CGFloat) -> some View {
+        let stripBottom = CalendarLayout.weekdayHeaderH + CalendarLayout.weekStripH
+        let dayKey = DateUtil.dayKeyOf(selectedDate)
+        return VStack(spacing: 0) {
+            Divider()
+            VStack(spacing: 4) {
+                Text(L10n.weekHeaderTitle(selectedDate))
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.onSurface())
+                if showsLunar {
+                    Text(Lunar.fullLabel(selectedDate))
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.onSurfaceVariant().opacity(0.8))
+                }
+            }
+            .frame(height: CalendarLayout.dayTitleH)
+            Divider()
+            DayContentView(blocks: dayBlocks,
+                           dayKey: dayKey,
+                           isFuture: dayKey > DateUtil.dayKeyOf(Date()),
+                           openEditor: openEditor,
+                           showFutureToast: { showFutureToast = true })
+        }
+        .frame(width: w, height: h - stripBottom)
     }
 }
 
-struct MonthGridCanvas: View {
+// MARK: - Year <-> Month zoom morph
+
+struct YearMonthMorphView: View, Animatable {
+    var progress: Double
+    var year: Int
     var month: Date
-    var selectedDate: Date
-    var flags: Set<String>
-    var isZh: Bool
-    var onSelect: (Int) -> Void
-
-    private let headerH = 26.0
-    private let cellH = (330.0 - 26.0 - 22.0) / 6
-    private let topPad = 12.0
-
-    var body: some View {
-        GeometryReader { geo in
-            Canvas { context, size in
-                let cellW = size.width / 7
-                let weekdayNames = L10n.weekdayNames(weekStart: SettingsStore.load().weekStart)
-                let weekStart = SettingsStore.load().weekStart
-                for (i, name) in weekdayNames.enumerated() {
-                    let isWeekend = (weekStart == "sunday" ? i : i + 1) % 7 >= 5
-                    let color = isWeekend ? Theme.primary() : Theme.onSurfaceVariant()
-                    let x = Double(i) * cellW + cellW / 2
-                    let y = topPad + 13
-                    drawCenteredText(context, text: name, at: CGPoint(x: x, y: y), fontSize: 11, color: color)
-                }
-                let first = DateUtil.calendar.dateComponents([.year, .month, .day], from: month)
-                guard let firstDay = DateUtil.calendar.date(from: DateComponents(year: first.year, month: first.month, day: 1)) else { return }
-                let lead = DateUtil.weekdayIndex(firstDay, weekStart: weekStart)
-                let days = DateUtil.daysInMonth(month)
-                let todayKey = DateUtil.dayKeyOf(Date())
-                let selectedKey = DateUtil.dayKeyOf(selectedDate)
-                let selectedMonth = DateUtil.calendar.component(.month, from: selectedDate)
-                for day in 1...days {
-                    let index = lead + day - 1
-                    let row = index / 7
-                    let col = index % 7
-                    guard row < 6 else { continue }
-                    let cx = Double(col) * cellW + cellW / 2
-                    let cy = topPad + headerH + Double(row) * cellH + cellH / 2
-                    let dayKey = String(format: "%04d-%02d-%02d", first.year ?? 0, first.month ?? 0, day)
-                    let isSelected = dayKey == selectedKey
-                    let isToday = dayKey == todayKey
-                    let isFuture = dayKey > todayKey
-                    let hasDiary = flags.contains(dayKey)
-                    var alpha = 1.0
-                    if isFuture { alpha = AppLanguage.isZh ? 0.32 : 0.42 }
-                    let circleCenterY = cy - 3
-                    let circleD = min(cellW - 16, cellH - 16)
-                    if isSelected {
-                        let glowR = circleD / 2 + 6
-                        context.fill(Path(ellipseIn: CGRect(x: cx - glowR, y: circleCenterY - glowR,
-                                                            width: glowR * 2, height: glowR * 2)),
-                                     with: .color(Theme.glowColor()))
-                        context.fill(Path(ellipseIn: CGRect(x: cx - circleD / 2, y: circleCenterY - circleD / 2,
-                                                            width: circleD, height: circleD)),
-                                     with: .color(Theme.primary()))
-                    } else if isToday {
-                        let ringD = circleD - 6
-                        context.stroke(Path(ellipseIn: CGRect(x: cx - ringD / 2, y: circleCenterY - ringD / 2,
-                                                              width: ringD, height: ringD)),
-                                       with: .color(Theme.primary()), lineWidth: 1.5)
-                    }
-                    let textColor: Color
-                    if isSelected {
-                        textColor = Theme.onPrimary()
-                    } else if isToday {
-                        textColor = Theme.primary()
-                    } else if selectedMonth == first.month {
-                        textColor = Theme.onSurface()
-                    } else {
-                        textColor = Theme.onSurface().opacity(0.4)
-                    }
-                    drawCenteredText(context, text: "\(day)", at: CGPoint(x: cx, y: circleCenterY - 3),
-                                     fontSize: 15, color: textColor.opacity(alpha))
-                    if hasDiary {
-                        let dotColor: Color = isSelected ? Theme.onPrimary() : Theme.primary().opacity(alpha)
-                        let dotY = isSelected ? circleCenterY + circleD * 0.28 : cy + 9
-                        context.fill(Path(ellipseIn: CGRect(x: cx - 2, y: dotY - 2, width: 4, height: 4)),
-                                     with: .color(dotColor))
-                    }
-                }
-            }
-            .contentShape(Rectangle())
-            .gesture(
-                SpatialTapGesture(count: 1)
-                    .onEnded { value in
-                        if let day = dayAt(point: value.location, width: geo.size.width) {
-                            onSelect(day)
-                        }
-                    }
-            )
-        }
-    }
-
-    private func dayAt(point: CGPoint, width: Double) -> Int? {
-        let cellW = width / 7
-        guard point.x >= 0, point.x < width else { return nil }
-        let col = Int(point.x / cellW)
-        let row = Int((point.y - topPad - headerH) / cellH)
-        guard col >= 0, col < 7, row >= 0, row < 6 else { return nil }
-        let index = row * 7 + col
-        let lead = DateUtil.weekdayIndex(DateUtil.monthFirst(month), weekStart: SettingsStore.load().weekStart)
-        let day = index - lead + 1
-        guard day >= 1, day <= DateUtil.daysInMonth(month) else { return nil }
-        return day
-    }
-
-    private func drawCenteredText(_ context: GraphicsContext, text: String, at point: CGPoint,
-                                  fontSize: CGFloat, color: Color) {
-        let resolved = context.resolve(Text(text)
-            .font(.system(size: fontSize))
-            .foregroundStyle(color))
-        context.draw(resolved, at: point, anchor: .center)
-    }
-}
-
-struct YearGrid: View {
-    var year: Int
-    var selectedDate: Date
-    var flags: Set<String>
+    var size: CGSize
     var weekStart: String
-    var onSelectMonth: (Int) -> Void
-
-    var body: some View {
-        let selectedYear = DateUtil.calendar.component(.year, from: selectedDate)
-        let selectedMonth = DateUtil.calendar.component(.month, from: selectedDate)
-        let thisYear = DateUtil.calendar.component(.year, from: Date())
-        let thisMonth = DateUtil.calendar.component(.month, from: Date())
-        return VStack(spacing: 8) {
-            ForEach(0..<4, id: \.self) { row in
-                HStack(spacing: 8) {
-                    ForEach(0..<3, id: \.self) { col in
-                        let month = row * 3 + col + 1
-                        Button {
-                            Haptics.tap()
-                            onSelectMonth(month)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 4) {
-                                    Text(L10n.monthName(month))
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(Theme.onSurface())
-                                    if year == thisYear, month == thisMonth {
-                                        Circle()
-                                            .fill(Theme.primary())
-                                            .frame(width: 6, height: 6)
-                                    }
-                                    Spacer()
-                                }
-                                YearMiniCanvas(month: month, year: year,
-                                               selectedDate: selectedDate,
-                                               flags: flags)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            }
-                            .padding(6)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background {
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(Color(.secondarySystemGroupedBackground))
-                                    .glassEffect(tintedGlass(nil),
-                                                 in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                    .overlay {
-                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                            .stroke(selectedYear == year && selectedMonth == month
-                                                    ? Theme.primary() : Theme.outlineVariant(), lineWidth: selectedYear == year && selectedMonth == month ? 1.5 : 1)
-                                    }
-                                    .shadow(color: selectedYear == year && selectedMonth == month ? Theme.glowColor() : .clear,
-                                            radius: 14, y: 4)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-        .padding(2)
-        .frame(height: 520)
-        .allowsHitTesting(true)
-    }
-}
-
-struct YearMiniCanvas: View {
-    var month: Int
-    var year: Int
     var selectedDate: Date
     var flags: Set<String>
+    var showsLunar: Bool
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
 
     var body: some View {
-        Canvas { context, size in
-            let cellW = size.width / 7
-            let cellH = size.height / 6
-            guard let firstDay = DateUtil.calendar.date(from: DateComponents(year: year, month: month, day: 1)) else { return }
-            let lead = DateUtil.weekdayIndex(firstDay, weekStart: SettingsStore.load().weekStart)
-            let days = DateUtil.daysInMonth(firstDay)
-            let selectedKey = DateUtil.dayKeyOf(selectedDate)
-            let todayKey = DateUtil.dayKeyOf(Date())
-            for day in 1...days {
-                let index = lead + day - 1
-                let row = index / 7
-                let col = index % 7
-                guard row < 6 else { continue }
-                let cx = Double(col) * cellW + cellW / 2
-                let cy = Double(row) * cellH + cellH / 2
-                let dayKey = String(format: "%04d-%02d-%02d", year, month, day)
-                let isSelected = dayKey == selectedKey
-                let isToday = dayKey == todayKey
-                if isSelected {
-                    context.fill(Path(roundedRect: CGRect(x: cx - 9, y: cy - 7, width: 18, height: 14), cornerRadius: 7),
-                                 with: .color(Theme.primary()))
-                } else if isToday {
-                    context.stroke(Path(roundedRect: CGRect(x: cx - 9, y: cy - 7, width: 18, height: 14), cornerRadius: 7),
-                                   with: .color(Theme.primary()), lineWidth: 1)
-                }
-                let color: Color = isSelected ? Theme.onPrimary() : (isToday ? Theme.primary() : Theme.onSurface())
-                let resolved = context.resolve(Text("\(day)").font(.system(size: 9)).foregroundStyle(color))
-                context.draw(resolved, at: CGPoint(x: cx, y: cy - 4), anchor: .center)
-                if flags.contains(dayKey) {
-                    context.fill(Path(ellipseIn: CGRect(x: cx - 1.4, y: cy + 8, width: 2.8, height: 2.8)),
-                                 with: .color(isSelected ? Theme.onPrimary() : Theme.primary()))
-                }
+        let t = CL.clamp01(1 - progress)
+        let monthNum = DateUtil.calendar.component(.month, from: month)
+        let miniRect = CalendarLayout.miniGridRect(month: monthNum, in: size)
+        let fullRect = CalendarLayout.fullMonthGridRect(in: size)
+        let grid = CL.lerp(miniRect, fullRect, t)
+        let mini = DayMetrics(cellW: miniRect.width / 7,
+                              cellH: miniRect.height / 6,
+                              dayFont: 11,
+                              lunarFont: 11,
+                              lunarAlpha: 0,
+                              dividerAlpha: 0)
+        let full = CalendarLayout.monthMetrics(width: size.width, areaH: size.height, lunar: showsLunar)
+        var metrics = DayMetrics.lerp(mini, full, t)
+        metrics.cellW = grid.width / 7
+        metrics.cellH = grid.height / 6
+        metrics.lunarAlpha = showsLunar ? CL.clamp01((t - 0.5) / 0.5) : 0
+        metrics.dividerAlpha = CL.clamp01((t - 0.55) / 0.45)
+        let late = CL.clamp01((t - 0.55) / 0.45)
+        let card = CalendarLayout.yearCardRect(month: monthNum, in: size)
+        let anchor = UnitPoint(x: card.midX / size.width, y: card.midY / size.height)
+        let yearOpacity = CL.clamp01((progress - 0.45) / 0.55)
+        let yearScale = 1 + (1 - progress) * 0.6
+        return ZStack(alignment: .topLeading) {
+            YearPageView(year: year,
+                         selectedDate: selectedDate,
+                         flags: flags,
+                         weekStart: weekStart,
+                         containerSize: size,
+                         hiddenMonth: monthNum,
+                         onSelectMonth: { _ in })
+                .scaleEffect(yearScale, anchor: anchor)
+                .opacity(yearOpacity)
+            VStack(spacing: 0) {
+                MonthBigTitle(month: month)
+                WeekdayHeaderView(weekStart: weekStart, cellW: size.width / 7)
+                    .frame(height: CalendarLayout.weekdayHeaderH)
             }
+            .opacity(late)
+            MonthCanvas(weeks: CalendarLayout.weeks(inMonth: month, ws: weekStart),
+                        anchorMonth: month,
+                        metrics: metrics,
+                        selectedDate: selectedDate,
+                        flags: flags,
+                        showAdjacent: false,
+                        onTapDay: nil)
+                .frame(width: grid.width, height: grid.height)
+                .offset(x: grid.minX, y: grid.minY)
         }
+        .frame(width: size.width, height: size.height)
+        .clipped()
         .allowsHitTesting(false)
     }
 }
 
-struct DiaryCardView: View {
-    var card: DiaryCardInfo
-    var todayKey: String
-    var action: () -> Void
+// MARK: - Month <-> Week expand morph
 
-    var body: some View {
-        Button {
-            Haptics.tap()
-            action()
-        } label: {
-            ZStack(alignment: .topLeading) {
-                FlowLightOverlay()
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(card.dayKey == todayKey ? L10n.str("index_card_today") : L10n.formatDayKey(card.dayKey))
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Theme.onSurface())
-                        Spacer()
-                        Text(L10n.str("index_written"))
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Capsule().fill(Theme.primary()))
-                            .shadow(color: Theme.glowColor(), radius: 6, y: 1)
-                    }
-                    HStack(spacing: 6) {
-                        Image(systemName: "clock")
-                            .font(.system(size: 11))
-                        Text(L10n.timeOf(card.startTimeUtc))
-                            .font(.system(size: 11))
-                    }
-                    .foregroundStyle(Theme.onSurfaceVariant())
-                    if !card.locText.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "location.fill")
-                                .font(.system(size: 11))
-                            Text(card.locText)
-                                .font(.system(size: 11))
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(Theme.onSurfaceVariant())
-                    }
-                    Text(card.preview)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.onSurface())
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            }
-            .frame(height: 100)
-            .background {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
-                    .glassEffect(tintedGlass(nil, interactive: true),
-                                 in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-            .scaleEffect(0.98)
-        }
-        .buttonStyle(.plain)
+struct MonthWeekMorphView<Content: View>: View, Animatable {
+    var progress: Double
+    var month: Date
+    var selectedDate: Date
+    var flags: Set<String>
+    var weekStart: String
+    var size: CGSize
+    var showsLunar: Bool
+    @ViewBuilder var content: () -> Content
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
     }
-}
-
-struct EmptyDiaryCardView: View {
-    var isFuture: Bool
-    var action: () -> Void
 
     var body: some View {
-        Button {
-            Haptics.tap()
-            if !isFuture {
-                action()
+        let weeks = CalendarLayout.weeks(inMonth: month, ws: weekStart)
+        let selRow = CalendarLayout.weekRowIndex(of: selectedDate, in: month, ws: weekStart)
+        let titleH = CalendarLayout.bigTitleH
+        let headH = CalendarLayout.weekdayHeaderH
+        let cellH = CalendarLayout.monthCellH(areaH: size.height)
+        let mMetrics = CalendarLayout.monthMetrics(width: size.width, areaH: size.height, lunar: showsLunar)
+        let wMetrics = CalendarLayout.weekMetrics(width: size.width, lunar: showsLunar)
+        let stripBottom = headH + CalendarLayout.weekStripH
+        let contentT = CL.clamp01((progress - 0.1) / 0.9)
+        return ZStack(alignment: .top) {
+            MonthBigTitle(month: month)
+                .offset(y: -progress * titleH)
+                .opacity(1 - CL.clamp01(progress * 2))
+            WeekdayHeaderView(weekStart: weekStart, cellW: size.width / 7)
+                .frame(width: size.width, height: headH)
+                .offset(y: CL.lerp(titleH, 0, progress))
+            ForEach(0..<6, id: \.self) { i in
+                row(i, weeks: weeks, selRow: selRow, titleH: titleH, headH: headH,
+                    cellH: cellH, mMetrics: mMetrics, wMetrics: wMetrics)
             }
-        } label: {
-            VStack(spacing: 6) {
-                Text(L10n.str("index_write"))
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Theme.primary())
-                Text(isFuture ? L10n.str("index_future_empty") : L10n.str("index_day_empty"))
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.onSurfaceVariant())
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .diaryGlassCard(cornerRadius: 20)
+            content()
+                .offset(y: CL.lerp(size.height, stripBottom, contentT))
+                .opacity(CL.clamp01((progress - 0.25) / 0.75))
         }
-        .buttonStyle(.plain)
+        .frame(width: size.width, height: size.height)
+        .clipped()
+        .allowsHitTesting(false)
+    }
+
+    private func row(_ i: Int, weeks: [WeekDays], selRow: Int,
+                     titleH: CGFloat, headH: CGFloat, cellH: CGFloat,
+                     mMetrics: DayMetrics, wMetrics: DayMetrics) -> some View {
+        let base = titleH + headH + CGFloat(i) * cellH
+        var y: CGFloat
+        var alpha: Double
+        var metrics = mMetrics
+        if i == selRow {
+            y = CL.lerp(base, headH, progress)
+            alpha = 1
+            metrics = DayMetrics.lerp(mMetrics, wMetrics, progress)
+        } else if i < selRow {
+            y = base - CGFloat(progress) * (base + cellH)
+            alpha = 1 - CL.clamp01(progress * 1.4)
+        } else {
+            y = base + CGFloat(progress) * (size.height - base)
+            alpha = 1 - CL.clamp01(progress * 1.4)
+        }
+        return WeekRowCanvas(week: weeks[i],
+                             metrics: metrics,
+                             selectedDate: selectedDate,
+                             flags: flags,
+                             alpha: alpha,
+                             showDivider: i > 0,
+                             onTapDay: nil)
+            .frame(width: size.width, height: metrics.cellH)
+            .offset(y: y)
     }
 }

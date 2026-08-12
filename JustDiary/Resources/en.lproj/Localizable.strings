@@ -24,6 +24,8 @@
 "index_card_today" = "Today";
 "index_day_empty" = "No entry for this day.";
 "index_written" = "Written";
+"index_week_title" = "%1$@ · Week %2$ld";
+
 "index_notif_title" = "Notifications are off";
 "index_notif_msg" = "Enable notifications to get reminders when you haven't written yet.";
 "settings_title" = "Settings";
@@ -238,3 +240,5 @@
 "map_stat_countries" = "Countries";
 "map_stat_blocks" = "Blocks";
 "map_stat_days" = "Days";
+
+"index_week_head" = "%4$@, %2$@ %3$ld, %1$ld";

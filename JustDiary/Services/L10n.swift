@@ -34,7 +34,7 @@ enum L10n {
             if let b = arg as? Bool { return b ? 1 : 0 }
             return String(describing: arg) as NSString
         }
-        return String(format: format, locale: AppLanguage.locale, arguments: nsArgs)
+        return String(format: format, arguments: nsArgs)
     }
 
     static func weekdayShort(_ weekdayIndex: Int) -> String {
@@ -81,6 +81,22 @@ enum L10n {
             return "\(year)年\(monthName(month))"
         }
         return "\(monthName(month)) \(year)"
+    }
+
+    static func monthFull(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = AppLanguage.locale
+        f.dateFormat = "MMMM"
+        return f.string(from: date)
+    }
+
+    static func weekHeaderTitle(_ date: Date) -> String {
+        let cal = DateUtil.calendar
+        let y = cal.component(.year, from: date)
+        let m = cal.component(.month, from: date)
+        let d = cal.component(.day, from: date)
+        let wd = cal.component(.weekday, from: date)
+        return fmt("index_week_head", y, monthName(m), d, weekdayShort(wd))
     }
 
     static func yearTitle(_ year: Int) -> String {
