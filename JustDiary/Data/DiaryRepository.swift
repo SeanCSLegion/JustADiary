@@ -18,10 +18,24 @@ final class DiaryRepository {
 
     private init() {}
 
+    private static let noLocSql = """
+    NOT EXISTS (SELECT 1 FROM edit_block b WHERE b.diary_id = d.id
+      AND (b.loc_quality <> 'none' OR b.loc_text <> '' OR b.country <> '' OR b.region1 <> ''
+           OR b.region2 <> '' OR b.region3 <> '' OR b.latitude != 0 OR b.longitude != 0))
+    """
+
     var isFtsSupported: Bool { ftsSupported }
 
     static var dbPathOverride: String?
     static var imagesDirOverride: URL?
+
+    private var isSearchIndexReady: Bool {
+        SettingsStore.searchIndexVersion >= Self.searchIndexVersion
+    }
+
+    private var isFtsTableExists: Bool {
+        db?.query("SELECT name FROM sqlite_master WHERE type='table' AND name='diary_fts';").count ?? 0 > 0
+    }
 
     static func dbPath() -> String {
         if let override = dbPathOverride { return override }
@@ -188,14 +202,9 @@ final class DiaryRepository {
     }
 
     private func backfillIndexIfNeeded() throws {
-        guard let db else { return }
-        if SettingsStore.searchIndexVersion >= Self.searchIndexVersion {
-            if ftsSupported {
-                let exists = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='diary_fts';").count > 0
-                if exists { return }
-            } else {
-                return
-            }
+        if isSearchIndexReady {
+            if ftsSupported && isFtsTableExists { return }
+            if !ftsSupported { return }
         }
         try rebuildSearchIndex()
     }
@@ -223,9 +232,8 @@ final class DiaryRepository {
             try db.execute("DELETE FROM diary_fts;")
             let ftsRows = db.query("SELECT id, search_text FROM diary WHERE search_text <> '';")
             for row in ftsRows {
-                try db.execute("INSERT INTO diary_fts(diary_id, text) VALUES (?, ?);",
-                               [(row["id"] as? Int64) ?? 0,
-                                FtsSegment.segment((row["search_text"] as? String) ?? "")])
+                try upsertFtsEntry(db: db, diaryId: (row["id"] as? Int64) ?? 0,
+                                   searchText: (row["search_text"] as? String) ?? "")
             }
         }
         SettingsStore.searchIndexVersion = Self.searchIndexVersion
@@ -233,14 +241,9 @@ final class DiaryRepository {
 
     func ensureSearchIndex() async {
         await runOnQueue { [self] in
-            guard let db else { return }
-            if SettingsStore.searchIndexVersion >= Self.searchIndexVersion {
-                if ftsSupported {
-                    let exists = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='diary_fts';").count > 0
-                    if exists { return }
-                } else {
-                    return
-                }
+            if isSearchIndexReady {
+                if ftsSupported && isFtsTableExists { return }
+                if !ftsSupported { return }
             }
             try? rebuildSearchIndex()
         }
@@ -393,9 +396,7 @@ final class DiaryRepository {
             let noLocRow = db.queryFirst("""
             SELECT COUNT(*) AS cnt FROM diary d
             WHERE d.day_key >= ? AND d.day_key <= ?
-            AND NOT EXISTS (SELECT 1 FROM edit_block b WHERE b.diary_id = d.id
-              AND (b.loc_quality <> 'none' OR b.loc_text <> '' OR b.country <> '' OR b.region1 <> ''
-                   OR b.region2 <> '' OR b.region3 <> '' OR b.latitude != 0 OR b.longitude != 0));
+            AND \(Self.noLocSql);
             """, [from, to])
             let noLoc = Int((noLocRow?["cnt"] as? Int64) ?? 0)
             return (options, noLoc)
@@ -552,11 +553,18 @@ final class DiaryRepository {
         WHERE id = ?;
         """, [diaryId, diaryId, updatedUtc, diaryId])
         if ftsSupported {
-            try db.execute("DELETE FROM diary_fts WHERE diary_id = ?;", [diaryId])
             if let row = db.queryFirst("SELECT id, search_text FROM diary WHERE id = ? AND search_text <> '';", [diaryId]) {
-                try db.execute("INSERT INTO diary_fts(diary_id, text) VALUES (?, ?);",
-                               [(row["id"] as? Int64) ?? 0, FtsSegment.segment((row["search_text"] as? String) ?? "")])
+                try upsertFtsEntry(db: db, diaryId: (row["id"] as? Int64) ?? 0,
+                                   searchText: (row["search_text"] as? String) ?? "")
             }
+        }
+    }
+
+    private func upsertFtsEntry(db: SQLite, diaryId: Int64, searchText: String) throws {
+        try db.execute("DELETE FROM diary_fts WHERE diary_id = ?;", [diaryId])
+        if !searchText.isEmpty {
+            try db.execute("INSERT INTO diary_fts(diary_id, text) VALUES (?, ?);",
+                           [diaryId, FtsSegment.segment(searchText)])
         }
     }
 
@@ -697,11 +705,9 @@ final class DiaryRepository {
                                        [String(dayText.prefix(40)), dayText, newDiaryId])
                 }
                 if ftsSupported {
-                    try mainDb.execute("DELETE FROM diary_fts WHERE diary_id = ?;", [newDiaryId])
-                    let ftsRow = mainDb.queryFirst("SELECT id, search_text FROM diary WHERE id = ? AND search_text <> '';", [newDiaryId])
-                    if let ftsRow {
-                        try mainDb.execute("INSERT INTO diary_fts(diary_id, text) VALUES (?, ?);",
-                                           [(ftsRow["id"] as? Int64) ?? 0, FtsSegment.segment((ftsRow["search_text"] as? String) ?? "")])
+                    if let ftsRow = mainDb.queryFirst("SELECT id, search_text FROM diary WHERE id = ? AND search_text <> '';", [newDiaryId]) {
+                        try upsertFtsEntry(db: mainDb, diaryId: (ftsRow["id"] as? Int64) ?? 0,
+                                           searchText: (ftsRow["search_text"] as? String) ?? "")
                     }
                 }
             }
@@ -873,11 +879,7 @@ final class DiaryRepository {
             args.append(filter.region1)
         }
         if filter.noLoc {
-            whereParts.append("""
-            NOT EXISTS (SELECT 1 FROM edit_block b WHERE b.diary_id = d.id
-              AND (b.loc_quality <> 'none' OR b.loc_text <> '' OR b.country <> '' OR b.region1 <> ''
-                   OR b.region2 <> '' OR b.region3 <> '' OR b.latitude != 0 OR b.longitude != 0))
-            """)
+            whereParts.append(Self.noLocSql)
         }
         let whereSql = whereParts.joined(separator: " AND ")
         let total = db.queryFirst("SELECT COUNT(*) AS cnt FROM diary d WHERE \(whereSql);", args)
