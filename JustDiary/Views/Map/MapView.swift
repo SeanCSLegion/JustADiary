@@ -58,16 +58,19 @@ struct MapView: View {
                     Button {
                         showTimeFilter = true
                     } label: {
-                        Image(systemName: "calendar.badge.plus")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Theme.primary())
-                            .frame(width: 36, height: 30)
-                            .background {
-                                Capsule().fill(Theme.primaryContainer())
-                                    .glassEffect(tintedGlass(nil), in: Capsule())
-                            }
+                        HStack(spacing: 4) {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 12))
+                            Text(L10n.str("map_time_custom"))
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .foregroundStyle(Theme.primary())
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
                 }
                 .padding(.horizontal, 16)
             }
@@ -268,13 +271,13 @@ struct MapView: View {
         let now = Date()
         let dt = now.timeIntervalSince(lastPanTime)
         if dt > 0.001 {
-            panVelocity = CGPoint(x: value.translation.width / CGFloat(dt) * 0.1,
-                                  y: value.translation.height / CGFloat(dt) * 0.1)
+            panVelocity = CGPoint(x: value.translation.width / CGFloat(dt) * 0.03,
+                                  y: value.translation.height / CGFloat(dt) * 0.03)
             lastPanTime = now
         }
         let s = GeoMath.camScale(camera.zoom)
-        camera.centerLng = GeoMath.xToLng(GeoMath.lngToX(camera.centerLng) - Double(value.translation.width) / s)
-        camera.centerLat = GeoMath.yToLat(GeoMath.latToY(camera.centerLat) - Double(value.translation.height) / s)
+        camera.centerLng = GeoMath.xToLng(GeoMath.lngToX(camera.centerLng) - Double(value.translation.width) / s * 0.6)
+        camera.centerLat = GeoMath.yToLat(GeoMath.latToY(camera.centerLat) - Double(value.translation.height) / s * 0.6)
     }
 
     private func handlePanEnded(_ value: DragGesture.Value) {
@@ -348,14 +351,14 @@ struct MapView: View {
     // MARK: - Level selector
 
     private var levelSelector: some View {
-        VStack(spacing: 4) {
+        HStack(spacing: 6) {
             levelButton(0, icon: "globe", label: L10n.str("map_level_global"))
             levelButton(1, icon: "map", label: L10n.str("map_level_national"))
-            levelButton(2, icon: "mappin.circle", label: L10n.str("map_level_province"))
+            levelButton(2, icon: "mappin.circle.fill", label: L10n.str("map_level_province"))
         }
-        .padding(6)
+        .padding(5)
         .background {
-            GlassCapsule(cornerRadius: 20, blur: 22)
+            GlassCapsule(cornerRadius: 22, blur: 20)
         }
     }
 
@@ -364,17 +367,19 @@ struct MapView: View {
             Haptics.tap()
             switchLevel(lvl)
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 12))
+                    .font(.system(size: 13, weight: .medium))
                 if level == lvl {
                     Text(label)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
             }
             .foregroundStyle(level == lvl ? .white : Theme.onSurfaceVariant())
-            .frame(width: level == lvl ? 80 : 32, height: 30)
+            .padding(.horizontal, level == lvl ? 12 : 10)
+            .padding(.vertical, 8)
             .background {
                 if level == lvl {
                     Capsule().fill(Theme.primary())
@@ -799,7 +804,8 @@ struct GeoMapCanvas: View {
     private func drawProvince(_ context: GraphicsContext, dark: Bool, s: Double, centerX: Double, centerY: Double,
                               vpW: Double, vpH: Double, isVisible: (GeoFeature) -> Bool, toScreen: (Double, Double) -> CGPoint) {
         let land = dark ? UIColor(hex: 0x2A2F38) : UIColor(hex: 0xEFECE3)
-        let cityBorderColor = dark ? UIColor(hex: 0x3D4350).withAlphaComponent(0.5) : UIColor(hex: 0xC8C4BC).withAlphaComponent(0.5)
+        let cityBorderColor = dark ? UIColor(hex: 0x5A6370) : UIColor(hex: 0xA09C94)
+        let cityFillColor = dark ? UIColor(hex: 0x333A44) : UIColor(hex: 0xE8E5DC)
         let target = focusProvince ?? nearestFeatureAtCenter(s: s, centerX: centerX, centerY: centerY)
         guard let target else { return }
         var path = Path()
@@ -836,8 +842,11 @@ struct GeoMapCanvas: View {
                     cpath.closeSubpath()
                 }
                 let count = counts[f.name] ?? 0
-                context.fill(cpath, with: .color(heatColor(count: count, maxCount: maxCount, dark: dark, fallback: land)))
-                context.stroke(cpath, with: .color(Color(uiColor: cityBorderColor)), lineWidth: 0.6)
+                let fill = count > 0
+                    ? heatColor(count: count, maxCount: maxCount, dark: dark, fallback: land)
+                    : Color(uiColor: cityFillColor)
+                context.fill(cpath, with: .color(fill))
+                context.stroke(cpath, with: .color(Color(uiColor: cityBorderColor)), lineWidth: 1.0)
                 if count > 0 {
                     let p = toScreen(f.cx, f.cy)
                     let labelColor = dark ? UIColor(hex: 0xF5F6F8) : UIColor(hex: 0x191C20)
