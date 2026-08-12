@@ -22,6 +22,8 @@ struct MapView: View {
     @State private var points: [MapPoint] = []
     @State private var unlocated = 0
     @State private var yearFilter = "all"
+    @State private var months: [String] = []
+    @State private var monthFilter = "all"
     @State private var years: [String] = []
     @State private var stats = TravelStats()
     @State private var selectedPoint: MapPoint?
@@ -32,27 +34,40 @@ struct MapView: View {
     @State private var animating = false
     @State private var panVelocity: CGPoint = .zero
     @State private var lastPanTime: Date = .now
-    @State private var panStartCenter: (lng: Double, lat: Double)? = nil
+    @State private var showTimeFilter = false
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text(L10n.str("map_title"))
-                    .font(.system(size: 24, weight: .medium))
+                    .font(.system(size: 28, weight: .medium))
                     .foregroundStyle(Theme.onSurface())
                 Spacer()
                 Text(L10n.fmt("map_summary", locatedCount, unlocated))
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(Theme.onSurfaceVariant())
             }
-            .frame(height: 52)
+            .frame(height: 56)
             .padding(.horizontal, 16)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     yearChip(L10n.str("map_time_all"), value: "all")
                     ForEach(years, id: \.self) { year in
                         yearChip(year, value: year)
                     }
+                    Button {
+                        showTimeFilter = true
+                    } label: {
+                        Image(systemName: "calendar.badge.plus")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Theme.primary())
+                            .frame(width: 36, height: 30)
+                            .background {
+                                Capsule().fill(Theme.primaryContainer())
+                                    .glassEffect(tintedGlass(nil), in: Capsule())
+                            }
+                    }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 16)
             }
@@ -68,6 +83,11 @@ struct MapView: View {
         .task { await load() }
         .onReceive(NotificationCenter.default.publisher(for: .diaryVersionChanged)) { _ in
             Task { await reloadPoints() }
+        }
+        .sheet(isPresented: $showTimeFilter) {
+            timeFilterSheet
+                .presentationDetents([.medium])
+                .presentationBackground(.ultraThinMaterial)
         }
     }
 
@@ -87,14 +107,33 @@ struct MapView: View {
     private func reloadPoints() async {
         let rows = await DiaryRepository.shared.getAllMapPoints()
         let build = MapDataService.buildMapPoints(rows, precision: "exact")
-        let filtered = yearFilter == "all" ? build.points : build.points.filter { $0.dayKey.hasPrefix(yearFilter) }
+        var filtered = yearFilter == "all" ? build.points : build.points.filter { $0.dayKey.hasPrefix(yearFilter) }
+        if monthFilter != "all", let monthInt = Int(monthFilter) {
+            filtered = filtered.filter {
+                guard $0.dayKey.count >= 6 else { return false }
+                let month = String($0.dayKey.dropFirst(4).prefix(2))
+                return Int(month) == monthInt
+            }
+        }
         points = filtered
         unlocated = build.unlocated
         var yearSet = Set<String>()
+        var monthSet = Set<String>()
         for p in build.points {
-            if p.dayKey.count >= 4 { yearSet.insert(String(p.dayKey.prefix(4))) }
+            if p.dayKey.count >= 4 {
+                let y = String(p.dayKey.prefix(4))
+                yearSet.insert(y)
+            }
+            if p.dayKey.count >= 6 {
+                let start = p.dayKey.index(p.dayKey.startIndex, offsetBy: 4, limitedBy: p.dayKey.endIndex) ?? p.dayKey.endIndex
+                let end = p.dayKey.index(p.dayKey.startIndex, offsetBy: 6, limitedBy: p.dayKey.endIndex) ?? p.dayKey.endIndex
+                if start < end && end <= p.dayKey.endIndex {
+                    monthSet.insert(String(p.dayKey[start..<end]))
+                }
+            }
         }
         years = yearSet.sorted(by: >)
+        months = monthSet.sorted()
         computeStats()
         let maxTime = rows.map { $0.startTimeUtc }.max() ?? 0
         let isFirst = lastMaxTimeUtc == 0
@@ -154,6 +193,7 @@ struct MapView: View {
     private func yearChip(_ label: String, value: String) -> some View {
         GlassChip(label: label, active: yearFilter == value) {
             yearFilter = value
+            monthFilter = "all"
             Task { await reloadPoints() }
         }
     }
@@ -173,7 +213,7 @@ struct MapView: View {
                          isDark: colorScheme == .dark,
                          selectedPoint: selectedPoint)
             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-            .gesture(mapGestures)
+            .highPriorityGesture(mapGestures)
             VStack {
                 HStack {
                     levelSelector
@@ -191,25 +231,25 @@ struct MapView: View {
     }
 
     private var mapGestures: some Gesture {
-        ExclusiveGesture(
-            MagnificationGesture()
-                .onChanged { value in
-                    handlePinch(value)
-                }
-                .onEnded { _ in
-                    animating = false
-                },
-            DragGesture(minimumDistance: 1)
-                .onChanged { value in
-                    handlePanChanged(value)
-                }
-                .onEnded { value in
-                    handlePanEnded(value)
-                }
-        )
-        .simultaneously(with: SpatialTapGesture(count: 1).onEnded { value in
-            handleMapTap(at: value.location)
-        })
+        let pinch = MagnificationGesture()
+            .onChanged { value in
+                handlePinch(value)
+            }
+            .onEnded { _ in
+                animating = false
+            }
+        let drag = DragGesture(minimumDistance: 5)
+            .onChanged { value in
+                handlePanChanged(value)
+            }
+            .onEnded { value in
+                handlePanEnded(value)
+            }
+        let tap = SpatialTapGesture(count: 1)
+            .onEnded { value in
+                handleMapTap(at: value.location)
+            }
+        return drag.simultaneously(with: pinch).simultaneously(with: tap)
     }
 
     private func handlePinch(_ scale: CGFloat) {
@@ -261,7 +301,7 @@ struct MapView: View {
                                           vpW: Double(mapRect.width), vpH: Double(mapRect.height))
         let s = GeoMath.camScale(camera.zoom)
         var best: MapPoint?
-        var bestDist = 20.0
+        var bestDist = 30.0
         for p in points {
             let projected = GeoMath.projectPoint(p.lat, p.lng)
             let dx = (projected.wx - world.wx) * s
@@ -309,9 +349,9 @@ struct MapView: View {
 
     private var levelSelector: some View {
         VStack(spacing: 4) {
-            levelButton(0, label: L10n.str("map_level_global"))
-            levelButton(1, label: L10n.str("map_level_national"))
-            levelButton(2, label: L10n.str("map_level_province"))
+            levelButton(0, icon: "globe", label: L10n.str("map_level_global"))
+            levelButton(1, icon: "map", label: L10n.str("map_level_national"))
+            levelButton(2, icon: "mappin.circle", label: L10n.str("map_level_province"))
         }
         .padding(6)
         .background {
@@ -319,25 +359,31 @@ struct MapView: View {
         }
     }
 
-    private func levelButton(_ lvl: Int, label: String) -> some View {
+    private func levelButton(_ lvl: Int, icon: String, label: String) -> some View {
         Button {
             Haptics.tap()
             switchLevel(lvl)
         } label: {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(level == lvl ? .white : Theme.onSurfaceVariant())
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(width: 46, height: 26)
-                .background {
-                    if level == lvl {
-                        Capsule().fill(Theme.primary())
-                            .glassEffect(tintedGlass(Theme.primary()), in: Capsule())
-                    }
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                if level == lvl {
+                    Text(label)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
                 }
+            }
+            .foregroundStyle(level == lvl ? .white : Theme.onSurfaceVariant())
+            .frame(width: level == lvl ? 80 : 32, height: 30)
+            .background {
+                if level == lvl {
+                    Capsule().fill(Theme.primary())
+                        .glassEffect(tintedGlass(Theme.primary()), in: Capsule())
+                }
+            }
         }
         .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.2), value: level)
     }
 
     private func switchLevel(_ lvl: Int) {
@@ -355,7 +401,7 @@ struct MapView: View {
                 let vpH = screen.height * 0.55
                 let zoom = min(log2(vpW * 0.8 / dx), log2(vpH * 0.8 / dy))
                 flyTo(lng: (b.minLng + b.maxLng) / 2, lat: (b.minLat + b.maxLat) / 2,
-                      zoom: min(zoom, 4.5))
+                      zoom: min(zoom, 5.0))
             } else {
                 flyTo(lng: 105, lat: 35, zoom: 3.6)
             }
@@ -363,9 +409,9 @@ struct MapView: View {
             flyTo(lng: 105, lat: 30, zoom: 1.5)
         } else if lvl == 2 {
             if let feat = focusFeature {
-                flyTo(lng: feat.cx, lat: feat.cy, zoom: 5.5, isPixel: true)
+                flyTo(lng: feat.cx, lat: feat.cy, zoom: 6.0, isPixel: true)
             } else {
-                flyTo(lng: 105, lat: 35, zoom: 5.5)
+                flyTo(lng: 105, lat: 35, zoom: 6.0)
             }
         }
     }
@@ -380,14 +426,14 @@ struct MapView: View {
                     .frame(width: 5)
                 Circle()
                     .fill(Theme.primary())
-                    .frame(width: 24, height: 24)
+                    .frame(width: 28, height: 28)
                     .glassEffect(tintedGlass(Theme.primary()), in: Circle())
                     .overlay {
                         Circle().stroke(Color.white, lineWidth: 2)
                     }
-                    .offset(y: zoomBarOffset(geo.size.height) - 12)
+                    .offset(y: zoomBarOffset(geo.size.height) - 14)
             }
-            .frame(width: 36, height: geo.size.height)
+            .frame(width: 40, height: geo.size.height)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -398,14 +444,14 @@ struct MapView: View {
                     }
             )
         }
-        .frame(width: 36)
+        .frame(width: 40)
     }
 
     private func zoomRange() -> (min: Double, max: Double) {
         switch level {
-        case 0: return (1.0, 6)
-        case 2: return (4, 16)
-        default: return (2, 9)
+        case 0: return (1.0, 5.5)
+        case 2: return (5.0, 16)
+        default: return (3.0, 8.0)
         }
     }
 
@@ -418,39 +464,39 @@ struct MapView: View {
     // MARK: - Info card
 
     private func infoCard(_ point: MapPoint) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(L10n.formatDayKey(point.dayKey))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Theme.onSurface())
                 Spacer()
                 Button {
                     selectedPoint = nil
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(Theme.onSurfaceVariant())
                 }
                 .buttonStyle(.plain)
             }
             if !point.locText.isEmpty {
                 Text(point.locText)
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundStyle(Theme.onSurfaceVariant())
                     .lineLimit(1)
             }
             Text(point.summary)
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .foregroundStyle(Theme.onSurface())
                 .lineLimit(2)
             Button {
                 openDiary(point.dayKey)
             } label: {
                 Text(L10n.str("map_open_diary"))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
                     .background {
                         Capsule().fill(Theme.primary())
                             .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
@@ -458,9 +504,9 @@ struct MapView: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(12)
-        .diaryGlassCard(cornerRadius: 16)
-        .frame(maxWidth: 260)
+        .padding(14)
+        .diaryGlassCard(cornerRadius: 18)
+        .frame(maxWidth: 280)
     }
 
     // MARK: - Stats
@@ -473,24 +519,121 @@ struct MapView: View {
             statCell(L10n.str("map_stat_blocks"), "\(stats.blocks)")
             statCell(L10n.str("map_stat_days"), "\(stats.days.count)")
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, 14)
         .background {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(.ultraThinMaterial)
-                .glassEffect(tintedGlass(nil), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .glassEffect(tintedGlass(nil), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
     private func statCell(_ label: String, _ value: String) -> some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 3) {
             Text(value)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Theme.onSurface())
             Text(label)
-                .font(.system(size: 10))
+                .font(.system(size: 11))
                 .foregroundStyle(Theme.onSurfaceVariant())
         }
         .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Time filter sheet
+
+    private var timeFilterSheet: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text(L10n.str("map_time_filter"))
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Theme.onSurface())
+                Spacer()
+                Button {
+                    showTimeFilter = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Theme.onSurfaceVariant())
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+            }
+            if !months.isEmpty {
+                Text(L10n.str("map_time_month"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.onSurfaceVariant())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 8) {
+                    monthChip("全部", value: "all")
+                    ForEach(months, id: \.self) { m in
+                        monthChip("\(m)月", value: m)
+                    }
+                }
+            }
+            HStack(spacing: 12) {
+                Button {
+                    monthFilter = "all"
+                    showTimeFilter = false
+                    Task { await reloadPoints() }
+                } label: {
+                    Text(L10n.str("map_time_clear"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Theme.onSurfaceVariant())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background {
+                            Capsule().fill(Theme.glassDim())
+                                .glassEffect(.regular, in: Capsule())
+                        }
+                }
+                .buttonStyle(.plain)
+                Button {
+                    showTimeFilter = false
+                    Task { await reloadPoints() }
+                } label: {
+                    Text(L10n.str("map_time_apply"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background {
+                            Capsule().fill(Theme.primary())
+                                .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
+                                .shadow(color: Theme.glowColor(), radius: 10, y: 3)
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 8)
+        }
+        .padding(20)
+        .padding(.bottom, 8)
+    }
+
+    private func monthChip(_ label: String, value: String) -> some View {
+        Button {
+            monthFilter = value
+        } label: {
+            Text(label)
+                .font(.system(size: 13))
+                .foregroundStyle(monthFilter == value ? .white : Theme.onSurface())
+                .frame(maxWidth: .infinity)
+                .frame(height: 36)
+                .background {
+                    if monthFilter == value {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Theme.primary())
+                            .glassEffect(tintedGlass(Theme.primary()), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    } else {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Theme.glassDim())
+                            .glassEffect(tintedGlass(nil), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                }
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -575,8 +718,8 @@ struct GeoMapCanvas: View {
             guard p.x > -20, p.x < vpW + 20, p.y > -20, p.y < vpH + 20 else { continue }
             let name = GeoMap.countryName(f.name, isZh: isZh)
             let count = counted[f.name] ?? 0
-            drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 8), size: 13, color: labelColor, stroke: true)
-            drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 12), size: 17, color: labelColor, stroke: false)
+            drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 8), size: 14, color: labelColor, stroke: true)
+            drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 12), size: 18, color: labelColor, stroke: false)
         }
     }
 
@@ -617,8 +760,8 @@ struct GeoMapCanvas: View {
             if count > 0 {
                 let p = toScreen(f.cx, f.cy)
                 if p.x > -20, p.x < vpW + 20, p.y > -20, p.y < vpH + 20 {
-                    let fontSize = s < 32 ? 12.0 : (s < 64 ? 14.0 : 16.0)
-                    let countSize = s < 32 ? 13.0 : (s < 64 ? 17.0 : 21.0)
+                    let fontSize = s < 32 ? 13.0 : (s < 64 ? 15.0 : 17.0)
+                    let countSize = s < 32 ? 14.0 : (s < 64 ? 18.0 : 22.0)
                     let labelColor = dark ? UIColor(hex: 0xF5F6F8) : UIColor(hex: 0x191C20)
                     let name = GeoMap.displayName(f.name, isZh: isZh, level: "province")
                     drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 10), size: fontSize, color: labelColor, stroke: true)
@@ -656,6 +799,7 @@ struct GeoMapCanvas: View {
     private func drawProvince(_ context: GraphicsContext, dark: Bool, s: Double, centerX: Double, centerY: Double,
                               vpW: Double, vpH: Double, isVisible: (GeoFeature) -> Bool, toScreen: (Double, Double) -> CGPoint) {
         let land = dark ? UIColor(hex: 0x2A2F38) : UIColor(hex: 0xEFECE3)
+        let cityBorderColor = dark ? UIColor(hex: 0x3D4350).withAlphaComponent(0.5) : UIColor(hex: 0xC8C4BC).withAlphaComponent(0.5)
         let target = focusProvince ?? nearestFeatureAtCenter(s: s, centerX: centerX, centerY: centerY)
         guard let target else { return }
         var path = Path()
@@ -693,12 +837,13 @@ struct GeoMapCanvas: View {
                 }
                 let count = counts[f.name] ?? 0
                 context.fill(cpath, with: .color(heatColor(count: count, maxCount: maxCount, dark: dark, fallback: land)))
+                context.stroke(cpath, with: .color(Color(uiColor: cityBorderColor)), lineWidth: 0.6)
                 if count > 0 {
                     let p = toScreen(f.cx, f.cy)
                     let labelColor = dark ? UIColor(hex: 0xF5F6F8) : UIColor(hex: 0x191C20)
                     let name = GeoMap.displayName(f.name, isZh: isZh, level: "city")
-                    drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 8), size: 12, color: labelColor, stroke: true)
-                    drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 10), size: 15, color: labelColor, stroke: false)
+                    drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 8), size: 13, color: labelColor, stroke: true)
+                    drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 10), size: 16, color: labelColor, stroke: false)
                 }
             }
         } else {
@@ -706,8 +851,8 @@ struct GeoMapCanvas: View {
             let labelColor = dark ? UIColor(hex: 0xF5F6F8) : UIColor(hex: 0x191C20)
             let name = GeoMap.displayName(target.name, isZh: isZh, level: "province")
             let count = provinceCounts()[target.name] ?? 0
-            drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 10), size: 16, color: labelColor, stroke: true)
-            drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 18), size: 21, color: labelColor, stroke: false)
+            drawText(context, text: name, at: CGPoint(x: p.x, y: p.y - 10), size: 17, color: labelColor, stroke: true)
+            drawText(context, text: "\(count)", at: CGPoint(x: p.x, y: p.y + 18), size: 22, color: labelColor, stroke: false)
         }
     }
 
@@ -727,8 +872,8 @@ struct GeoMapCanvas: View {
 
     private func drawPoints(_ context: GraphicsContext, dark: Bool, s: Double, centerX: Double, centerY: Double,
                             vpW: Double, vpH: Double) {
-        let dotRadius = min(6.0, max(3.0, 4.0 * log2(s + 1) / 4))
-        let isSelectedRadius = dotRadius * 2
+        let dotRadius = min(7.0, max(4.0, 5.0 * log2(s + 1) / 4))
+        let isSelectedRadius = dotRadius * 2.2
         for p in points {
             let pt = GeoMath.projectPoint(p.lat, p.lng)
             let screen = CGPoint(x: (pt.wx - centerX) * s + vpW / 2, y: (pt.wy - centerY) * s + vpH / 2)
@@ -754,12 +899,12 @@ struct GeoMapCanvas: View {
                 ? UIColor.white.withAlphaComponent(0.8)
                 : UIColor.black.withAlphaComponent(0.3)
             let strokeResolved = context.resolve(Text(text)
-                .font(.system(size: size))
+                .font(.system(size: size, weight: .medium))
                 .foregroundStyle(Color(uiColor: strokeColor)))
             context.draw(strokeResolved, at: point, anchor: .center)
         }
         let resolved = context.resolve(Text(text)
-            .font(.system(size: size))
+            .font(.system(size: size, weight: .medium))
             .foregroundStyle(Color(uiColor: color)))
         context.draw(resolved, at: point, anchor: .center)
     }
