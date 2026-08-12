@@ -1,12 +1,12 @@
 import Foundation
 
 enum DateUtil {
-    static var calendar: Calendar {
+    static let calendar: Calendar = {
         var cal = Calendar(identifier: .gregorian)
         cal.locale = Locale.current
         cal.timeZone = .current
         return cal
-    }
+    }()
 
     static func dayKeyOf(_ date: Date) -> String {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
@@ -49,11 +49,6 @@ enum DateUtil {
     }
 
     static func monthFirst(_ date: Date) -> Date {
-        let comps = calendar.dateComponents([.year, .month], from: date)
-        return calendar.date(from: comps) ?? date
-    }
-
-    static func startOfMonthDay(_ date: Date) -> Date {
         let comps = calendar.dateComponents([.year, .month], from: date)
         return calendar.date(from: comps) ?? date
     }

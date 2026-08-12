@@ -1,28 +1,10 @@
 import SwiftUI
 
-
-private enum MorphLog {
-    static let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("morph_log.txt")
-    static func write(_ name: String, _ v: Double) {
-        NSLog("MORPHLOG \(name) \(v)")
-        let line = "\(ProcessInfo.processInfo.environment["SLOW_MORPH"] ?? "?" ) \(name) \(v)\n"
-        if let h = try? FileHandle(forWritingTo: url) {
-            h.seekToEndOfFile()
-            h.write(line.data(using: .utf8)!)
-            try? h.close()
-        } else {
-            try? line.data(using: .utf8)?.write(to: url)
-        }
-    }
-}
-
 struct HomeView: View {
     var openEditor: (String) -> Void
 
     init(openEditor: @escaping (String) -> Void) {
         self.openEditor = openEditor
-        NSLog("MORPHLOG HomeView.init")
     }
 
     @State private var selectedDate = Date()
@@ -68,8 +50,6 @@ struct HomeView: View {
             }
         }
         .task { await loadInitial() }
-        .onChange(of: zoom) { _, v in MorphLog.write("zoom", v) }
-        .onChange(of: expand) { _, v in MorphLog.write("expand", v) }
         .onReceive(NotificationCenter.default.publisher(for: .diaryVersionChanged)) { _ in
             Task { await loadInitial() }
         }
@@ -81,7 +61,6 @@ struct HomeView: View {
     // MARK: - Data
 
     private func loadInitial() async {
-        MorphLog.write("startup", 0)
         let thisYear = DateUtil.calendar.component(.year, from: Date())
         let pageYear = DateUtil.calendar.component(.year, from: monthPage)
         let from = "\(min(thisYear, pageYear) - 1)-01-01"
@@ -175,12 +154,9 @@ struct HomeView: View {
             mode = .month
             zoom = 1
         }
-        MorphLog.write("ym-tx", zoom)
         withAnimation(CalendarLayout.morphAnimation) {
             zoom = 0
-        }
-        MorphLog.write("ym-anim", zoom)
-        DispatchQueue.main.asyncAfter(deadline: .now() + CalendarLayout.morphDuration + 0.05) {
+        } completion: {
             ymMorph = nil
         }
     }
@@ -199,8 +175,7 @@ struct HomeView: View {
         }
         withAnimation(CalendarLayout.morphAnimation) {
             expand = 1
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + CalendarLayout.morphDuration + 0.05) {
+        } completion: {
             mwMorphMonth = nil
         }
         Task { await reloadDayBlocks() }
@@ -220,25 +195,21 @@ struct HomeView: View {
             }
             withAnimation(CalendarLayout.morphAnimation) {
                 expand = 0
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + CalendarLayout.morphDuration + 0.05) {
+            } completion: {
                 mwMorphMonth = nil
             }
         case .month:
             var tr = Transaction()
             tr.disablesAnimations = true
-withTransaction(tr) {
-            yearPage = DateUtil.calendar.component(.year, from: monthPage)
-            ymMorph = (yearPage, monthPage)
-            mode = .year
-            zoom = 0
-        }
-        MorphLog.write("my-tx", zoom)
-        withAnimation(CalendarLayout.morphAnimation) {
-            zoom = 1
-        }
-        MorphLog.write("my-anim", zoom)
-            DispatchQueue.main.asyncAfter(deadline: .now() + CalendarLayout.morphDuration + 0.05) {
+            withTransaction(tr) {
+                yearPage = DateUtil.calendar.component(.year, from: monthPage)
+                ymMorph = (yearPage, monthPage)
+                mode = .year
+                zoom = 0
+            }
+            withAnimation(CalendarLayout.morphAnimation) {
+                zoom = 1
+            } completion: {
                 ymMorph = nil
             }
         case .year:

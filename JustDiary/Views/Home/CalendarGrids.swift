@@ -58,15 +58,24 @@ enum DayDraw {
         let circleC = top + contentH / 2
         let circleD = min(m.cellW - 2, contentH + 10, m.cellH - 2)
 
-        if isSelected || isToday {
+        if isSelected {
             context.fill(Path(ellipseIn: CGRect(x: cx - circleD / 2, y: circleC - circleD / 2,
                                                 width: circleD, height: circleD)),
                          with: .color(Theme.primary().opacity(cellAlpha)))
+        } else if isToday {
+            let lineWidth: CGFloat = 1.5
+            let inset = lineWidth / 2
+            context.stroke(Path(ellipseIn: CGRect(x: cx - circleD / 2 + inset, y: circleC - circleD / 2 + inset,
+                                                  width: circleD - lineWidth, height: circleD - lineWidth)),
+                           with: .color(Theme.primary().opacity(cellAlpha)),
+                           lineWidth: lineWidth)
         }
 
         let textColor: Color
-        if isSelected || isToday {
+        if isSelected {
             textColor = Theme.onPrimary()
+        } else if isToday {
+            textColor = Theme.primary()
         } else if inMonth {
             textColor = Theme.onSurface()
         } else {
@@ -74,14 +83,14 @@ enum DayDraw {
         }
 
         let num = context.resolve(Text("\(DateUtil.calendar.component(.day, from: day))")
-            .font(.system(size: m.dayFont, weight: isSelected || isToday ? .semibold : .medium))
+            .font(.system(size: m.dayFont, weight: isSelected ? .semibold : .medium))
             .foregroundStyle(textColor.opacity(cellAlpha)))
         context.draw(num, at: CGPoint(x: cx, y: numY), anchor: .center)
 
         if lineH > 0.5 {
             let lunar = context.resolve(Text(Lunar.dayLabel(day))
                 .font(.system(size: m.lunarFont))
-                .foregroundStyle(textColor.opacity(cellAlpha * (isSelected || isToday ? 0.95 : 0.75))))
+                .foregroundStyle(textColor.opacity(cellAlpha * (isSelected ? 0.95 : 0.75))))
             context.draw(lunar, at: CGPoint(x: cx, y: lunarY), anchor: .center)
         }
 
@@ -90,7 +99,7 @@ enum DayDraw {
             let uy = (lineH > 0.5 ? lunarY + lineH / 2 : numY + m.dayFont / 2) + 3
             let underline = Path(roundedRect: CGRect(x: cx - w / 2, y: uy, width: w, height: 2),
                                  cornerRadius: 1)
-            let color: Color = isSelected || isToday ? Theme.onPrimary() : Theme.primary()
+            let color: Color = isSelected ? Theme.onPrimary() : Theme.primary()
             context.fill(underline, with: .color(color.opacity(cellAlpha)))
         }
     }
