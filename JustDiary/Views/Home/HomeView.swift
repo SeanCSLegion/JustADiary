@@ -18,8 +18,9 @@ struct HomeView: View {
     @State private var flags: Set<String> = []
     @State private var dayBlocks: [EditBlock]?
     @State private var showFutureToast = false
+    @State private var settings = SettingsStore.load()
 
-    private var weekStart: String { SettingsStore.load().weekStart }
+    private var weekStart: String { settings.weekStart }
     private var showsLunar: Bool { AppLanguage.isZh }
 
     var body: some View {
@@ -54,6 +55,7 @@ struct HomeView: View {
             Task { await loadInitial() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .uiTickChanged)) { _ in
+            settings = SettingsStore.load()
             resetToToday()
         }
     }

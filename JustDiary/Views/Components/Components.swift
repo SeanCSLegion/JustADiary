@@ -208,18 +208,7 @@ struct GlassMenu: View {
     }
 }
 
-struct GlassMenuAnchor: ViewModifier {
-    @Binding var showing: Bool
 
-    func body(content: Content) -> some View {
-        content.overlay(alignment: .topTrailing) {
-            if showing {
-                GlassMenu(options: [], selected: "") { _ in }
-                    .opacity(0)
-            }
-        }
-    }
-}
 
 struct PressableGlassIcon: View {
     var systemName: String

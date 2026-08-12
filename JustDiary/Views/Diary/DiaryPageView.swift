@@ -32,6 +32,7 @@ struct DiaryPageView: View {
     @State private var autoFocusEditor = false
     @State private var shareImage: UIImage?
     @State private var showShareSheet = false
+    @State private var settings = SettingsStore.load()
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -57,6 +58,9 @@ struct DiaryPageView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .diaryVersionChanged)) { _ in
             Task { await load() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .uiTickChanged)) { _ in
+            settings = SettingsStore.load()
         }
         .sheet(isPresented: $showPhotoPicker) {
             PhotoPicker { image in
@@ -192,7 +196,7 @@ struct DiaryPageView: View {
                         if !showSearch { searchText = ""; hits = [] }
                     }
                 }
-                if canEditToday || SettingsStore.load().allowHistoryEdit {
+                if canEditToday || settings.allowHistoryEdit {
                     PressableGlassIcon(systemName: "square.and.pencil", size: 40) {
                         enterWrite()
                     }
@@ -451,7 +455,7 @@ struct DiaryPageView: View {
                     .background {
                         Capsule().fill(Theme.primaryContainer())
                     }
-                if SettingsStore.load().autoLoc {
+                if settings.autoLoc {
                     Button {
                         Haptics.tap()
                         if location == nil {
@@ -519,7 +523,7 @@ struct DiaryPageView: View {
     }
 
     private func beginLocateIfNeeded() {
-        guard SettingsStore.load().autoLoc, location == nil else { return }
+        guard settings.autoLoc, location == nil else { return }
         beginLocate()
     }
 
@@ -573,7 +577,7 @@ struct DiaryPageView: View {
     // MARK: - Mode transitions
 
     private func enterWrite() {
-        if actualDayKey != DateUtil.dayKeyOf(Date()), !SettingsStore.load().allowHistoryEdit {
+        if actualDayKey != DateUtil.dayKeyOf(Date()), !settings.allowHistoryEdit {
             alertItem = .info(title: L10n.str("editor_history_no_add_title"),
                                message: L10n.str("editor_history_no_add_msg"))
             return
@@ -605,7 +609,7 @@ struct DiaryPageView: View {
     private func enterEditBlock(index: Int) {
         guard index < blocks.count else { return }
         let block = blocks[index]
-        if actualDayKey != DateUtil.dayKeyOf(Date()), !SettingsStore.load().allowHistoryEdit {
+        if actualDayKey != DateUtil.dayKeyOf(Date()), !settings.allowHistoryEdit {
             alertItem = .info(title: L10n.str("editor_readonly_title"),
                                message: L10n.str("editor_readonly_msg"))
             return
@@ -677,7 +681,6 @@ struct DiaryPageView: View {
             }
             return
         }
-        let settings = SettingsStore.load()
         let blockDayKey = DateUtil.dayKeyForUtc(startUtc, dayStartHour: settings.dayStartHour)
         if blockDayKey != DateUtil.dayKeyOf(Date()) {
             let displayDay = L10n.formatDayKey(blockDayKey)
@@ -692,7 +695,6 @@ struct DiaryPageView: View {
     }
 
     private func saveByDayKey(_ dayKey: String, contentJson: String) {
-        let settings = SettingsStore.load()
         let region = location?.region ?? LocRegion(country: "", countryCode: "", region1: "",
                                                    region2: "", region3: "", locQuality: LocQuality.none)
         Task {
@@ -714,7 +716,7 @@ struct DiaryPageView: View {
                                                                   locPrecision: location?.locPrecision ?? LocPrecision.none,
                                                                   region: region,
                                                                   contentJson: contentJson,
-                                                                  dayStartHour: settings.dayStartHour)
+                                                                   dayStartHour: self.settings.dayStartHour)
                 }
                 actualDayKey = dayKey
                 DiaryRepository.shared.bumpDiaryVersion()

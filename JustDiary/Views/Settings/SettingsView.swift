@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 struct SettingsView: View {
     @State private var settings = SettingsStore.load()
@@ -68,6 +67,7 @@ struct SettingsView: View {
                             hour: Binding(get: { settings.dayStartHour },
                                           set: { settings.dayStartHour = $0 }),
                             minute: Binding(get: { 0 }, set: { _ in }),
+                            isPresented: $showDayStartPicker,
                             onApply: { applyDayStart() })
                 .presentationDetents([.height(320)])
                 .presentationBackground(.ultraThinMaterial)
@@ -78,6 +78,7 @@ struct SettingsView: View {
                                           set: { settings.remindHour = $0 }),
                             minute: Binding(get: { settings.remindMinute },
                                             set: { settings.remindMinute = $0 }),
+                            isPresented: $showRemindPicker,
                             onApply: { applyRemindTime() })
                 .presentationDetents([.height(320)])
                 .presentationBackground(.ultraThinMaterial)
@@ -101,6 +102,9 @@ struct SettingsView: View {
                 }
                 .transition(.opacity)
             }
+        }
+        .alert(item: $resultAlert) { alert in
+            Alert(title: Text(alert.title), message: Text(alert.message))
         }
     }
 
@@ -506,7 +510,7 @@ struct SettingsView: View {
     // MARK: - Picker sheet
 
     private func hourPickerSheet(title: String, hour: Binding<Int>, minute: Binding<Int>,
-                                 onApply: @escaping () -> Void) -> some View {
+                                 isPresented: Binding<Bool>, onApply: @escaping () -> Void) -> some View {
         VStack(spacing: 16) {
             HStack {
                 Text(title)
@@ -535,8 +539,7 @@ struct SettingsView: View {
             }
             Button {
                 onApply()
-                showDayStartPicker = false
-                showRemindPicker = false
+                isPresented.wrappedValue = false
             } label: {
                 Text(L10n.str("save"))
                     .font(.system(size: 14, weight: .medium))
