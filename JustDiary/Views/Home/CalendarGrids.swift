@@ -51,7 +51,7 @@ enum DayDraw {
                      todayKey: String,
                      flags: Set<String>,
                      anchorMonth: Date?,
-                     dimAdjacent: Bool) {
+                     adjacentAlpha: Double = 1) {
         let dayKey = DateUtil.dayKeyOf(day)
         let isSelected = dayKey == selectedKey
         let isToday = dayKey == todayKey
@@ -61,7 +61,7 @@ enum DayDraw {
         if isFuture {
             cellAlpha *= 0.35
         } else if !inMonth {
-            cellAlpha *= dimAdjacent ? 0.45 : 1
+            cellAlpha *= adjacentAlpha
         }
         guard cellAlpha > 0.01 else { return }
 
@@ -175,7 +175,7 @@ struct MonthCanvas: View {
                     }
                     DayDraw.draw(context, day: day, col: col, rowY: rowY, m: metrics, alpha: 1,
                                  selectedKey: selectedKey, todayKey: todayKey, flags: flags,
-                                 anchorMonth: anchorMonth, dimAdjacent: true)
+                                 anchorMonth: anchorMonth, adjacentAlpha: 1)
                 }
             }
         }
@@ -221,6 +221,8 @@ struct WeekRowCanvas: View {
     var flags: Set<String>
     var alpha: Double = 1
     var showDivider: Bool = false
+    var anchorMonth: Date? = nil
+    var adjacentAlpha: Double = 1
     var onTapDay: ((Date) -> Void)? = nil
 
     var body: some View {
@@ -234,7 +236,7 @@ struct WeekRowCanvas: View {
             for (col, day) in week.days.enumerated() {
                 DayDraw.draw(context, day: day, col: col, rowY: 0, m: metrics, alpha: alpha,
                              selectedKey: selectedKey, todayKey: todayKey, flags: flags,
-                             anchorMonth: nil, dimAdjacent: false)
+                             anchorMonth: anchorMonth, adjacentAlpha: adjacentAlpha)
             }
         }
         .contentShape(Rectangle())
@@ -288,21 +290,24 @@ struct YearPageView: View {
     var body: some View {
         let card = CalendarLayout.yearCardSize(in: containerSize)
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 8) {
-                Text(L10n.fmt("date_year", year))
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundStyle(Theme.primary())
-                Spacer()
-                if AppLanguage.isZh {
-                    let ref = DateUtil.calendar.date(from: DateComponents(year: year, month: 6, day: 1)) ?? Date()
-                    Text(Lunar.yearZodiacLabel(ref))
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.onSurfaceVariant().opacity(0.7))
+            VStack(spacing: 0) {
+                HStack(alignment: .center, spacing: 8) {
+                    Text(L10n.fmt("date_year", year))
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundStyle(Theme.primary())
+                    Spacer()
+                    if AppLanguage.isZh {
+                        let ref = DateUtil.calendar.date(from: DateComponents(year: year, month: 6, day: 1)) ?? Date()
+                        Text(Lunar.yearZodiacLabel(ref))
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.onSurfaceVariant().opacity(0.7))
+                    }
                 }
+                .padding(.horizontal, 20)
+                .frame(height: CalendarLayout.yearTitleH - 8)
+                Divider().padding(.horizontal, 20)
             }
-            .padding(.horizontal, 20)
-            .frame(height: CalendarLayout.yearTitleH - 8)
-            Divider().padding(.horizontal, 20)
+            .frame(height: CalendarLayout.yearTitleH, alignment: .bottom)
             VStack(spacing: CalendarLayout.yearSpacing) {
                 ForEach(0..<4, id: \.self) { row in
                     HStack(spacing: CalendarLayout.yearSpacing) {
@@ -323,7 +328,7 @@ struct YearPageView: View {
             .padding(.top, 8)
             .padding(.horizontal, CalendarLayout.yearPad)
         }
-        .frame(width: containerSize.width, height: containerSize.height)
+        .frame(width: containerSize.width, height: containerSize.height, alignment: .top)
     }
 
     private func miniMonth(month: Int) -> some View {

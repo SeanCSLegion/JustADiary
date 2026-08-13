@@ -55,7 +55,7 @@ enum CalendarLayout {
         if ProcessInfo.processInfo.environment["SLOW_MORPH"] == "1" { return 3.0 }
         if ProcessInfo.processInfo.arguments.contains("-slow-morph") { return 3.0 }
         #endif
-        return 0.8
+        return 0.6
     }()
     static var morphAnimation: Animation { .easeInOut(duration: morphDuration) }
 

@@ -71,7 +71,7 @@ struct YearMonthMorphView: View, Animatable {
                 .position(x: card.midX, y: card.minY + CalendarLayout.miniPad + CalendarLayout.miniTitleH / 2)
                 .opacity(labelOpacity)
         }
-        .frame(width: size.width, height: size.height)
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
         .clipped()
         .allowsHitTesting(false)
     }
@@ -126,7 +126,7 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
                 .offset(y: stripBottom + 96 * (1 - contentT))
                 .opacity(CL.clamp01((progress - 0.3) / 0.5))
         }
-        .frame(width: size.width, height: size.height)
+        .frame(width: size.width, height: size.height, alignment: .top)
         .clipped()
         .allowsHitTesting(false)
     }
@@ -155,6 +155,8 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
                              flags: flags,
                              alpha: alpha,
                              showDivider: i > 0,
+                             anchorMonth: month,
+                             adjacentAlpha: progress,
                              onTapDay: nil)
             .frame(width: size.width, height: metrics.cellH)
             .offset(y: y)
