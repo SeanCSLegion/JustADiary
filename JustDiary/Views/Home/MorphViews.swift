@@ -40,6 +40,7 @@ struct YearMonthMorphView: View, Animatable {
         let anchor = UnitPoint(x: card.midX / size.width, y: card.midY / size.height)
         let yearOpacity = CL.clamp01((progress - 0.45) / 0.55)
         let yearScale = 1 + (1 - progress) * 0.6
+        let labelOpacity = CL.clamp01((progress - 0.7) / 0.3)
         return ZStack(alignment: .topLeading) {
             YearPageView(year: year,
                          selectedDate: selectedDate,
@@ -65,6 +66,10 @@ struct YearMonthMorphView: View, Animatable {
                         onTapDay: nil)
                 .frame(width: grid.width, height: grid.height)
                 .offset(x: grid.minX, y: grid.minY)
+            MiniMonthLabel(year: year, month: monthNum)
+                .frame(width: card.width - CalendarLayout.miniPad * 2, alignment: .leading)
+                .position(x: card.midX, y: card.minY + CalendarLayout.miniPad + CalendarLayout.miniTitleH / 2)
+                .opacity(labelOpacity)
         }
         .frame(width: size.width, height: size.height)
         .clipped()
@@ -100,7 +105,7 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
         let weeks = CalendarLayout.weeks(inMonth: month, ws: weekStart)
         let selRow = CalendarLayout.weekRowIndex(of: selectedDate, in: month, ws: weekStart)
         let titleH = CalendarLayout.bigTitleH
-        let headH = 12.0 - CalendarLayout.weekdayHeaderH
+        let headH = CalendarLayout.weekdayHeaderH
         let cellH = CalendarLayout.monthCellH(areaH: size.height)
         let mMetrics = CalendarLayout.monthMetrics(width: size.width, areaH: size.height, lunar: showsLunar)
         let wMetrics = CalendarLayout.weekMetrics(width: size.width, lunar: showsLunar)

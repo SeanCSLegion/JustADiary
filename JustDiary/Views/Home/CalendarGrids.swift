@@ -262,6 +262,20 @@ struct MonthBigTitle: View {
     }
 }
 
+struct MiniMonthLabel: View {
+    var year: Int
+    var month: Int
+
+    var body: some View {
+        let thisYear = DateUtil.calendar.component(.year, from: Date())
+        let thisMonth = DateUtil.calendar.component(.month, from: Date())
+        let isCurrent = year == thisYear && month == thisMonth
+        Text(L10n.monthName(month))
+            .font(.system(size: 15, weight: isCurrent ? .bold : .semibold))
+            .foregroundStyle(isCurrent ? Theme.primary() : Theme.onSurface())
+    }
+}
+
 struct YearPageView: View {
     var year: Int
     var selectedDate: Date
@@ -272,8 +286,6 @@ struct YearPageView: View {
     var onSelectMonth: (Int) -> Void
 
     var body: some View {
-        let thisYear = DateUtil.calendar.component(.year, from: Date())
-        let thisMonth = DateUtil.calendar.component(.month, from: Date())
         let card = CalendarLayout.yearCardSize(in: containerSize)
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 8) {
@@ -300,7 +312,7 @@ struct YearPageView: View {
                                 Color.clear
                                     .frame(width: card.width, height: card.height)
                             } else {
-                                miniMonth(month: month, isCurrent: year == thisYear && month == thisMonth)
+                                miniMonth(month: month)
                                     .contentShape(Rectangle())
                                     .onTapGesture { onSelectMonth(month) }
                             }
@@ -314,7 +326,7 @@ struct YearPageView: View {
         .frame(width: containerSize.width, height: containerSize.height)
     }
 
-    private func miniMonth(month: Int, isCurrent: Bool) -> some View {
+    private func miniMonth(month: Int) -> some View {
         var comps = DateComponents()
         comps.year = year
         comps.month = month
@@ -323,9 +335,7 @@ struct YearPageView: View {
         let grid = CalendarLayout.miniGridRect(month: month, in: containerSize)
         let weeks = CalendarLayout.weeks(inMonth: monthDate, ws: weekStart)
         return VStack(alignment: .leading, spacing: 0) {
-            Text(L10n.monthName(month))
-                .font(.system(size: 15, weight: isCurrent ? .bold : .semibold))
-                .foregroundStyle(isCurrent ? Theme.primary() : Theme.onSurface())
+            MiniMonthLabel(year: year, month: month)
                 .frame(height: CalendarLayout.miniTitleH, alignment: .leading)
                 .padding(.horizontal, CalendarLayout.miniPad)
             MonthCanvas(weeks: weeks,
