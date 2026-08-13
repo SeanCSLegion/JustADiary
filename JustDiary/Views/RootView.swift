@@ -89,6 +89,14 @@ struct RootView: View {
             if ProcessInfo.processInfo.arguments.contains("-ui-test-open-editor") {
                 LaunchIntent.openEditor(dayKey: DateUtil.dayKeyOf(Date()))
             }
+            if ProcessInfo.processInfo.arguments.contains("-ui-test-import") {
+                Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    await BackupService.runAutoImport()
+                    DiaryRepository.shared.bumpDiaryVersion()
+                    DiaryRepository.shared.bumpUiTick()
+                }
+            }
             if let idx = ProcessInfo.processInfo.arguments.firstIndex(of: "-ui-test-open-day"),
                ProcessInfo.processInfo.arguments.count > idx + 1 {
                 let key = ProcessInfo.processInfo.arguments[idx + 1]

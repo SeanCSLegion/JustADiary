@@ -52,29 +52,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         Task {
             await DiaryRepository.shared.prepare()
             await ReminderService.rearm()
-            if ProcessInfo.processInfo.arguments.contains("-ui-test-import") {
-                await runAutoImport()
-            }
-        }
-    }
-
-    private func runAutoImport() async {
-        let args = ProcessInfo.processInfo.arguments
-        guard let idx = args.firstIndex(of: "-ui-test-import"), args.count > idx + 1 else { return }
-        let path = args[idx + 1]
-        let mode = args.contains("-ui-test-import-overwrite") ? "overwrite" : "skip"
-        let resultLog = NSHomeDirectory() + "/Documents/import-result.log"
-        try? "start import \(path) mode=\(mode)\n".write(toFile: resultLog, atomically: true, encoding: .utf8)
-        do {
-            let stats = try await BackupService.importBackup(fileURL: URL(fileURLWithPath: path), mode: mode)
-            let msg = """
-            OK importedDays=\(stats.importedDays) skippedDays=\(stats.skippedDays) overwrittenDays=\(stats.overwrittenDays) blocks=\(stats.importedBlocks) images=\(stats.importedImages) settings=\(stats.settingsRestored)
-            """
-            try? msg.appendToFile2(resultLog)
-            try? msg.write(toFile: NSHomeDirectory() + "/Documents/import-ok.log", atomically: true, encoding: .utf8)
-        } catch {
-            try? "FAIL \(error)\n".write(toFile: NSHomeDirectory() + "/Documents/import-fail.log", atomically: true, encoding: .utf8)
-            try? "FAIL \(error)\n".appendToFile2(resultLog)
         }
     }
 }

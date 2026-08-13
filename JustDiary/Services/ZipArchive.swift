@@ -1,6 +1,7 @@
 import Foundation
 import Compression
 
+
 struct ZipEntry {
     var path: String
     var data: Data
@@ -16,13 +17,15 @@ enum ZipArchive {
             guard nameData.count <= Int(UInt16.max),
                   entry.data.count <= Int(UInt32.max) else { throw ZipError.tooLarge }
             let crc = CRC32.compute(entry.data)
-            let compressed = compressDeflate(entry.data)
+            let packed = compressRawDeflate(entry.data)
+            let compressed = packed.data
+            let method = packed.method
             var localHeader = Data()
             var lh = Data()
             lh.appendUInt32(0x04034b50)
             lh.appendUInt16(20)
             lh.appendUInt16(0)
-            lh.appendUInt16(8)
+            lh.appendUInt16(method)
             lh.appendUInt16(0)
             lh.appendUInt16(0)
             lh.appendUInt32(crc)
@@ -41,7 +44,7 @@ enum ZipArchive {
             ch.appendUInt16(20)
             ch.appendUInt16(20)
             ch.appendUInt16(0)
-            ch.appendUInt16(8)
+            ch.appendUInt16(method)
             ch.appendUInt16(0)
             ch.appendUInt16(0)
             ch.appendUInt32(crc)
@@ -136,10 +139,14 @@ enum ZipArchive {
         throw ZipError.invalid
     }
 
-    // MARK: - Raw deflate via Compression framework
+    // MARK: - Raw deflate (PKZIP method 8，与 ArkTS/标准 unzip 互通)
 
-    private static func compressDeflate(_ data: Data) -> Data {
-        guard !data.isEmpty else { return Data() }
+    /// 标准 zip method 8 数据流：raw deflate。
+    /// 实测 Apple Compression 框架的 COMPRESSION_ZLIB 输出本身就是 raw deflate（无 zlib 头），
+    /// 直接写入即为标准 zip 流，任何标准解压器（python / ArkTS / 系统工具）均可读取；
+    /// 压缩失败时退回 method 0（store）。
+    private static func compressRawDeflate(_ data: Data) -> (data: Data, method: UInt16) {
+        guard !data.isEmpty else { return (Data(), 0) }
         let srcSize = data.count
         let dstCapacity = srcSize + srcSize / 8 + 1024
         var dst = Data(count: dstCapacity)
@@ -150,12 +157,31 @@ enum ZipArchive {
                                           nil, COMPRESSION_ZLIB)
             }
         }
-        guard encoded > 0 else { return data }
-        return dst.subdata(in: 0..<encoded)
+        guard encoded > 0, encoded < data.count else { return (data, 0) }
+        return (dst.subdata(in: 0..<encoded), 8)
     }
 
+    /// 解压 method 8 数据流：Compression 框架原生解 raw deflate；
+    /// 失败且带 zlib 头时剥掉 2 字节头 + 4 字节 adler32 尾重试（兼容 zlib 包装流）。
     private static func decompressDeflate(_ raw: Data, expectedSize: Int) throws -> Data {
         guard expectedSize > 0 else { return Data() }
+        if let decoded = decodeCompression(raw, expectedSize: expectedSize) {
+            return decoded
+        }
+        let isZlibWrapped = raw.count >= 6 && (raw[raw.startIndex] & 0x0F) == 0x08 &&
+            ((UInt32(raw[raw.startIndex]) << 8) | UInt32(raw[raw.startIndex + 1])) % 31 == 0
+        if isZlibWrapped {
+            var stripped = raw
+            stripped.removeFirst(2)
+            stripped.removeLast(4)
+            if let decoded = decodeCompression(stripped, expectedSize: expectedSize) {
+                return decoded
+            }
+        }
+        throw ZipError.invalid
+    }
+
+    private static func decodeCompression(_ raw: Data, expectedSize: Int) -> Data? {
         var output = Data(count: expectedSize)
         let decoded: Int = output.withUnsafeMutableBytes { dstPtr in
             raw.withUnsafeBytes { srcPtr in
@@ -164,8 +190,8 @@ enum ZipArchive {
                                           nil, COMPRESSION_ZLIB)
             }
         }
-        guard decoded > 0 else { throw ZipError.invalid }
-        return output.subdata(in: 0..<decoded)
+        guard decoded == expectedSize else { return nil }
+        return output
     }
 }
 
