@@ -21,6 +21,12 @@ final class SQLite {
         if let db { sqlite3_close(db) }
     }
 
+    func closeQuietly() {
+        guard let db else { return }
+        sqlite3_close(db)
+        self.db = nil
+    }
+
     var userVersion: Int {
         get {
             guard let row = query("PRAGMA user_version;").first,
@@ -42,7 +48,10 @@ final class SQLite {
     }
 
     func query(_ sql: String, _ args: [Any?] = []) -> [[String: Any]] {
-        guard let stmt = try? prepare(sql, args) else { return [] }
+        guard let stmt = try? prepare(sql, args) else {
+            Log.db.error("query prepare failed: \(sql, privacy: .public)")
+            return []
+        }
         defer { sqlite3_finalize(stmt) }
         var rows: [[String: Any]] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
@@ -52,7 +61,10 @@ final class SQLite {
     }
 
     func queryFirst(_ sql: String, _ args: [Any?] = []) -> [String: Any]? {
-        guard let stmt = try? prepare(sql, args) else { return nil }
+        guard let stmt = try? prepare(sql, args) else {
+            Log.db.error("queryFirst prepare failed: \(sql, privacy: .public)")
+            return nil
+        }
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         return columnValues(stmt)

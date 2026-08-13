@@ -1,119 +1,80 @@
 import SwiftUI
 import UIKit
-import PhotosUI
 
 struct DiaryPageView: View {
     @Environment(\.dismiss) private var dismiss
     var dayKey: String?
 
-    @State private var actualDayKey = ""
-    @State private var blocks: [EditBlock] = []
-    @State private var isRead = true
-    @State private var editingIndex: Int? = nil
-    @State private var selectMode = false
-    @State private var selectedIds: Set<Int64> = []
-    @State private var controller = RichEditorController()
+    @State private var vm = DiaryViewModel()
     @State private var showPhotoPicker = false
-    @State private var showSearch = false
-    @State private var searchText = ""
-    @State private var hits: [SearchHit] = []
-    @State private var hitIndex = 0
-    @State private var previewImage: PreviewItem?
-    @State private var location: LocationSnapshot?
-    @State private var locating = false
-    @State private var keyboardHeight: CGFloat = 0
     @State private var showPrecisionMenu = false
-    @State private var alertItem: AlertItem?
-    @State private var scrollTarget: String?
-    @State private var loaded = false
-    @State private var startUtc: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
-    @State private var loadToken = 0
-    @State private var loadParts: [ContentPart] = []
-    @State private var autoFocusEditor = false
-    @State private var shareImage: UIImage?
-    @State private var showShareSheet = false
-    @State private var settings = SettingsStore.load()
 
     var body: some View {
         ZStack(alignment: .bottom) {
             BlobBackground(dense: true)
             content
-            if !isRead {
-                FontToolbar(controller: controller, onTap: {
-                    controller.textView?.becomeFirstResponder()
+            if !vm.isRead {
+                FontToolbar(controller: vm.controller, onTap: {
+                    vm.controller.textView?.becomeFirstResponder()
                 })
-                .padding(.bottom, keyboardHeight > 0 ? keyboardHeight + 8 : 84)
+                .padding(.bottom, vm.keyboardHeight > 0 ? vm.keyboardHeight + 8 : 84)
                 .transition(.opacity)
             }
         }
         .ignoresSafeArea(edges: .bottom)
-        .task { await load() }
+        .task {
+            vm.dayKey = dayKey
+            vm.onDismiss = { dismiss() }
+            await vm.load()
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
-            if let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
-                keyboardHeight = frame.origin.y < Screen.height ? frame.height : 0
-            }
+            handleKeyboard(note)
         }
         .onReceive(NotificationCenter.default.publisher(for: .diaryVersionChanged)) { _ in
-            Task { await load() }
+            Task { await vm.load() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .uiTickChanged)) { _ in
-            settings = SettingsStore.load()
+            vm.refreshSettings()
         }
-        .onChange(of: searchText) { _, _ in
-            let gen = searchGen + 1
-            searchGen = gen
-            Task {
-                try? await Task.sleep(nanoseconds: 150_000_000)
-                guard searchGen == gen else { return }
-                await MainActor.run { computeHits() }
-            }
+        .onChange(of: vm.searchText) { _, _ in
+            vm.onSearchTextChanged()
         }
         .sheet(isPresented: $showPhotoPicker) {
             PhotoPicker { image in
-                insertImage(image)
+                vm.insertImage(image)
             }
         }
-        .sheet(isPresented: $showShareSheet) {
-            if let image = shareImage {
-                ShareLink(item: Image(uiImage: image), preview: SharePreview(L10n.formatDayKey(actualDayKey), image: Image(uiImage: image)))
+        .sheet(isPresented: $vm.showShareSheet) {
+            if let image = vm.shareImage {
+                ShareLink(item: Image(uiImage: image), preview: SharePreview(L10n.formatDayKey(vm.actualDayKey), image: Image(uiImage: image)))
                     .buttonStyle(.glassProminent)
                     .padding(24)
                     .presentationDetents([.height(170)])
             }
         }
-        .fullScreenCover(item: $previewImage) { item in
+        .fullScreenCover(item: $vm.previewImage) { item in
             ImagePreviewView(item: item)
         }
-        .alert(item: $alertItem) { item in
-            if let secondary = item.secondaryLabel {
-                return Alert(title: Text(item.title), message: Text(item.message),
-                             primaryButton: .default(Text(secondary)) {
-                    item.primaryAction?()
-                },
-                             secondaryButton: .cancel(Text(item.cancelLabel)))
-            }
-            return Alert(title: Text(item.title), message: Text(item.message),
-                         dismissButton: .default(Text(item.cancelLabel)) {
-                item.primaryAction?()
-            })
-        }
+        .appAlert(item: $vm.alertItem)
     }
 
-    struct AlertItem: Identifiable {
-        let id = UUID()
-        var title: String
-        var message: String
-        var cancelLabel: String = L10n.str("cancel")
-        var secondaryLabel: String?
-        var primaryAction: (() -> Void)?
+    // MARK: - Keyboard
 
-        static func confirm(title: String, message: String, confirmLabel: String,
-                            action: (() -> Void)? = nil) -> AlertItem {
-            AlertItem(title: title, message: message, secondaryLabel: confirmLabel, primaryAction: action)
+    private func handleKeyboard(_ note: Notification) {
+        guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let height = frame.origin.y < Screen.height ? frame.height : 0
+        guard height != vm.keyboardHeight else { return }
+        let duration = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+        let curveValue = (note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? 0
+        let animation: Animation
+        switch curveValue {
+        case 1: animation = .easeIn(duration: duration)
+        case 2: animation = .easeOut(duration: duration)
+        case 3: animation = .linear(duration: duration)
+        default: animation = .easeInOut(duration: duration)
         }
-
-        static func info(title: String, message: String, action: (() -> Void)? = nil) -> AlertItem {
-            AlertItem(title: title, message: message, primaryAction: action)
+        withAnimation(animation) {
+            vm.keyboardHeight = height
         }
     }
 
@@ -127,44 +88,45 @@ struct DiaryPageView: View {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 12) {
-                        if isRead {
-                            if showSearch {
+                        if vm.isRead {
+                            if vm.showSearch {
                                 readSearchBar
                             }
                             readHero
-                            ForEach(blocks.indices, id: \.self) { i in
-                                blockCard(blocks[i], index: i)
-                                    .id("block-\(blocks[i].id)")
+                            ForEach(vm.blocks.indices, id: \.self) { i in
+                                blockCard(vm.blocks[i], index: i)
+                                    .id("block-\(vm.blocks[i].id)")
                             }
                         } else {
                             editorCard
                                 .id("editor-card")
                         }
-                        Color.clear.frame(height: keyboardHeight > 0 ? keyboardHeight + 160 : 140)
+                        Color.clear.frame(height: vm.keyboardHeight > 0 ? vm.keyboardHeight + 160 : 140)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
+                    .animation(.diaryStandard, value: vm.blocks.map(\.id))
                 }
-                .onChange(of: scrollTarget) { _, target in
+                .onChange(of: vm.scrollTarget) { _, target in
                     guard let target else { return }
-                    withAnimation(.easeInOut(duration: 0.25)) {
+                    withAnimation(.diaryStandard) {
                         proxy.scrollTo(target, anchor: .center)
                     }
-                    self.scrollTarget = nil
+                    vm.scrollTarget = nil
                 }
-                .onChange(of: isRead) { _, read in
+                .onChange(of: vm.isRead) { _, read in
                     if !read {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            withAnimation(.easeInOut(duration: 0.25)) {
+                            withAnimation(.diaryStandard) {
                                 proxy.scrollTo("editor-card", anchor: .center)
                             }
                         }
                     }
                 }
-                .onChange(of: keyboardHeight) { _, height in
-                    if !isRead, height > 0 {
+                .onChange(of: vm.keyboardHeight) { _, height in
+                    if !vm.isRead, height > 0 {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                            withAnimation(.easeInOut(duration: 0.25)) {
+                            withAnimation(.diaryStandard) {
                                 proxy.scrollTo("editor-card", anchor: .center)
                             }
                         }
@@ -177,122 +139,73 @@ struct DiaryPageView: View {
 
     private var topBar: some View {
         HStack(spacing: 8) {
-            PressableGlassIcon(systemName: "chevron.left", size: 40) {
-                handleBack()
+            PressableGlassIcon(systemName: "chevron.left", size: 40,
+                               accessibilityLabel: L10n.str("a11y_back")) {
+                vm.handleBack()
             }
             Spacer()
-            if selectMode {
-                Text(L10n.fmt("editor_delete_count", selectedIds.count))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Theme.primary())
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background {
-                        Capsule().fill(Theme.primaryContainer())
-                            .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
-                            .shadow(color: Theme.glowColor(), radius: 10, y: 2)
-                    }
+            if vm.selectMode {
+                GlassCountBadge(text: L10n.fmt("editor_delete_count", vm.selectedIds.count))
                     .onTapGesture {
-                        confirmDeleteSelected()
+                        Haptics.tap()
+                        vm.confirmDeleteSelected()
                     }
-            } else if isRead {
-                PressableGlassIcon(systemName: "magnifyingglass", size: 40, active: showSearch) {
-                    withAnimation(.easeOut(duration: 0.22)) {
-                        showSearch.toggle()
-                        if !showSearch { searchText = ""; hits = [] }
-                    }
-                }
-                if canEditToday || settings.allowHistoryEdit {
-                    PressableGlassIcon(systemName: "square.and.pencil", size: 40) {
-                        enterWrite()
+                    .accessibilityAddTraits(.isButton)
+            } else if vm.isRead {
+                PressableGlassIcon(systemName: "magnifyingglass", size: 40, active: vm.showSearch,
+                                   accessibilityLabel: L10n.str("search_title")) {
+                    withAnimation(.diaryQuick) {
+                        vm.showSearch.toggle()
+                        if !vm.showSearch { vm.searchText = ""; vm.hits = [] }
                     }
                 }
-                PressableGlassIcon(systemName: "square.and.arrow.up", size: 40) {
-                    shareDiary()
+                if vm.canEditToday || vm.settings.allowHistoryEdit {
+                    PressableGlassIcon(systemName: "square.and.pencil", size: 40,
+                                       accessibilityLabel: L10n.str("index_write")) {
+                        vm.enterWrite()
+                    }
+                }
+                PressableGlassIcon(systemName: "square.and.arrow.up", size: 40,
+                                   accessibilityLabel: L10n.str("a11y_share")) {
+                    vm.shareDiary()
                 }
             } else {
-                PressableGlassIcon(systemName: "photo", size: 40) {
+                PressableGlassIcon(systemName: "photo", size: 40,
+                                   accessibilityLabel: L10n.str("a11y_insert_image")) {
                     showPhotoPicker = true
                 }
-                PressableGlassIcon(systemName: "arrow.uturn.backward", size: 40) {
-                    loadParts = editingOriginalParts
-                    loadToken += 1
-                    controller.refreshTypingAttributes()
+                PressableGlassIcon(systemName: "arrow.uturn.backward", size: 40,
+                                   accessibilityLabel: L10n.str("editor_redo")) {
+                    vm.loadParts = vm.editingOriginalParts
+                    vm.loadToken += 1
+                    vm.controller.refreshTypingAttributes()
                 }
-                PressableGlassIcon(systemName: "checkmark", size: 40, active: true) {
-                    saveEditor()
+                PressableGlassIcon(systemName: "checkmark", size: 40, active: true,
+                                   accessibilityLabel: L10n.str("save")) {
+                    vm.saveEditor()
                 }
             }
         }
         .padding(.horizontal, 4)
     }
 
-    @State private var editingOriginalParts: [ContentPart] = []
-
-    private var canEditToday: Bool {
-        actualDayKey == DateUtil.dayKeyOf(Date())
-    }
-
     // MARK: - In-page search
 
     private var readSearchBar: some View {
-        GlassSearchField(text: $searchText,
+        GlassSearchField(text: $vm.searchText,
                          placeholder: L10n.str("read_search_placeholder"),
                          cornerRadius: 18,
                          trailing: {
-            if hits.count > 0 {
-                Text("\(min(hitIndex + 1, hits.count))/\(hits.count)")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Theme.primary())
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background {
-                        Capsule().fill(Theme.primaryContainer())
-                            .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
-                    }
+            if vm.hits.count > 0 {
+                GlassCountBadge(text: "\(min(vm.hitIndex + 1, vm.hits.count))/\(vm.hits.count)")
                 GlassIconButton(systemName: "chevron.up", size: 26) {
-                    stepHit(-1)
+                    vm.stepHit(-1)
                 }
                 GlassIconButton(systemName: "chevron.down", size: 26) {
-                    stepHit(1)
+                    vm.stepHit(1)
                 }
             }
         })
-    }
-
-    @State private var searchGen = 0
-
-    private func computeHits() {
-        let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !keyword.isEmpty else {
-            hits = []
-            hitIndex = 0
-            return
-        }
-        var found: [SearchHit] = []
-        for block in blocks {
-            let parts = ContentFlatten.parseContent(block.contentJson)
-            for (pi, part) in parts.enumerated() {
-                let text = ContentFlatten.flattenPart(part)
-                let lower = text.lowercased()
-                var searchRange = lower.startIndex..<lower.endIndex
-                while let range = lower.range(of: keyword.lowercased(), range: searchRange) {
-                    let start = lower.distance(from: lower.startIndex, to: range.lowerBound)
-                    found.append(SearchHit(blockId: block.id, partIndex: pi, start: start, len: keyword.count))
-                    searchRange = range.upperBound..<lower.endIndex
-                    if searchRange.isEmpty { break }
-                }
-            }
-        }
-        hits = found
-        hitIndex = 0
-    }
-
-    private func stepHit(_ delta: Int) {
-        guard !hits.isEmpty else { return }
-        hitIndex = (hitIndex + delta + hits.count) % hits.count
-        let hit = hits[hitIndex]
-        scrollTarget = "block-\(hit.blockId)"
     }
 
     // MARK: - Read hero
@@ -302,10 +215,10 @@ struct DiaryPageView: View {
             FlowLightOverlay()
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Text(L10n.formatDayKey(actualDayKey))
+                    Text(L10n.formatDayKey(vm.actualDayKey))
                         .font(.system(size: 20, weight: .medium))
                         .foregroundStyle(Theme.onSurface())
-                    if canEditToday {
+                    if vm.canEditToday {
                         Text(L10n.str("index_card_today"))
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.white)
@@ -319,11 +232,11 @@ struct DiaryPageView: View {
                     }
                 }
                 HStack(spacing: 8) {
-                    if let first = blocks.first {
+                    if let first = vm.blocks.first {
                         Text(L10n.startLine(first.startTimeUtc, locText: first.locText))
                             .font(.system(size: 13))
                             .foregroundStyle(Theme.onSurfaceVariant())
-                        Text(L10n.fmt("read_hero_segments", blocks.count))
+                        Text(L10n.fmt("read_hero_segments", vm.blocks.count))
                             .font(.system(size: 13))
                             .foregroundStyle(Theme.onSurfaceVariant())
                     } else {
@@ -343,11 +256,11 @@ struct DiaryPageView: View {
     // MARK: - Block card
 
     private func blockCard(_ block: EditBlock, index: Int) -> some View {
-        let parts = ContentFlatten.parseContent(block.contentJson)
-        let isSelected = selectedIds.contains(block.id)
+        let parts = ContentFlatten.parseContentCached(block.contentJson)
+        let isSelected = vm.selectedIds.contains(block.id)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                if selectMode {
+                if vm.selectMode {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 16))
                         .foregroundStyle(isSelected ? Theme.primary() : Theme.onSurfaceVariant())
@@ -362,52 +275,44 @@ struct DiaryPageView: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                if editingIndex == index {
-                    Text(L10n.str("editor_editing"))
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background {
-                            Capsule().fill(Theme.primary())
-                                .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
-                        }
+                if vm.editingIndex == index {
+                    GlassCountBadge(text: L10n.str("editor_editing"))
                 }
             }
             ReadTextView(parts: parts,
-                         keyword: showSearch ? searchText : "",
+                         keyword: vm.showSearch ? vm.searchText : "",
                          onToggleTodo: { partIndex, itemIndex in
-                toggleTodo(block: block, partIndex: partIndex, itemIndex: itemIndex)
+                vm.toggleTodo(block: block, partIndex: partIndex, itemIndex: itemIndex)
             },
                          onImageTap: { src, ratio in
-                previewImage = PreviewItem(src: src, ratio: ratio)
+                vm.previewImage = PreviewItem(src: src, ratio: ratio)
             })
         }
         .padding(12)
         .diaryGlassCard(cornerRadius: 18)
-        .scaleEffect(pressedIndex == index ? 0.98 : 1)
         .contentShape(Rectangle())
         .onTapGesture {
             handleBlockTap(block, index: index, parts: parts)
         }
         .onLongPressGesture(minimumDuration: 0.4) {
-            enterSelect(block.id)
+            vm.enterSelect(block.id)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    @State private var pressedIndex: Int?
-
     private func handleBlockTap(_ block: EditBlock, index: Int, parts: [ContentPart]) {
-        if selectMode {
-            if selectedIds.contains(block.id) {
-                selectedIds.remove(block.id)
+        if vm.selectMode {
+            Haptics.tap()
+            if vm.selectedIds.contains(block.id) {
+                vm.selectedIds.remove(block.id)
             } else {
-                selectedIds.insert(block.id)
+                vm.selectedIds.insert(block.id)
             }
             return
         }
-        guard !isRead else { return }
-        enterEditBlock(index: index)
+        guard !vm.isRead else { return }
+        vm.enterEditBlock(index: index)
     }
 
     // MARK: - Editor
@@ -415,19 +320,20 @@ struct DiaryPageView: View {
     private var editorCard: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text(L10n.timeOf(startUtc))
+                Text(L10n.timeOf(vm.startUtc))
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(Theme.primary())
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background {
                         Capsule().fill(Theme.primaryContainer())
+                            .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
                     }
-                if settings.autoLoc {
+                if vm.settings.autoLoc {
                     Button {
                         Haptics.tap()
-                        if location == nil {
-                            beginLocate()
+                        if vm.location == nil {
+                            vm.beginLocate()
                         } else {
                             showPrecisionMenu = true
                         }
@@ -435,7 +341,7 @@ struct DiaryPageView: View {
                         HStack(spacing: 4) {
                             Image(systemName: "location.fill")
                                 .font(.system(size: 10))
-                            Text(locationLabel)
+                            Text(vm.locationLabel)
                                 .font(.system(size: 12))
                                 .lineLimit(1)
                         }
@@ -444,559 +350,28 @@ struct DiaryPageView: View {
                         .padding(.vertical, 5)
                         .background {
                             Capsule().fill(Theme.primaryContainer())
+                                .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
                         }
                     }
                     .buttonStyle(.plain)
                     .confirmationDialog(L10n.str("search_loc_title"), isPresented: $showPrecisionMenu) {
                         ForEach(LocationResolver.availablePrecisions(), id: \.self) { precision in
                             Button(L10n.precisionLabel(precision)) {
-                                applyPrecision(precision)
+                                vm.applyPrecision(precision)
                             }
                         }
                     }
                 }
                 Spacer()
             }
-            RichTextView(controller: controller,
-                         placeholder: L10n.str(editingIndex != nil ? "editor_placeholder_edit" : "editor_placeholder_new"),
-                         autoFocus: autoFocusEditor,
-                         loadToken: loadToken,
-                         loadParts: loadParts)
+            RichTextView(controller: vm.controller,
+                         placeholder: L10n.str(vm.editingIndex != nil ? "editor_placeholder_edit" : "editor_placeholder_new"),
+                         autoFocus: vm.autoFocusEditor,
+                         loadToken: vm.loadToken,
+                         loadParts: vm.loadParts)
                 .frame(minHeight: 160)
         }
         .padding(10)
         .diaryGlassCard(cornerRadius: 20, interactive: true)
-    }
-
-    private var locationLabel: String {
-        if locating { return L10n.str("editor_location_fetching") }
-        return location?.locText.isEmpty == false ? location!.locText : L10n.str("editor_location_retry")
-    }
-
-    // MARK: - Data loading
-
-    private func load() async {
-        let key = dayKey ?? DateUtil.dayKeyOf(Date())
-        actualDayKey = key
-        hits = []
-        hitIndex = 0
-        startUtc = Int64(Date().timeIntervalSince1970 * 1000)
-        if let diary = await DiaryRepository.shared.getDiaryByDay(key) {
-            blocks = await DiaryRepository.shared.getBlocks(diaryId: diary.id)
-        } else {
-            blocks = []
-        }
-        isRead = true
-        loaded = true
-    }
-
-    private func beginLocateIfNeeded() {
-        guard settings.autoLoc, location == nil else { return }
-        beginLocate()
-    }
-
-    private func beginLocate() {
-        guard LocStatus.isAuthorized else {
-            LocationService.shared.requestPermission()
-            Task {
-                try? await Task.sleep(nanoseconds: 600_000_000)
-                guard LocStatus.isAuthorized else {
-                    await MainActor.run { locating = false }
-                    return
-                }
-                await MainActor.run { locating = true }
-                await fetchLocation()
-            }
-            return
-        }
-        locating = true
-        Task { await fetchLocation() }
-    }
-
-    private func fetchLocation() async {
-        guard let loc = await LocationService.shared.currentLocation() else {
-            await MainActor.run { locating = false }
-            return
-        }
-        let snapshot = await LocationResolver.resolve(location: loc)
-        await MainActor.run {
-            location = snapshot
-            locating = false
-        }
-    }
-
-    private func applyPrecision(_ precision: String) {
-        guard var snapshot = location else { return }
-        snapshot.locPrecision = precision
-        snapshot.locText = LocationResolver.text(for: snapshot.placemark, precision: precision)
-        location = snapshot
-    }
-
-    // MARK: - Mode transitions
-
-    private func enterWrite() {
-        if actualDayKey != DateUtil.dayKeyOf(Date()), !settings.allowHistoryEdit {
-            alertItem = .info(title: L10n.str("editor_history_no_add_title"),
-                               message: L10n.str("editor_history_no_add_msg"))
-            return
-        }
-        if !blocks.isEmpty {
-            alertItem = .confirm(title: L10n.str("editor_edit_target_title"),
-                                  message: L10n.str("editor_edit_target_msg"),
-                                  confirmLabel: L10n.str("continue")) {
-                loadParts = []
-                loadToken += 1
-                withAnimation(.easeOut(duration: 0.36)) {
-                    isRead = false
-                    editingIndex = nil
-                }
-                beginLocateIfNeeded()
-            }
-            return
-        }
-        loadParts = []
-        loadToken += 1
-        autoFocusEditor = true
-        withAnimation(.easeOut(duration: 0.36)) {
-            isRead = false
-            editingIndex = nil
-        }
-        beginLocateIfNeeded()
-    }
-
-    private func enterEditBlock(index: Int) {
-        guard index < blocks.count else { return }
-        let block = blocks[index]
-        if actualDayKey != DateUtil.dayKeyOf(Date()), !settings.allowHistoryEdit {
-            alertItem = .info(title: L10n.str("editor_readonly_title"),
-                               message: L10n.str("editor_readonly_msg"))
-            return
-        }
-        let parts = ContentFlatten.parseContent(block.contentJson)
-        editingOriginalParts = parts
-        editingIndex = index
-        loadParts = parts
-        loadToken += 1
-        autoFocusEditor = true
-        startUtc = block.startTimeUtc
-        withAnimation(.easeOut(duration: 0.36)) {
-            isRead = false
-        }
-    }
-
-    private func enterSelect(_ id: Int64) {
-        withAnimation(.easeOut(duration: 0.28)) {
-            selectMode = true
-            selectedIds.insert(id)
-        }
-    }
-
-    private func handleBack() {
-        if selectMode {
-            withAnimation(.easeOut(duration: 0.28)) {
-                selectMode = false
-                selectedIds = []
-            }
-            return
-        }
-        if !isRead, !controller.isEmpty() {
-            alertItem = .confirm(title: L10n.str("editor_exit_title"),
-                                  message: L10n.str("editor_exit_content_msg"),
-                                  confirmLabel: L10n.str("discard")) {
-                    dismiss()
-                }
-            return
-        }
-        dismiss()
-    }
-
-    // MARK: - Save
-
-    private func saveEditor() {
-        let parts = controller.currentParts()
-        guard !parts.isEmpty else {
-            if editingIndex == nil && blocks.isEmpty {
-                dismiss()
-            } else {
-                withAnimation(.easeOut(duration: 0.36)) {
-                    isRead = true
-                    editingIndex = nil
-                }
-            }
-            return
-        }
-        let contentJson = ContentFlatten.serializeContent(parts)
-        if let editingIndex {
-            let block = blocks[editingIndex]
-            Task {
-                do {
-                    try await DiaryRepository.shared.updateBlockContent(blockId: block.id, contentJson: contentJson)
-                    DiaryRepository.shared.bumpDiaryVersion()
-                    await reloadAndShowRead()
-                } catch {
-                    showSaveFailed()
-                }
-            }
-            return
-        }
-        let blockDayKey = DateUtil.dayKeyForUtc(startUtc, dayStartHour: settings.dayStartHour)
-        if blockDayKey != DateUtil.dayKeyOf(Date()) {
-            let displayDay = L10n.formatDayKey(blockDayKey)
-            alertItem = .confirm(title: L10n.str("editor_cross_day_title"),
-                                  message: L10n.fmt("editor_cross_day_msg", displayDay),
-                                  confirmLabel: L10n.str("editor_save_exit")) {
-                saveByDayKey(blockDayKey, contentJson: contentJson)
-            }
-            return
-        }
-        saveByDayKey(blockDayKey, contentJson: contentJson)
-    }
-
-    private func saveByDayKey(_ dayKey: String, contentJson: String) {
-        let region = location?.region ?? LocRegion(country: "", countryCode: "", region1: "",
-                                                   region2: "", region3: "", locQuality: LocQuality.none)
-        Task {
-            do {
-                if let diary = await DiaryRepository.shared.getDiaryByDay(dayKey) {
-                    _ = try await DiaryRepository.shared.addBlockToDiary(diaryId: diary.id,
-                                                                         startTimeUtc: startUtc,
-                                                                         locText: location?.locText ?? "",
-                                                                         latitude: location?.latitude ?? 0,
-                                                                         longitude: location?.longitude ?? 0,
-                                                                         locPrecision: location?.locPrecision ?? LocPrecision.none,
-                                                                         region: region,
-                                                                         contentJson: contentJson)
-                } else {
-                    _ = try await DiaryRepository.shared.addBlock(startTimeUtc: startUtc,
-                                                                  locText: location?.locText ?? "",
-                                                                  latitude: location?.latitude ?? 0,
-                                                                  longitude: location?.longitude ?? 0,
-                                                                  locPrecision: location?.locPrecision ?? LocPrecision.none,
-                                                                  region: region,
-                                                                  contentJson: contentJson,
-                                                                   dayStartHour: self.settings.dayStartHour)
-                }
-                actualDayKey = dayKey
-                DiaryRepository.shared.bumpDiaryVersion()
-                await ReminderService.markTodayWritten()
-                await reloadAndShowRead()
-            } catch {
-                showSaveFailed()
-            }
-        }
-    }
-
-    private func showSaveFailed() {
-        alertItem = .info(title: L10n.str("editor_save_failed_title"),
-                           message: L10n.str("editor_save_failed_msg"))
-    }
-
-    private func reloadAndShowRead() async {
-        if let diary = await DiaryRepository.shared.getDiaryByDay(actualDayKey) {
-            blocks = await DiaryRepository.shared.getBlocks(diaryId: diary.id)
-        } else {
-            blocks = []
-        }
-        autoFocusEditor = false
-        withAnimation(.easeOut(duration: 0.36)) {
-            isRead = true
-            editingIndex = nil
-            selectMode = false
-            selectedIds = []
-        }
-    }
-
-    // MARK: - Delete
-
-    private func confirmDeleteSelected() {
-        let count = selectedIds.count
-        alertItem = .confirm(title: L10n.str("editor_delete_title"),
-                              message: L10n.fmt("editor_delete_msg", count),
-                              confirmLabel: L10n.str("delete")) {
-            Task {
-                do {
-                    try await DiaryRepository.shared.deleteBlocks(Array(selectedIds))
-                    DiaryRepository.shared.bumpDiaryVersion()
-                    await reloadAndShowRead()
-                } catch {}
-            }
-        }
-    }
-
-    // MARK: - Todo toggle
-
-    private func toggleTodo(block: EditBlock, partIndex: Int, itemIndex: Int) {
-        var parts = ContentFlatten.parseContent(block.contentJson)
-        guard partIndex < parts.count else { return }
-        var part = parts[partIndex]
-        var done = part.done ?? Array(repeating: false, count: part.items?.count ?? 0)
-        if itemIndex < done.count {
-            done[itemIndex].toggle()
-            part.done = done
-            parts[partIndex] = part
-            let json = ContentFlatten.serializeContent(parts)
-            Task {
-                do {
-                    try await DiaryRepository.shared.updateBlockContent(blockId: block.id, contentJson: json)
-                    DiaryRepository.shared.bumpDiaryVersion()
-                } catch {}
-            }
-        }
-    }
-
-    // MARK: - Image insert
-
-    private func insertImage(_ image: UIImage) {
-        guard let data = image.jpegData(compressionQuality: 0.9) ?? image.pngData() else { return }
-        let stamp = Int64(Date().timeIntervalSince1970 * 1000)
-        let fileName = "img_\(stamp).jpg"
-        let target = DiaryRepository.imagesDir().appendingPathComponent(fileName)
-        try? FileManager.default.createDirectory(at: DiaryRepository.imagesDir(), withIntermediateDirectories: true)
-        do {
-            try data.write(to: target)
-            controller.insertImage(image, src: "images/\(fileName)")
-        } catch {
-            alertItem = .info(title: L10n.str("editor_image_failed_title"),
-                               message: L10n.str("editor_image_failed_msg"))
-        }
-    }
-
-    // MARK: - Share
-
-    private func shareDiary() {
-        let shareBlocks = blocks.map { block in
-            ShareBlock(time: block.startTimeUtc, loc: block.locText,
-                       parts: ContentFlatten.parseContent(block.contentJson))
-        }
-        let isDark = UITraitCollection.current.userInterfaceStyle == .dark
-        guard let image = ShareRenderer.render(dayKey: actualDayKey, blocks: shareBlocks, isDark: isDark) else {
-            alertItem = .info(title: L10n.str("read_share_failed_title"),
-                               message: L10n.str("read_share_failed_msg"))
-            return
-        }
-        shareImage = image
-        showShareSheet = true
-    }
-}
-
-struct PreviewItem: Identifiable {
-    let id = UUID()
-    var src: String
-    var ratio: CGFloat
-}
-
-struct SearchHit {
-    var blockId: Int64
-    var partIndex: Int
-    var start: Int
-    var len: Int
-}
-
-final class FittedTextView: UITextView {
-    override var intrinsicContentSize: CGSize {
-        let width = bounds.width > 0 ? bounds.width : 320
-        let size = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        return CGSize(width: width, height: size.height)
-    }
-}
-
-struct ReadTextView: UIViewRepresentable {
-    var parts: [ContentPart]
-    var keyword: String = ""
-    var onToggleTodo: ((Int, Int) -> Void)? = nil
-    var onImageTap: ((String, CGFloat) -> Void)? = nil
-    var textContainerInset: UIEdgeInsets = .zero
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    func makeUIView(context: Context) -> FittedTextView {
-        let tv = FittedTextView()
-        tv.isEditable = false
-        tv.isScrollEnabled = false
-        tv.backgroundColor = .clear
-        tv.textContainerInset = textContainerInset
-        tv.textContainer.lineFragmentPadding = 0
-        tv.delegate = nil
-        tv.isSelectable = false
-        context.coordinator.textView = tv
-        context.coordinator.rebuild()
-        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
-        tap.delegate = context.coordinator
-        tv.addGestureRecognizer(tap)
-        return tv
-    }
-
-    func updateUIView(_ uiView: FittedTextView, context: Context) {
-        context.coordinator.parent = self
-        context.coordinator.rebuild()
-    }
-
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var parent: ReadTextView
-        weak var textView: FittedTextView?
-        var todoRanges: [NSRange] = []
-        var todoCallbacks: [(Int, Int)] = []
-        var imageRanges: [NSRange] = []
-        var imageCallbacks: [(String, CGFloat)] = []
-
-        init(_ parent: ReadTextView) {
-            self.parent = parent
-        }
-
-        func rebuild() {
-            guard let tv = textView else { return }
-            let attributed = NSMutableAttributedString(attributedString: PartsCodec.attributedString(from: parent.parts))
-            todoRanges = []
-            todoCallbacks = []
-            imageRanges = []
-            imageCallbacks = []
-            var todoOrder: [(Int, Int)] = []
-            for (pi, part) in parent.parts.enumerated() where part.type == ContentPartType.todo {
-                for ii in (part.items ?? []).indices { todoOrder.append((pi, ii)) }
-            }
-            var todoIdx = 0
-            let ns = attributed.string as NSString
-            var cursor = 0
-            while cursor < ns.length {
-                var effective = NSRange()
-                guard let payload = attributed.attribute(.attachment, at: cursor, effectiveRange: &effective) as? AttachmentPayload else {
-                    cursor += 1
-                    continue
-                }
-                let markerRange = effective
-                if payload.kind == "todo" {
-                    let lineEnd = ns.rangeOfCharacter(from: .newlines, options: [],
-                                                      range: NSRange(location: markerRange.location,
-                                                                     length: ns.length - markerRange.location))
-                    let end = lineEnd.location == NSNotFound ? ns.length : lineEnd.location
-                    todoRanges.append(NSRange(location: markerRange.location, length: end - markerRange.location))
-                    if todoIdx < todoOrder.count { todoCallbacks.append(todoOrder[todoIdx]) }
-                    todoIdx += 1
-                } else if payload.kind == "image", !payload.src.isEmpty {
-                    imageRanges.append(NSRange(location: markerRange.location, length: 1))
-                    imageCallbacks.append((payload.src, payload.h / max(1, payload.w)))
-                }
-                cursor = markerRange.location + markerRange.length
-            }
-            if !parent.keyword.isEmpty {
-                applyHighlight(attributed)
-            }
-            if !attributed.isEqual(to: tv.attributedText) {
-                tv.attributedText = attributed
-            }
-        }
-
-        private func applyHighlight(_ attributed: NSMutableAttributedString) {
-            let segments = SearchUtil.highlightSegments(attributed.string, keyword: parent.keyword)
-            var cursor = 0
-            for seg in segments {
-                let len = (seg.text as NSString).length
-                let range = NSRange(location: cursor, length: len)
-                if seg.hit {
-                    attributed.addAttribute(.backgroundColor, value: Theme.primaryContainerUIColor(), range: range)
-                    attributed.addAttribute(.foregroundColor, value: Theme.primaryUIColor(), range: range)
-                    attributed.addAttribute(.font, value: UIFont.systemFont(ofSize: 15, weight: .medium), range: range)
-                }
-                cursor += len
-            }
-        }
-
-        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
-            guard let tv = textView else { return }
-            let location = gesture.location(in: tv)
-            var position = UITextPosition()
-            if let pos = tv.closestPosition(to: location) {
-                position = pos
-            }
-            let offset = tv.offset(from: tv.beginningOfDocument, to: position)
-            for (i, range) in todoRanges.enumerated() where NSLocationInRange(offset, range) {
-                let cb = todoCallbacks[i]
-                parent.onToggleTodo?(cb.0, cb.1)
-                return
-            }
-            for (i, range) in imageRanges.enumerated() where NSLocationInRange(offset, range) {
-                let cb = imageCallbacks[i]
-                parent.onImageTap?(cb.0, cb.1)
-                return
-            }
-        }
-
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            true
-        }
-    }
-}
-
-struct PhotoPicker: UIViewControllerRepresentable {
-    var onPicked: (UIImage) -> Void
-
-    func makeUIViewController(context: Context) -> PHPickerViewController {
-        var config = PHPickerConfiguration()
-        config.filter = .images
-        config.selectionLimit = 1
-        let picker = PHPickerViewController(configuration: config)
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        let parent: PhotoPicker
-        init(_ parent: PhotoPicker) { self.parent = parent }
-
-        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            picker.dismiss(animated: true)
-            guard let result = results.first else { return }
-            result.itemProvider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
-                if let image = object as? UIImage {
-                    DispatchQueue.main.async {
-                        self?.parent.onPicked(image)
-                    }
-                }
-            }
-        }
-    }
-}
-
-struct ImagePreviewView: View {
-    let item: PreviewItem
-    @Environment(\.dismiss) private var dismiss
-    @State private var dragOffset: CGSize = .zero
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(max(0, 1 - abs(dragOffset.height) / 600))
-                .ignoresSafeArea()
-                .onTapGesture {
-                    dismiss()
-                }
-            if let image = UIImage(contentsOfFile: ImagePathUtil.resolveImagePath(item.src)) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .scaleEffect(max(0.6, 1 - abs(dragOffset.height) / 800))
-                    .offset(dragOffset)
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                dragOffset = value.translation
-                            }
-                            .onEnded { value in
-                                let velocity = value.predictedEndTranslation.height
-                                if abs(value.translation.height) > 140 || abs(velocity) > 900 {
-                                    dismiss()
-                                } else {
-                                    withAnimation(.easeOut(duration: 0.22)) {
-                                        dragOffset = .zero
-                                    }
-                                }
-                            }
-                    )
-            }
-        }
     }
 }

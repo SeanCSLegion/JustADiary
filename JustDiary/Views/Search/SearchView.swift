@@ -43,18 +43,7 @@ struct SearchView: View {
     private var header: some View {
         PageHeader(title: L10n.str("search_title")) {
             if vm.total > 0 {
-                HStack(spacing: 5) {
-                    Circle().fill(Theme.primary()).frame(width: 6, height: 6)
-                    Text(L10n.fmt("search_result_count", vm.total))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Theme.primary())
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background {
-                    Capsule().fill(Theme.primaryContainer())
-                        .shadow(color: Theme.glowColor(), radius: 6, y: 2)
-                }
+                GlassCountBadge(text: L10n.fmt("search_result_count", vm.total), icon: "circle.fill")
             }
         }
     }
@@ -200,6 +189,7 @@ struct SearchView: View {
                 .padding(.vertical, 4)
                 .background {
                     Capsule().fill(Theme.primaryContainer())
+                        .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
                 }
                 HighlightedText(snippet: item.snippet, summary: item.summary, keyword: vm.keyword)
                     .font(.system(size: 13))
@@ -276,20 +266,7 @@ struct SearchView: View {
     }
 
     private func quickRangeChip(_ label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.primary())
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background {
-                    Capsule().fill(Theme.primaryContainer())
-                        .glassEffect(tintedGlass(nil), in: Capsule())
-                }
-        }
-        .buttonStyle(.plain)
+        GlassActionChip(label: label, action: action)
     }
 
     private var locSheet: some View {

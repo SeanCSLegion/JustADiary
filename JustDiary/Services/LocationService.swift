@@ -15,25 +15,17 @@ enum LocStatus {
     static var isPrecise: Bool {
         isAuthorized && (CLLocationManager().accuracyAuthorization == .fullAccuracy)
     }
-
-    static func requestPermission() {
-        let manager = CLLocationManager()
-        manager.requestWhenInUseAuthorization()
-    }
 }
 
-final class LocationService: NSObject, ObservableObject, @unchecked Sendable {
+final class LocationService: NSObject {
     static let shared = LocationService()
 
     private let manager = CLLocationManager()
-    private var continuation: CheckedContinuation<CLLocation?, Never>?
-    @Published private(set) var state: String = "idle"
 
     private override init() {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        manager.distanceFilter = kCLDistanceFilterNone
     }
 
     func requestPermission() {
@@ -41,42 +33,49 @@ final class LocationService: NSObject, ObservableObject, @unchecked Sendable {
     }
 
     func currentLocation() async -> CLLocation? {
-        guard LocStatus.isAuthorized else { return nil }
-        return await withCheckedContinuation { cont in
-            continuation = cont
-            manager.requestLocation()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
-                self?.continuation?.resume(returning: nil)
-                self?.continuation = nil
+        guard LocStatus.isAuthorized else {
+            Log.location.warning("currentLocation denied")
+            return nil
+        }
+        do {
+            return try await withThrowingTaskGroup(of: CLLocation?.self) { group in
+                group.addTask {
+                    let updates = CLLocationUpdate.liveUpdates()
+                    for try await update in updates {
+                        if let location = update.location {
+                            return location
+                        }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(8))
+                    return nil
+                }
+                let result = try await group.next() ?? nil
+                group.cancelAll()
+                return result
             }
+        } catch {
+            Log.location.error("liveUpdates failed: \(String(describing: error), privacy: .public)")
+            return nil
         }
     }
 
-    func reverseGeocode(_ location: CLLocation) async -> (placemark: CLPlacemark?, error: Error?) {
-        guard let request = MKReverseGeocodingRequest(location: location) else { return (nil, nil) }
+    func reverseGeocode(_ location: CLLocation) async -> CLPlacemark? {
+        guard let request = MKReverseGeocodingRequest(location: location) else { return nil }
         do {
             let mapItems = try await request.mapItems
-            return (mapItems.first?.diaryPlacemark, nil)
+            return mapItems.first?.diaryPlacemark
         } catch {
-            return (nil, error)
+            Log.location.error("reverse geocode failed: \(String(describing: error), privacy: .public)")
+            return nil
         }
     }
 }
 
 extension LocationService: CLLocationManagerDelegate {
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        state = "authorized"
-    }
-
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        continuation?.resume(returning: locations.last)
-        continuation = nil
-    }
-
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        continuation?.resume(returning: nil)
-        continuation = nil
-    }
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {}
 }
 
 struct LocationSnapshot {
@@ -90,7 +89,7 @@ struct LocationSnapshot {
 
 enum LocationResolver {
     static func resolve(location: CLLocation) async -> LocationSnapshot {
-        let placemark = (await LocationService.shared.reverseGeocode(location)).placemark
+        let placemark = await LocationService.shared.reverseGeocode(location)
         let precise = LocStatus.isPrecise
         let precision = precise ? LocPrecision.exact : LocPrecision.province
         let region = LocRegion(

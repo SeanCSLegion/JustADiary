@@ -53,12 +53,20 @@ final class DiaryRepository {
         await runOnQueue { [self] in
             guard db == nil else { return }
             let path = Self.dbPath()
-            try? FileManager.default.createDirectory(at: Self.imagesDir(), withIntermediateDirectories: true)
-            guard let sqlite = try? SQLite(path: path) else { return }
-            db = sqlite
-            try? migrateSchema()
-            try? ensureFtsTable()
-            try? backfillIndexIfNeeded()
+            do {
+                try FileManager.default.createDirectory(at: Self.imagesDir(), withIntermediateDirectories: true)
+                let sqlite = try SQLite(path: path)
+                db = sqlite
+                do {
+                    try migrateSchema()
+                    try ensureFtsTable()
+                    try backfillIndexIfNeeded()
+                } catch {
+                    Log.db.error("migrate/index failed: \(String(describing: error), privacy: .public)")
+                }
+            } catch {
+                Log.db.error("open failed: \(String(describing: error), privacy: .public)")
+            }
         }
         await scheduleBackgroundMaintenance()
     }
@@ -74,8 +82,7 @@ final class DiaryRepository {
     private func migrateSchema() throws {
         guard let db else { return }
         let v = db.userVersion
-        if v < 1 {
-            try db.execute("""
+        if v < 1 {            try db.execute("""
             CREATE TABLE IF NOT EXISTS diary (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               day_key TEXT NOT NULL UNIQUE,
@@ -112,9 +119,6 @@ final class DiaryRepository {
             try db.execute("CREATE INDEX IF NOT EXISTS idx_block_country_region ON edit_block(country, region1, diary_id);")
             try db.execute("CREATE INDEX IF NOT EXISTS idx_block_diary_quality ON edit_block(diary_id, loc_quality);")
             db.userVersion = 1
-        }
-        if v < 2 {
-            db.userVersion = 2
         }
         if v < 3 {
             try migrateLocationMeta()
@@ -252,7 +256,7 @@ final class DiaryRepository {
     func scheduleBackgroundMaintenance() async {
         await ensureSearchIndex()
         await backfillBlockRegions()
-        cleanupOrphanImages()
+        await cleanupOrphanImages()
     }
 
     func searchIndexReady() -> Bool {
@@ -272,30 +276,6 @@ final class DiaryRepository {
     func getDiaryFlagsRange(fromKey: String, toKey: String) async -> [String] {        await runOnQueue { [self] in
             db?.query("SELECT day_key FROM diary_flag WHERE day_key >= ? AND day_key <= ?;", [fromKey, toKey])
                 .compactMap { $0["day_key"] as? String } ?? []
-        }
-    }
-
-    func getDiaryCardInfo(dayKey: String) async -> DiaryCardInfo {
-        await runOnQueue { [self] in
-            guard let db else { return DiaryCardInfo(dayKey: dayKey, hasDiary: false, startTimeUtc: 0, locText: "", preview: "") }
-            guard let row = db.queryFirst("""
-            SELECT d.id AS id, d.summary AS summary, d.search_text AS search_text,
-                   b.start_time_utc AS start_utc, b.loc_text AS loc_text
-            FROM diary d LEFT JOIN edit_block b ON b.diary_id = d.id
-            WHERE d.day_key = ? ORDER BY b.start_time_utc ASC LIMIT 1;
-            """, [dayKey]) else {
-                return DiaryCardInfo(dayKey: dayKey, hasDiary: false, startTimeUtc: 0, locText: "", preview: "")
-            }
-            var preview = (row["summary"] as? String) ?? ""
-            if preview.isEmpty {
-                let searchText = (row["search_text"] as? String) ?? ""
-                preview = String(searchText.prefix(80))
-            }
-            return DiaryCardInfo(dayKey: dayKey,
-                                 hasDiary: true,
-                                 startTimeUtc: (row["start_utc"] as? Int64) ?? 0,
-                                 locText: (row["loc_text"] as? String) ?? "",
-                                 preview: preview)
         }
     }
 
@@ -587,134 +567,156 @@ final class DiaryRepository {
         }
     }
 
-    func cleanupOrphanImages() {
-        let fm = FileManager.default
-        let dir = Self.imagesDir()
-        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
-        for file in files {
-            let src = "images/\(file.lastPathComponent)"
-            let count = db?.queryFirst("SELECT COUNT(*) AS cnt FROM edit_block WHERE content_json LIKE ?;", ["%\(src)%"])
-            let cnt = (count?["cnt"] as? Int64) ?? 0
-            if cnt == 0 {
-                try? fm.removeItem(at: file)
+    func cleanupOrphanImages() async {
+        await runOnQueue { [self] in
+            guard let db else { return }
+            let fm = FileManager.default
+            let dir = Self.imagesDir()
+            guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+            let rows = db.query("SELECT content_json FROM edit_block;")
+            var referenced = Set<String>()
+            for row in rows {
+                for src in ImagePathUtil.collectImageSrcs((row["content_json"] as? String) ?? "[]") {
+                    referenced.insert(src)
+                }
+            }
+            for file in files {
+                let src = "images/\(file.lastPathComponent)"
+                if !referenced.contains(src) {
+                    try? fm.removeItem(at: file)
+                }
             }
         }
     }
 
     // MARK: - Backup support
 
-    func rawBlocksForBackup() -> [(Int64, String)] {
-        db?.query("SELECT id, content_json FROM edit_block;")
-            .map { ((($0["id"] as? Int64) ?? 0), (($0["content_json"] as? String) ?? "[]")) } ?? []
+    func rawBlocksForBackup() async -> [(Int64, String)] {
+        await runOnQueue { [self] in
+            db?.query("SELECT id, content_json FROM edit_block;")
+                .map { ((($0["id"] as? Int64) ?? 0), (($0["content_json"] as? String) ?? "[]")) } ?? []
+        }
     }
 
-    func countDiaries() -> Int {
-        let row = db?.queryFirst("SELECT COUNT(*) AS cnt FROM diary;")
-        return Int((row?["cnt"] as? Int64) ?? 0)
+    func countDiaries() async -> Int {
+        await runOnQueue { [self] in
+            let row = db?.queryFirst("SELECT COUNT(*) AS cnt FROM diary;")
+            return Int((row?["cnt"] as? Int64) ?? 0)
+        }
     }
 
-    func countBlocks() -> Int {
-        let row = db?.queryFirst("SELECT COUNT(*) AS cnt FROM edit_block;")
-        return Int((row?["cnt"] as? Int64) ?? 0)
+    func countBlocks() async -> Int {
+        await runOnQueue { [self] in
+            let row = db?.queryFirst("SELECT COUNT(*) AS cnt FROM edit_block;")
+            return Int((row?["cnt"] as? Int64) ?? 0)
+        }
     }
 
-    func mergeBackupDatabase(path: String, mode: String, copyImage: (String) -> String,
-                             stats: inout BackupStats) throws {
-        guard let backupDb = try? SQLite(path: path) else { throw DBError.notReady }
-        guard let mainDb = db else { throw DBError.notReady }
-        let cols = Set(backupDb.query("PRAGMA table_info(edit_block);").compactMap { $0["name"] as? String })
-        let hasRegion = cols.contains("region1")
-        let hasQuality = cols.contains("loc_quality")
-        let hasCountryCode = cols.contains("country_code")
-        let diaryRows = backupDb.query("SELECT * FROM diary ORDER BY day_key ASC;")
-        for dRow in diaryRows {
-            let dayKey = (dRow["day_key"] as? String) ?? ""
-            let existing = mainDb.queryFirst("SELECT id FROM diary WHERE day_key = ?;", [dayKey])
-            if mode == "skip", existing != nil {
-                stats.skippedDays += 1
-                continue
+    func mergeBackupDatabase(path: String, mode: String, copyImage: @escaping (String) -> String,
+                             stats: inout BackupStats) async throws {
+        var working = stats
+        try await runOnQueue { [self] in
+            guard let backupDb = try? SQLite(path: path) else {
+                Log.db.error("mergeBackup: open backup db failed")
+                throw DBError.notReady
             }
-            let backupDiaryId = (dRow["id"] as? Int64) ?? 0
-            let blocks = backupDb.query("SELECT * FROM edit_block WHERE diary_id = ? ORDER BY start_time_utc ASC;", [backupDiaryId])
-            var newDiaryId: Int64 = 0
-            try mainDb.inTransaction {
-                if let existing {
-                    let eid = (existing["id"] as? Int64) ?? 0
-                    try mainDb.execute("DELETE FROM edit_block WHERE diary_id = ?;", [eid])
-                    try mainDb.execute("DELETE FROM diary WHERE id = ?;", [eid])
-                    try mainDb.execute("DELETE FROM diary_flag WHERE day_key = ?;", [dayKey])
-                    if ftsSupported {
-                        try mainDb.execute("DELETE FROM diary_fts WHERE diary_id = ?;", [eid])
-                    }
-                    stats.overwrittenDays += 1
-                } else {
-                    stats.importedDays += 1
+            defer { backupDb.closeQuietly() }
+            guard let mainDb = db else { throw DBError.notReady }
+            let cols = Set(backupDb.query("PRAGMA table_info(edit_block);").compactMap { $0["name"] as? String })
+            let hasRegion = cols.contains("region1")
+            let hasQuality = cols.contains("loc_quality")
+            let hasCountryCode = cols.contains("country_code")
+            let diaryRows = backupDb.query("SELECT * FROM diary ORDER BY day_key ASC;")
+            for dRow in diaryRows {
+                let dayKey = (dRow["day_key"] as? String) ?? ""
+                let existing = mainDb.queryFirst("SELECT id FROM diary WHERE day_key = ?;", [dayKey])
+                if mode == "skip", existing != nil {
+                    working.skippedDays += 1
+                    continue
                 }
-                let now = Int64(Date().timeIntervalSince1970 * 1000)
-                try mainDb.execute("INSERT INTO diary(day_key, created_utc, updated_utc) VALUES (?, ?, ?);",
-                                   [dayKey, (dRow["created_utc"] as? Int64) ?? now, (dRow["updated_utc"] as? Int64) ?? now])
-                newDiaryId = mainDb.lastInsertId()
-                try mainDb.execute("INSERT OR IGNORE INTO diary_flag(day_key) VALUES (?);", [dayKey])
-                var dayText = ""
-                for b in blocks {
-                    let json = ImagePathUtil.normalizeContentImagePaths((b["content_json"] as? String) ?? "[]")
-                    let parts = ContentFlatten.parseContent(json)
-                    var rewritten = parts
-                    for i in rewritten.indices {
-                        if let src = rewritten[i].src {
-                            rewritten[i].src = copyImage(src)
+                let backupDiaryId = (dRow["id"] as? Int64) ?? 0
+                let blocks = backupDb.query("SELECT * FROM edit_block WHERE diary_id = ? ORDER BY start_time_utc ASC;", [backupDiaryId])
+                var newDiaryId: Int64 = 0
+                try mainDb.inTransaction {
+                    if let existing {
+                        let eid = (existing["id"] as? Int64) ?? 0
+                        try mainDb.execute("DELETE FROM edit_block WHERE diary_id = ?;", [eid])
+                        try mainDb.execute("DELETE FROM diary WHERE id = ?;", [eid])
+                        try mainDb.execute("DELETE FROM diary_flag WHERE day_key = ?;", [dayKey])
+                        if ftsSupported {
+                            try mainDb.execute("DELETE FROM diary_fts WHERE diary_id = ?;", [eid])
+                        }
+                        working.overwrittenDays += 1
+                    } else {
+                        working.importedDays += 1
+                    }
+                    let now = Int64(Date().timeIntervalSince1970 * 1000)
+                    try mainDb.execute("INSERT INTO diary(day_key, created_utc, updated_utc) VALUES (?, ?, ?);",
+                                       [dayKey, (dRow["created_utc"] as? Int64) ?? now, (dRow["updated_utc"] as? Int64) ?? now])
+                    newDiaryId = mainDb.lastInsertId()
+                    try mainDb.execute("INSERT OR IGNORE INTO diary_flag(day_key) VALUES (?);", [dayKey])
+                    var dayText = ""
+                    for b in blocks {
+                        let json = ImagePathUtil.normalizeContentImagePaths((b["content_json"] as? String) ?? "[]")
+                        let parts = ContentFlatten.parseContent(json)
+                        var rewritten = parts
+                        for i in rewritten.indices {
+                            if let src = rewritten[i].src {
+                                rewritten[i].src = copyImage(src)
+                            }
+                        }
+                        let newJson = ContentFlatten.serializeContent(rewritten)
+                        let text = ContentFlatten.flattenContent(newJson)
+                        let locQuality: String
+                        if hasQuality {
+                            locQuality = (b["loc_quality"] as? String) ?? ""
+                        } else {
+                            let lat = (b["latitude"] as? Double) ?? 0
+                            let lng = (b["longitude"] as? Double) ?? 0
+                            locQuality = (lat != 0 || lng != 0) ? LocQuality.precise : LocQuality.coarse
+                        }
+                        try mainDb.execute("""
+                        INSERT INTO edit_block(diary_id, start_time_utc, loc_text, latitude, longitude,
+                          content_json, search_text, loc_precision, loc_quality, country, country_code,
+                          region1, region2, region3, created_utc, updated_utc)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                        """, [newDiaryId,
+                              (b["start_time_utc"] as? Int64) ?? now,
+                              (b["loc_text"] as? String) ?? "",
+                              (b["latitude"] as? Double) ?? 0,
+                              (b["longitude"] as? Double) ?? 0,
+                              newJson,
+                              text,
+                              (b["loc_precision"] as? String) ?? "none",
+                              locQuality,
+                              (b["country"] as? String) ?? "",
+                              hasCountryCode ? ((b["country_code"] as? String) ?? "") : "",
+                              hasRegion ? ((b["region1"] as? String) ?? "") : ((b["province"] as? String) ?? ""),
+                              hasRegion ? ((b["region2"] as? String) ?? "") : ((b["city"] as? String) ?? ""),
+                              hasRegion ? ((b["region3"] as? String) ?? "") : ((b["district"] as? String) ?? ""),
+                              (b["created_utc"] as? Int64) ?? now,
+                              (b["updated_utc"] as? Int64) ?? now])
+                        working.importedBlocks += 1
+                        dayText += text + " "
+                    }
+                    if !dayText.isEmpty {
+                        dayText = dayText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        try mainDb.execute("UPDATE diary SET summary = ?, search_text = ? WHERE id = ?;",
+                                           [String(dayText.prefix(40)), dayText, newDiaryId])
+                    }
+                    if ftsSupported {
+                        if let ftsRow = mainDb.queryFirst("SELECT id, search_text FROM diary WHERE id = ? AND search_text <> '';", [newDiaryId]) {
+                            try upsertFtsEntry(db: mainDb, diaryId: (ftsRow["id"] as? Int64) ?? 0,
+                                               searchText: (ftsRow["search_text"] as? String) ?? "")
                         }
                     }
-                    let newJson = ContentFlatten.serializeContent(rewritten)
-                    let text = ContentFlatten.flattenContent(newJson)
-                    let locQuality: String
-                    if hasQuality {
-                        locQuality = (b["loc_quality"] as? String) ?? ""
-                    } else {
-                        let lat = (b["latitude"] as? Double) ?? 0
-                        let lng = (b["longitude"] as? Double) ?? 0
-                        locQuality = (lat != 0 || lng != 0) ? LocQuality.precise : LocQuality.coarse
-                    }
-                    try mainDb.execute("""
-                    INSERT INTO edit_block(diary_id, start_time_utc, loc_text, latitude, longitude,
-                      content_json, search_text, loc_precision, loc_quality, country, country_code,
-                      region1, region2, region3, created_utc, updated_utc)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-                    """, [newDiaryId,
-                          (b["start_time_utc"] as? Int64) ?? now,
-                          (b["loc_text"] as? String) ?? "",
-                          (b["latitude"] as? Double) ?? 0,
-                          (b["longitude"] as? Double) ?? 0,
-                          newJson,
-                          text,
-                          (b["loc_precision"] as? String) ?? "none",
-                          locQuality,
-                          (b["country"] as? String) ?? "",
-                          hasCountryCode ? ((b["country_code"] as? String) ?? "") : "",
-                          hasRegion ? ((b["region1"] as? String) ?? "") : ((b["province"] as? String) ?? ""),
-                          hasRegion ? ((b["region2"] as? String) ?? "") : ((b["city"] as? String) ?? ""),
-                          hasRegion ? ((b["region3"] as? String) ?? "") : ((b["district"] as? String) ?? ""),
-                          (b["created_utc"] as? Int64) ?? now,
-                          (b["updated_utc"] as? Int64) ?? now])
-                    stats.importedBlocks += 1
-                    dayText += text + " "
-                }
-                if !dayText.isEmpty {
-                    dayText = dayText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    try mainDb.execute("UPDATE diary SET summary = ?, search_text = ? WHERE id = ?;",
-                                       [String(dayText.prefix(40)), dayText, newDiaryId])
-                }
-                if ftsSupported {
-                    if let ftsRow = mainDb.queryFirst("SELECT id, search_text FROM diary WHERE id = ? AND search_text <> '';", [newDiaryId]) {
-                        try upsertFtsEntry(db: mainDb, diaryId: (ftsRow["id"] as? Int64) ?? 0,
-                                           searchText: (ftsRow["search_text"] as? String) ?? "")
-                    }
                 }
             }
+            try mainDb.execute("DELETE FROM diary_flag;")
+            try mainDb.execute("INSERT OR IGNORE INTO diary_flag(day_key) SELECT day_key FROM diary;")
+            try rebuildSearchIndex()
         }
-        try mainDb.execute("DELETE FROM diary_flag;")
-        try mainDb.execute("INSERT OR IGNORE INTO diary_flag(day_key) SELECT day_key FROM diary;")
-        try rebuildSearchIndex()
+        stats = working
     }
 
     // MARK: - Day key recompute
@@ -844,13 +846,8 @@ final class DiaryRepository {
     func search(keyword: String, fromKey: String, toKey: String, filter: LocFilter, offset: Int) async -> SearchPageResult {
         await runOnQueue { [self] in
             let ftsEnabled = ftsSupported
-            var result = Self.runSearch(db: db, keyword: keyword, fromKey: fromKey, toKey: toKey,
-                                        filter: filter, offset: offset, ftsEnabled: ftsEnabled)
-            if ftsEnabled, result.total < 0 {
-                result = Self.runSearch(db: db, keyword: keyword, fromKey: fromKey, toKey: toKey,
-                                        filter: filter, offset: offset, ftsEnabled: false)
-            }
-            return result
+            return Self.runSearch(db: db, keyword: keyword, fromKey: fromKey, toKey: toKey,
+                                  filter: filter, offset: offset, ftsEnabled: ftsEnabled)
         }
     }
 
@@ -991,7 +988,10 @@ enum ReverseGeocoder {
         let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
         guard let request = MKReverseGeocodingRequest(location: location),
               let mapItems = try? await request.mapItems,
-              let pm = mapItems.first?.diaryPlacemark else { return nil }
+              let pm = mapItems.first?.diaryPlacemark else {
+            Log.location.error("reverse geocode failed for \(coordinate.latitude),\(coordinate.longitude)")
+            return nil
+        }
         let countryCode = pm.isoCountryCode ?? ""
         let region1 = pm.administrativeArea ?? pm.subAdministrativeArea ?? ""
         let region2 = pm.subAdministrativeArea ?? pm.locality ?? ""

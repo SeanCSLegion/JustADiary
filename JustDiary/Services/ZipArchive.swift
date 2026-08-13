@@ -1,6 +1,5 @@
 import Foundation
 import Compression
-import zlib
 
 struct ZipEntry {
     var path: String
@@ -13,14 +12,16 @@ enum ZipArchive {
         var output = Data()
         var localHeaderOffset: UInt32 = 0
         for entry in entries {
-            let nameData = entry.path.data(using: .utf8)!
-            let crc = crc32(entry.data)
-            let compressed = compressZlib(entry.data)
+            let nameData = entry.path.data(using: .utf8) ?? Data(entry.path.utf8)
+            guard nameData.count <= Int(UInt16.max),
+                  entry.data.count <= Int(UInt32.max) else { throw ZipError.tooLarge }
+            let crc = CRC32.compute(entry.data)
+            let compressed = compressDeflate(entry.data)
             var localHeader = Data()
             var lh = Data()
             lh.appendUInt32(0x04034b50)
             lh.appendUInt16(20)
-            lh.appendUInt16(0x0800)
+            lh.appendUInt16(0)
             lh.appendUInt16(8)
             lh.appendUInt16(0)
             lh.appendUInt16(0)
@@ -39,7 +40,7 @@ enum ZipArchive {
             ch.appendUInt32(0x02014b50)
             ch.appendUInt16(20)
             ch.appendUInt16(20)
-            ch.appendUInt16(0x0800)
+            ch.appendUInt16(0)
             ch.appendUInt16(8)
             ch.appendUInt16(0)
             ch.appendUInt16(0)
@@ -79,13 +80,17 @@ enum ZipArchive {
     static func extract(_ data: Data) throws -> [String: Data] {
         var entries: [String: Data] = [:]
         let eocd = try findEOCD(data)
-        let centralStart = eocd.centralStart
+        let centralStart = Int(eocd.centralStart)
         let centralCount = Int(eocd.centralCount)
-        var offset = Int(centralStart)
+        var offset = centralStart
         for _ in 0..<centralCount {
             guard offset + 46 <= data.count else { throw ZipError.invalid }
             let sig = data.readUInt32(at: offset)
             guard sig == 0x02014b50 else { throw ZipError.invalid }
+            let method = Int(data.readUInt16(at: offset + 10))
+            let expectedCrc = data.readUInt32(at: offset + 16)
+            let compSize = Int(data.readUInt32(at: offset + 20))
+            let uncompSize = Int(data.readUInt32(at: offset + 24))
             let nameLen = Int(data.readUInt16(at: offset + 28))
             let extraLen = Int(data.readUInt16(at: offset + 30))
             let commentLen = Int(data.readUInt16(at: offset + 32))
@@ -99,24 +104,28 @@ enum ZipArchive {
             guard lSig == 0x04034b50 else { throw ZipError.invalid }
             let lNameLen = Int(data.readUInt16(at: localOffset + 26))
             let lExtraLen = Int(data.readUInt16(at: localOffset + 28))
-            let method = Int(data.readUInt16(at: localOffset + 8))
-            let compSize = Int(data.readUInt32(at: localOffset + 18))
             let dataStart = localOffset + 30 + lNameLen + lExtraLen
             guard dataStart + compSize <= data.count else { throw ZipError.invalid }
             let raw = data.subdata(in: dataStart..<(dataStart + compSize))
+
+            let result: Data
             if method == 0 {
-                entries[name] = raw
+                result = raw
             } else if method == 8 {
-                entries[name] = decompressZlib(raw)
+                result = try decompressDeflate(raw, expectedSize: uncompSize)
             } else {
                 throw ZipError.unsupportedMethod
             }
+            guard result.count == uncompSize else { throw ZipError.invalid }
+            guard CRC32.compute(result) == expectedCrc else { throw ZipError.checksumMismatch }
+            entries[name] = result
         }
         return entries
     }
 
     private static func findEOCD(_ data: Data) throws -> (centralStart: UInt32, centralCount: UInt16) {
         let minOffset = max(0, data.count - 22 - 65535)
+        guard data.count >= 22 else { throw ZipError.invalid }
         for i in stride(from: data.count - 22, through: minOffset, by: -1) {
             if data.readUInt32(at: i) == 0x06054b50 {
                 let count = data.readUInt16(at: i + 10)
@@ -127,106 +136,66 @@ enum ZipArchive {
         throw ZipError.invalid
     }
 
-    private static let deflateChunk = 65536
+    // MARK: - Raw deflate via Compression framework
 
-    private static func compressZlib(_ data: Data) -> Data {
+    private static func compressDeflate(_ data: Data) -> Data {
         guard !data.isEmpty else { return Data() }
-        var stream = z_stream()
-        let rc = deflateInit2_(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8,
-                               Z_DEFAULT_STRATEGY, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
-        guard rc == Z_OK else { return data }
-        defer { deflateEnd(&stream) }
-        let dstBuffer = UnsafeMutablePointer<Bytef>.allocate(capacity: deflateChunk)
-        defer { dstBuffer.deallocate() }
-        return data.withUnsafeBytes { raw in
-            var base = raw.bindMemory(to: Bytef.self).baseAddress!
-            var remaining = raw.count
-            var output = Data()
-            var finished = false
-            while !finished {
-                stream.next_out = dstBuffer
-                stream.avail_out = uInt(deflateChunk)
-                if stream.avail_in == 0, remaining > 0 {
-                    let take = min(remaining, Int(UInt32.max))
-                    stream.next_in = UnsafeMutablePointer(mutating: base)
-                    stream.avail_in = uInt(take)
-                    base = base.advanced(by: take)
-                    remaining -= take
-                }
-                let flush = remaining == 0 ? Int32(Z_FINISH) : Int32(Z_NO_FLUSH)
-                let status = deflate(&stream, flush)
-                let produced = deflateChunk - Int(stream.avail_out)
-                if produced > 0 {
-                    output.append(Data(bytes: dstBuffer, count: produced))
-                }
-                if status == Z_STREAM_END {
-                    finished = true
-                } else if remaining == 0, stream.avail_in == 0, produced == 0 {
-                    finished = true
-                }
+        let srcSize = data.count
+        let dstCapacity = srcSize + srcSize / 8 + 1024
+        var dst = Data(count: dstCapacity)
+        let encoded: Int = dst.withUnsafeMutableBytes { dstPtr in
+            data.withUnsafeBytes { srcPtr in
+                compression_encode_buffer(dstPtr.bindMemory(to: UInt8.self).baseAddress!, dstCapacity,
+                                          srcPtr.bindMemory(to: UInt8.self).baseAddress!, srcSize,
+                                          nil, COMPRESSION_ZLIB)
             }
-            return output
         }
+        guard encoded > 0 else { return data }
+        return dst.subdata(in: 0..<encoded)
     }
 
-    private static func decompressZlib(_ data: Data) -> Data {
-        guard !data.isEmpty else { return Data() }
-        var stream = z_stream()
-        let rc = inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
-        guard rc == Z_OK else { return Data() }
-        defer { inflateEnd(&stream) }
-        let dstBuffer = UnsafeMutablePointer<Bytef>.allocate(capacity: deflateChunk)
-        defer { dstBuffer.deallocate() }
-        return data.withUnsafeBytes { raw in
-            var base = raw.bindMemory(to: Bytef.self).baseAddress!
-            var remaining = raw.count
-            var output = Data()
-            var finished = false
-            while !finished {
-                stream.next_out = dstBuffer
-                stream.avail_out = uInt(deflateChunk)
-                if stream.avail_in == 0, remaining > 0 {
-                    let take = min(remaining, Int(UInt32.max))
-                    stream.next_in = UnsafeMutablePointer(mutating: base)
-                    stream.avail_in = uInt(take)
-                    base = base.advanced(by: take)
-                    remaining -= take
-                }
-                let status = inflate(&stream, Int32(Z_NO_FLUSH))
-                let produced = deflateChunk - Int(stream.avail_out)
-                if produced > 0 {
-                    output.append(Data(bytes: dstBuffer, count: produced))
-                }
-                if status == Z_STREAM_END {
-                    finished = true
-                } else if status != Z_OK {
-                    finished = true
-                }
+    private static func decompressDeflate(_ raw: Data, expectedSize: Int) throws -> Data {
+        guard expectedSize > 0 else { return Data() }
+        var output = Data(count: expectedSize)
+        let decoded: Int = output.withUnsafeMutableBytes { dstPtr in
+            raw.withUnsafeBytes { srcPtr in
+                compression_decode_buffer(dstPtr.bindMemory(to: UInt8.self).baseAddress!, expectedSize,
+                                          srcPtr.bindMemory(to: UInt8.self).baseAddress!, raw.count,
+                                          nil, COMPRESSION_ZLIB)
             }
-            return output
         }
-    }
-
-    private static func crc32(_ data: Data) -> UInt32 {
-        var table = [UInt32](repeating: 0, count: 256)
-        for i in 0..<256 {
-            var c = UInt32(i)
-            for _ in 0..<8 {
-                c = (c & 1 == 1) ? (0xEDB88320 ^ (c >> 1)) : (c >> 1)
-            }
-            table[i] = c
-        }
-        var crc: UInt32 = 0xFFFFFFFF
-        for byte in data {
-            crc = table[Int((crc ^ UInt32(byte)) & 0xFF)] ^ (crc >> 8)
-        }
-        return crc ^ 0xFFFFFFFF
+        guard decoded > 0 else { throw ZipError.invalid }
+        return output.subdata(in: 0..<decoded)
     }
 }
 
 enum ZipError: Error {
     case invalid
     case unsupportedMethod
+    case tooLarge
+    case checksumMismatch
+}
+
+enum CRC32 {
+    private static let table: [UInt32] = {
+        var t = [UInt32](repeating: 0, count: 256)
+        for i in 0..<256 {
+            var c = UInt32(i)
+            for _ in 0..<8 {
+                c = (c & 1 == 1) ? (0xEDB88320 ^ (c >> 1)) : (c >> 1)
+            }
+            t[i] = c
+        }
+        return t
+    }()
+
+    static func compute(_ data: Data) -> UInt32 {
+        var crc: UInt32 = 0xFFFFFFFF
+        for byte in data {
+            crc = table[Int((crc ^ UInt32(byte)) & 0xFF)] ^ (crc >> 8)
+        }
+        return crc ^ 0xFFFFFFFF
+    }
 }
 
 private extension Data {

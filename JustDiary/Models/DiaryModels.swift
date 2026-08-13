@@ -50,14 +50,6 @@ struct LocOption: Hashable {
     var count: Int
 }
 
-struct DiaryCardInfo {
-    var dayKey: String
-    var hasDiary: Bool
-    var startTimeUtc: Int64
-    var locText: String
-    var preview: String
-}
-
 struct MapPointRow {
     var id: Int64
     var dayKey: String

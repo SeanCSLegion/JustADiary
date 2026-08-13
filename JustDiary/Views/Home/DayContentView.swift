@@ -35,14 +35,13 @@ struct DayContentView: View {
             Text(isFuture ? L10n.str("index_future_empty") : L10n.str("index_day_empty"))
                 .font(.system(size: 14))
                 .foregroundStyle(Theme.onSurfaceVariant())
-            GlassPrimaryButton(title: L10n.str("index_write"), compact: true) {
+            GlassPrimaryButton(title: L10n.str("index_write"), compact: true, enabled: !isFuture) {
                 if isFuture {
                     showFutureToast()
                 } else {
                     openEditor(dayKey)
                 }
             }
-            .opacity(isFuture ? 0.5 : 1)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 56)
@@ -67,7 +66,7 @@ struct DiaryBlockCard: View {
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.onSurfaceVariant())
             }
-            ReadTextView(parts: ContentFlatten.parseContent(block.contentJson),
+            ReadTextView(parts: ContentFlatten.parseContentCached(block.contentJson),
                          textContainerInset: UIEdgeInsets(top: 2, left: 0, bottom: 2, right: 0))
         }
         .padding(.bottom, 2)

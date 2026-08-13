@@ -32,7 +32,7 @@ struct MapBounds {
 }
 
 enum MapDataService {
-    static func buildMapPoints(_ rows: [MapPointRow], precision: String) -> MapBuildResult {
+    static func buildMapPoints(_ rows: [MapPointRow]) -> MapBuildResult {
         var withCoord: [MapPointRow] = []
         var noCoord: [MapPointRow] = []
         for row in rows {
@@ -61,97 +61,32 @@ enum MapDataService {
         }
         var points: [MapPoint] = []
         var unlocated = 0
-        if precision == "exact" {
-            for row in withCoord {
+        for row in withCoord {
+            points.append(MapPoint(id: row.id, dayKey: row.dayKey, startTimeUtc: row.startTimeUtc,
+                                   lat: row.latitude, lng: row.longitude, locText: row.locText,
+                                   locQuality: row.locQuality, locPrecision: row.locPrecision,
+                                   country: row.country, countryCode: row.countryCode,
+                                   region1: row.region1, region2: row.region2, region3: row.region3,
+                                   summary: row.summary, count: 1))
+        }
+        for row in noCoord {
+            let cityKey = "\(row.country)\u{1}\(row.region1)\u{1}\(row.region2)"
+            let provinceKey = "\(row.country)\u{1}\(row.region1)\u{1}"
+            var center: (lat: Double, lng: Double)?
+            if let list = cityIndex[cityKey], !list.isEmpty {
+                center = meanCenter(list)
+            } else if let list = provinceIndex[provinceKey], !list.isEmpty {
+                center = meanCenter(list)
+            }
+            if let c = center {
                 points.append(MapPoint(id: row.id, dayKey: row.dayKey, startTimeUtc: row.startTimeUtc,
-                                       lat: row.latitude, lng: row.longitude, locText: row.locText,
+                                       lat: c.lat, lng: c.lng, locText: row.locText,
                                        locQuality: row.locQuality, locPrecision: row.locPrecision,
                                        country: row.country, countryCode: row.countryCode,
                                        region1: row.region1, region2: row.region2, region3: row.region3,
                                        summary: row.summary, count: 1))
-            }
-            for row in noCoord {
-                let cityKey = "\(row.country)\u{1}\(row.region1)\u{1}\(row.region2)"
-                let provinceKey = "\(row.country)\u{1}\(row.region1)\u{1}"
-                var center: (lat: Double, lng: Double)?
-                if let list = cityIndex[cityKey], !list.isEmpty {
-                    center = meanCenter(list)
-                } else if let list = provinceIndex[provinceKey], !list.isEmpty {
-                    center = meanCenter(list)
-                }
-                if let c = center {
-                    points.append(MapPoint(id: row.id, dayKey: row.dayKey, startTimeUtc: row.startTimeUtc,
-                                           lat: c.lat, lng: c.lng, locText: row.locText,
-                                           locQuality: row.locQuality, locPrecision: row.locPrecision,
-                                           country: row.country, countryCode: row.countryCode,
-                                           region1: row.region1, region2: row.region2, region3: row.region3,
-                                           summary: row.summary, count: 1))
-                } else {
-                    unlocated += 1
-                }
-            }
-        } else {
-            var grouped: [String: [MapPointRow]] = [:]
-            var firstRow: [String: MapPointRow] = [:]
-            for row in withCoord {
-                let key: String
-                if precision == "province" {
-                    key = "\(row.country)\u{1}\(row.region1)\u{1}"
-                } else {
-                    key = "\(row.country)\u{1}\(row.region1)\u{1}\(row.region2)"
-                }
-                grouped[key, default: []].append(row)
-                if firstRow[key] == nil { firstRow[key] = row }
-            }
-            for row in noCoord {
-                let key: String
-                if precision == "province" {
-                    key = "\(row.country)\u{1}\(row.region1)\u{1}"
-                } else {
-                    key = "\(row.country)\u{1}\(row.region1)\u{1}\(row.region2)"
-                }
-                grouped[key, default: []].append(row)
-                if firstRow[key] == nil { firstRow[key] = row }
-            }
-            for (key, list) in grouped {
-                guard let f = firstRow[key] else { continue }
-                let center = meanCenter(list)
-                points.append(MapPoint(id: f.id, dayKey: f.dayKey, startTimeUtc: f.startTimeUtc,
-                                       lat: center.lat, lng: center.lng, locText: f.locText,
-                                       locQuality: f.locQuality, locPrecision: f.locPrecision,
-                                       country: f.country, countryCode: f.countryCode,
-                                       region1: f.region1, region2: f.region2, region3: f.region3,
-                                       summary: f.summary, count: list.count))
-            }
-            for row in noCoord {
-                let key: String
-                if precision == "province" {
-                    key = "\(row.country)\u{1}\(row.region1)\u{1}"
-                } else {
-                    key = "\(row.country)\u{1}\(row.region1)\u{1}\(row.region2)"
-                }
-                if grouped[key] == nil {
-                    let cityKey = "\(row.country)\u{1}\(row.region1)\u{1}\(row.region2)"
-                    let provinceKey = "\(row.country)\u{1}\(row.region1)\u{1}"
-                    var center: (lat: Double, lng: Double)?
-                    if let list = cityIndex[cityKey], !list.isEmpty {
-                        center = meanCenter(list)
-                    } else if let list = provinceIndex[provinceKey], !list.isEmpty {
-                        center = meanCenter(list)
-                    }
-                    if let c = center {
-                        grouped[key] = [row]
-                        firstRow[key] = row
-                        points.append(MapPoint(id: row.id, dayKey: row.dayKey, startTimeUtc: row.startTimeUtc,
-                                               lat: c.lat, lng: c.lng, locText: row.locText,
-                                               locQuality: row.locQuality, locPrecision: row.locPrecision,
-                                               country: row.country, countryCode: row.countryCode,
-                                               region1: row.region1, region2: row.region2, region3: row.region3,
-                                               summary: row.summary, count: 1))
-                    } else {
-                        unlocated += 1
-                    }
-                }
+            } else {
+                unlocated += 1
             }
         }
         return MapBuildResult(points: points, unlocated: unlocated)

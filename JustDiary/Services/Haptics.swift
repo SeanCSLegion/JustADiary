@@ -5,10 +5,12 @@ enum Haptics {
     private static let mediumGenerator = UIImpactFeedbackGenerator(style: .medium)
 
     static func tap() {
+        tapGenerator.prepare()
         tapGenerator.impactOccurred()
     }
 
     static func medium() {
+        mediumGenerator.prepare()
         mediumGenerator.impactOccurred()
     }
 }

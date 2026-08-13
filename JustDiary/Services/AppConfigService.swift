@@ -9,24 +9,9 @@ enum AppConfigService {
         }
     }
 
-    static func applyThemeMode() {
-        let mode = SettingsStore.load().themeMode
-        let style: UIUserInterfaceStyle
-        switch mode {
-        case "light": style = .light
-        case "dark": style = .dark
-        default: style = .unspecified
-        }
-        for scene in UIApplication.shared.connectedScenes {
-            guard let windowScene = scene as? UIWindowScene else { continue }
-            for window in windowScene.windows {
-                window.overrideUserInterfaceStyle = style
-            }
-        }
-    }
+    static func applyThemeMode() {}
 
     static func applyAll() {
-        applyThemeMode()
         DiaryRepository.shared.bumpUiTick()
     }
 }

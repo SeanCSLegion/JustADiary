@@ -30,27 +30,9 @@ struct GeoCamera {
     var zoom: Double = 3.5
 }
 
-struct GeoPoint {
-    var id: Int64
-    var dayKey: String
-    var startTimeUtc: Int64
-    var wx: Double
-    var wy: Double
-    var lat: Double
-    var lng: Double
-    var count: Int
-    var summary: String
-    var locText: String
-}
-
 struct GeoXY {
     var wx: Double
     var wy: Double
-}
-
-struct ScreenXY {
-    var sx: Double
-    var sy: Double
 }
 
 enum GeoMath {
@@ -92,18 +74,6 @@ enum GeoMath {
                      wy: latToY(cam.centerLat) + (sy - vpH / 2) / s)
     }
 
-    static func worldToScreen(_ wx: Double, _ wy: Double, cam: GeoCamera, vpW: Double, vpH: Double) -> ScreenXY {
-        let s = camScale(cam.zoom)
-        return ScreenXY(sx: (wx - lngToX(cam.centerLng)) * s + vpW / 2,
-                        sy: (wy - latToY(cam.centerLat)) * s + vpH / 2)
-    }
-
-    static func cameraKeepPoint(_ cam: inout GeoCamera, wx: Double, wy: Double, sx: Double, sy: Double, vpW: Double, vpH: Double) {
-        let s = camScale(cam.zoom)
-        cam.centerLng = xToLng(wx - (sx - vpW / 2) / s)
-        cam.centerLat = yToLat(wy - (sy - vpH / 2) / s)
-    }
-
     static func pointInFeature(_ wx: Double, _ wy: Double, _ f: GeoFeature) -> Bool {
         var inside = false
         for ring in f.rings {
@@ -140,10 +110,6 @@ enum GeoMath {
             }
         }
         return best
-    }
-
-    static func projectPoint(_ lat: Double, _ lng: Double) -> GeoXY {
-        GeoXY(wx: lngToX(lng), wy: latToY(lat))
     }
 }
 
@@ -207,17 +173,13 @@ enum GeoMap {
     }
 
     static func loadJson(_ name: String) -> [[String: Any]] {
-        for (sub, file) in [("map", name), ("Resources/map", name), (nil, name)] {
-            if let features = tryLoad(sub, file) { return features }
-        }
-        return []
-    }
-
-    private static func tryLoad(_ sub: String?, _ file: String) -> [[String: Any]]? {
-        guard let url = Bundle.main.url(forResource: file, withExtension: "json", subdirectory: sub),
+        guard let url = Bundle.main.url(forResource: name, withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let features = json["features"] as? [[String: Any]] else { return nil }
+              let features = json["features"] as? [[String: Any]] else {
+            Log.map.error("loadJson failed: \(name, privacy: .public)")
+            return []
+        }
         return features
     }
 
@@ -236,13 +198,7 @@ enum GeoMap {
         if let cached = geo.cities[provinceAdcode] {
             return !cached.isEmpty
         }
-        let list: [[String: Any]] = {
-            for (sub, file) in [("map/cities", provinceAdcode), ("cities", provinceAdcode), (nil, provinceAdcode)] {
-                if let features = tryLoad(sub, file) { return features }
-            }
-            return []
-        }()
-        let parsed = list.compactMap { parseFeature($0, level: "city") }
+        let parsed = loadJson(provinceAdcode).compactMap { parseFeature($0, level: "city") }
         geo.cities[provinceAdcode] = parsed
         return !parsed.isEmpty
     }

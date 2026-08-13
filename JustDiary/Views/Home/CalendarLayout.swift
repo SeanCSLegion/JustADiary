@@ -51,8 +51,10 @@ struct DayMetrics {
 
 enum CalendarLayout {
     static let morphDuration: Double = {
+        #if DEBUG
         if ProcessInfo.processInfo.environment["SLOW_MORPH"] == "1" { return 3.0 }
         if ProcessInfo.processInfo.arguments.contains("-slow-morph") { return 3.0 }
+        #endif
         return 0.4
     }()
     static var morphAnimation: Animation { .easeInOut(duration: morphDuration) }
@@ -193,14 +195,28 @@ enum CalendarLayout {
         return (c.year ?? 0) * 10000 + (c.month ?? 0) * 100 + (c.day ?? 0)
     }
 
+    private static let lock = NSLock()
+    private static var weeksCache: [Int: [WeekDays]] = [:]
+
     static func weeks(inMonth month: Date, ws: String) -> [WeekDays] {
+        let key = (DateUtil.calendar.component(.year, from: month) * 100 + DateUtil.calendar.component(.month, from: month)) * 2 + (ws == "sunday" ? 1 : 0)
+        lock.lock()
+        if let cached = weeksCache[key] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
         let cal = DateUtil.calendar
         let first = DateUtil.monthFirst(month)
         let start = weekStart(of: first, ws: ws)
-        return (0..<6).map { i in
+        let result = (0..<6).map { i in
             let s = cal.date(byAdding: .day, value: i * 7, to: start) ?? start
             return WeekDays(start: s, days: (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: s) })
         }
+        lock.lock()
+        weeksCache[key] = result
+        lock.unlock()
+        return result
     }
 
     static func weekOf(_ date: Date, ws: String) -> WeekDays {

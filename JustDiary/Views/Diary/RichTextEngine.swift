@@ -156,7 +156,7 @@ final class RichEditorController {
         let lineRange = NSRange(location: tv.offset(from: tv.beginningOfDocument, to: para.start),
                                 length: tv.offset(from: para.start, to: para.end))
         let payload: AttachmentPayload? = lineRange.location < tv.textStorage.length
-            ? tv.textStorage.attribute(.attachment, at: lineRange.location, effectiveRange: nil) as? AttachmentPayload
+            ? (tv.textStorage.attribute(.attachment, at: lineRange.location, effectiveRange: nil) as? PayloadAttachment)?.payload
             : nil
         apply { attributed in
             if isMarked(payload) {
@@ -229,16 +229,14 @@ final class RichEditorController {
 
     func insertImage(_ image: UIImage, src: String) {
         guard let tv = textView else { return }
-        let attachment = NSTextAttachment()
-        attachment.image = image
         let viewWidth = tv.bounds.width > 0 ? tv.bounds.width - 24 : 343
         let maxW = min(viewWidth, 343)
         let ratio = image.size.height / max(1, image.size.width)
         let displayH = max(40, maxW * ratio)
+        let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: maxW, h: displayH))
+        attachment.image = image
         attachment.bounds = CGRect(x: 0, y: 0, width: maxW, height: displayH)
         let attributed = NSMutableAttributedString(attachment: attachment)
-        attributed.addAttribute(.attachment, value: AttachmentPayload(src: src, w: maxW, h: displayH),
-                                range: NSRange(location: 0, length: 1))
         attributed.append(NSAttributedString(string: "\n", attributes: baseTypingAttributes()))
         let insertRange = NSRange(location: tv.selectedRange.location, length: 0)
         tv.textStorage.insert(attributed, at: insertRange.location)
@@ -297,9 +295,22 @@ struct AttachmentPayload {
     }
 }
 
+final class PayloadAttachment: NSTextAttachment {
+    var payload: AttachmentPayload
+
+    init(payload: AttachmentPayload) {
+        self.payload = payload
+        super.init(data: nil, ofType: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
 enum MarkerAttachment {
-    static func attachment(kind: String, done: Bool = false) -> NSTextAttachment {
-        let attachment = NSTextAttachment()
+    static func attachment(kind: String, done: Bool = false) -> PayloadAttachment {
+        let attachment = PayloadAttachment(payload: AttachmentPayload(kind: kind, done: done))
         let symbol: String
         switch kind {
         case "todo":
@@ -340,17 +351,17 @@ enum PartsCodec {
                                      text: item, to: result, size: 15)
                 }
             case ContentPartType.image:
-                if let src = part.src, let image = UIImage(contentsOfFile: ImagePathUtil.resolveImagePath(src)) {
-                    let attachment = NSTextAttachment()
-                    attachment.image = image
-                    let w = CGFloat(part.w ?? 300)
-                    let h = CGFloat(part.h ?? 200)
-                    attachment.bounds = CGRect(x: 0, y: 0, width: w, height: h)
-                    let att = NSMutableAttributedString(attachment: attachment)
-                    att.addAttribute(.attachment, value: AttachmentPayload(src: src, w: w, h: h),
-                                     range: NSRange(location: 0, length: 1))
-                    result.append(att)
-                    result.append(NSAttributedString(string: "\n"))
+                if let src = part.src {
+                    let w = max(1, CGFloat(part.w ?? 300))
+                    let h = max(1, CGFloat(part.h ?? 200))
+                    if let image = DiaryImageStore.shared.image(for: src, maxPixel: max(w, h) * 3) {
+                        let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: w, h: h))
+                        attachment.image = image
+                        attachment.bounds = CGRect(x: 0, y: 0, width: w, height: h)
+                        let att = NSMutableAttributedString(attachment: attachment)
+                        result.append(att)
+                        result.append(NSAttributedString(string: "\n"))
+                    }
                 }
             default:
                 appendLine(part, to: result, size: 15)
@@ -361,12 +372,6 @@ enum PartsCodec {
 
     private static func appendMarkerLine(kind: String, done: Bool, text: String,
                                          to result: NSMutableAttributedString, size: CGFloat) {
-        let attachment = MarkerAttachment.attachment(kind: kind, done: done)
-        let marker = NSMutableAttributedString(attachment: attachment)
-        marker.addAttribute(.attachment,
-                            value: AttachmentPayload(kind: kind, done: done),
-                            range: NSRange(location: 0, length: 1))
-        result.append(marker)
         let style = NSMutableParagraphStyle()
         style.lineSpacing = 2
         var attrs: [NSAttributedString.Key: Any] = [
@@ -378,6 +383,7 @@ enum PartsCodec {
             attrs[.strikethroughStyle] = 1
             attrs[.foregroundColor] = Theme.onSurfaceUIColor().withAlphaComponent(0.45)
         }
+        result.append(NSAttributedString(attachment: MarkerAttachment.attachment(kind: kind, done: done)))
         result.append(NSAttributedString(string: text, attributes: attrs))
         result.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: size)]))
     }
@@ -450,8 +456,8 @@ enum PartsCodec {
 
             let lineLength = lineRange.length
             guard lineLength > 0 else { continue }
-            let lineStartPayload = storage.attribute(.attachment, at: lineRange.location, effectiveRange: nil) as? AttachmentPayload
-            if let markerPayload = lineStartPayload, markerPayload.kind == "todo" || markerPayload.kind == "bullet" {
+            let lineStartPayload = storage.attribute(.attachment, at: lineRange.location, effectiveRange: nil) as? PayloadAttachment
+            if let markerPayload = lineStartPayload?.payload, markerPayload.kind == "todo" || markerPayload.kind == "bullet" {
                 let rest = text.substring(with: NSRange(location: lineRange.location + 1, length: lineLength - 1))
                 if markerPayload.kind == "todo" {
                     appendList(parts: &parts, item: rest, done: markerPayload.done)
@@ -476,7 +482,7 @@ enum PartsCodec {
                 let attrs = storage.attributes(at: cursor, effectiveRange: &effective)
                 let effectiveEnd = min(lineRange.location + lineLength, effective.location + effective.length)
                 let sub = text.substring(with: NSRange(location: cursor, length: effectiveEnd - cursor))
-                if let payload = attrs[.attachment] as? AttachmentPayload, payload.kind == "image" {
+                if let payload = (attrs[.attachment] as? PayloadAttachment)?.payload, payload.kind == "image" {
                     parts.append(ContentPart(type: ContentPartType.image,
                                              src: ImagePathUtil.normalizeSrcKey(payload.src),
                                              w: Double(payload.w), h: Double(payload.h)))
@@ -531,26 +537,6 @@ enum PartsCodec {
         } else {
             let type = done == nil ? ContentPartType.list : ContentPartType.todo
             parts.append(ContentPart(type: type, items: [item], done: done.map { [$0] }))
-        }
-    }
-}
-
-extension Theme {
-    static func onSurfaceUIColor() -> UIColor {
-        UIColor { trait in
-            trait.userInterfaceStyle == .dark ? UIColor(hex: 0xE1E2E8) : UIColor(hex: 0x191C20)
-        }
-    }
-
-    static func onSurfaceVariantUIColor() -> UIColor {
-        UIColor { trait in
-            trait.userInterfaceStyle == .dark ? UIColor(hex: 0xC5C6D0) : UIColor(hex: 0x44474F)
-        }
-    }
-
-    static func quoteBgUIColor() -> UIColor {
-        UIColor { trait in
-            trait.userInterfaceStyle == .dark ? UIColor(hex: 0x2B3344) : UIColor(hex: 0xE4EAF9)
         }
     }
 }

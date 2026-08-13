@@ -68,6 +68,10 @@ enum ReminderService {
         let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
         let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
         let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-        UNUserNotificationCenter.current().add(request)
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                Log.app.error("schedule reminder failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 }

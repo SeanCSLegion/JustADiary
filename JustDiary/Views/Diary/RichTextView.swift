@@ -128,6 +128,7 @@ struct FontToolbar: View {
 
     private func btn(_ label: String, active: Bool, disabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button {
+            Haptics.tap()
             action()
             onTap?()
         } label: {
@@ -135,7 +136,7 @@ struct FontToolbar: View {
                 .font(.system(size: 13))
                 .foregroundStyle(active ? .white : Theme.onSurface())
                 .padding(.horizontal, 9)
-                .padding(.vertical, 7)
+                .frame(minHeight: 40)
                 .background {
                     Capsule().fill(active ? Theme.primary() : .clear)
                 }

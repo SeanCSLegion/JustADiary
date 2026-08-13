@@ -28,12 +28,12 @@ struct AppSettings: Codable, Equatable {
 
 enum SettingsStore {
     static let suiteName = "group.com.cov.justdiary"
+    static let defaults: UserDefaults = UserDefaults(suiteName: suiteName) ?? .standard
 
-    static var defaults: UserDefaults {
-        UserDefaults(suiteName: suiteName) ?? .standard
-    }
+    private static let cached = LockedBox<AppSettings?>(nil)
 
     static func load() -> AppSettings {
+        if let value = cached.value { return value }
         let d = defaults
         var s = AppSettings()
         s.dayStartHour = d.object(forKey: "day_start_hour") as? Int ?? 4
@@ -49,10 +49,12 @@ enum SettingsStore {
         if !["light", "dark", "system"].contains(s.themeMode) { s.themeMode = "system" }
         if !["system", "zh", "en"].contains(s.appLanguage) { s.appLanguage = "system" }
         if !["monday", "sunday"].contains(s.weekStart) { s.weekStart = "monday" }
+        cached.value = s
         return s
     }
 
     static func save(_ s: AppSettings) {
+        cached.value = s
         let d = defaults
         d.set(s.dayStartHour, forKey: "day_start_hour")
         d.set(s.autoTime, forKey: "auto_time")
@@ -73,5 +75,27 @@ enum SettingsStore {
 
     static var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+}
+
+final class LockedBox<Value> {
+    private let lock = NSLock()
+    private var _value: Value
+
+    init(_ value: Value) {
+        _value = value
+    }
+
+    var value: Value {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _value
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            _value = newValue
+        }
     }
 }

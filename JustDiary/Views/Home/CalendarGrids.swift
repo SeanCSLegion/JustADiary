@@ -10,7 +10,7 @@ struct WeekdayHeaderView: View {
             let names = L10n.weekdayNames(weekStart: weekStart)
             let size = fontSize ?? CalendarLayout.weekdayFontSize(cellW: cellW)
             ForEach(0..<7, id: \.self) { i in
-                let isWeekend = (weekStart == "sunday" ? i : i + 1) % 7 >= 5
+                let isWeekend = weekStart == "sunday" ? (i == 0 || i == 6) : (i >= 5)
                 Text(names[i])
                     .font(.system(size: size))
                     .foregroundStyle(isWeekend ? Theme.onSurfaceVariant().opacity(0.6) : Theme.onSurfaceVariant())
@@ -23,6 +23,22 @@ struct WeekdayHeaderView: View {
 enum DayDraw {
     static func lunarLineH(_ m: DayMetrics) -> CGFloat {
         m.lunarAlpha > 0.01 ? (m.lunarFont + 5) * CGFloat(m.lunarAlpha) : 0
+    }
+
+    private static let lock = NSLock()
+    private static var textCache: [TextKey: GraphicsContext.ResolvedText] = [:]
+
+    private struct TextKey: Hashable {
+        var text: String
+        var size: CGFloat
+        var weight: Int
+        var color: Int
+    }
+
+    static func clearCache() {
+        lock.lock()
+        defer { lock.unlock() }
+        textCache.removeAll()
     }
 
     static func draw(_ context: GraphicsContext,
@@ -72,26 +88,31 @@ enum DayDraw {
         }
 
         let textColor: Color
+        let colorKey: Int
         if isSelected {
             textColor = Theme.onPrimary()
+            colorKey = 0
         } else if isToday {
             textColor = Theme.primary()
+            colorKey = 1
         } else if inMonth {
             textColor = Theme.onSurface()
+            colorKey = 2
         } else {
             textColor = Theme.onSurface().opacity(0.5)
+            colorKey = 3
         }
 
-        let num = context.resolve(Text("\(DateUtil.calendar.component(.day, from: day))")
-            .font(.system(size: m.dayFont, weight: isSelected ? .semibold : .medium))
-            .foregroundStyle(textColor.opacity(cellAlpha)))
-        context.draw(num, at: CGPoint(x: cx, y: numY), anchor: .center)
-
-        if lineH > 0.5 {
-            let lunar = context.resolve(Text(Lunar.dayLabel(day))
-                .font(.system(size: m.lunarFont))
-                .foregroundStyle(textColor.opacity(cellAlpha * (isSelected ? 0.95 : 0.75))))
-            context.draw(lunar, at: CGPoint(x: cx, y: lunarY), anchor: .center)
+        let dayNum = DateUtil.calendar.component(.day, from: day)
+        let num = resolvedText(context, "\(dayNum)", size: m.dayFont, weight: isSelected ? 1 : 0, color: colorKey, colorStyle: textColor)
+        context.drawLayer { layer in
+            layer.opacity = cellAlpha
+            layer.draw(num, at: CGPoint(x: cx, y: numY), anchor: .center)
+            if lineH > 0.5 {
+                let lunar = resolvedText(context, Lunar.dayLabel(day), size: m.lunarFont, weight: 0, color: colorKey,
+                                         colorStyle: textColor.opacity(isSelected ? 0.95 : 0.75))
+                layer.draw(lunar, at: CGPoint(x: cx, y: lunarY), anchor: .center)
+            }
         }
 
         if flags.contains(dayKey) {
@@ -103,6 +124,28 @@ enum DayDraw {
             context.fill(underline, with: .color(color.opacity(cellAlpha)))
         }
     }
+
+    private static func resolvedText(_ context: GraphicsContext, _ text: String, size: CGFloat, weight: Int, color: Int,
+                                     colorStyle: Color) -> GraphicsContext.ResolvedText {
+        let quantizedSize = (size * 2).rounded() / 2
+        let key = TextKey(text: text, size: quantizedSize, weight: weight, color: color)
+        lock.lock()
+        if let cached = textCache[key] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+        let resolved = context.resolve(Text(text)
+            .font(.system(size: quantizedSize, weight: weight == 1 ? .semibold : .medium))
+            .foregroundStyle(colorStyle))
+        lock.lock()
+        if textCache.count > 4000 {
+            textCache.removeAll()
+        }
+        textCache[key] = resolved
+        lock.unlock()
+        return resolved
+    }
 }
 
 struct MonthCanvas: View {
@@ -113,6 +156,7 @@ struct MonthCanvas: View {
     var flags: Set<String>
     var showAdjacent: Bool = false
     var onTapDay: ((Date) -> Void)? = nil
+    var onAdjacentDaySelected: ((Date) -> Void)? = nil
 
     var body: some View {
         Canvas { context, _ in
@@ -142,6 +186,19 @@ struct MonthCanvas: View {
                 onTapDay(day)
             }
         )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L10n.fmt("date_month_title",
+                                     DateUtil.calendar.component(.year, from: anchorMonth),
+                                     L10n.monthName(DateUtil.calendar.component(.month, from: anchorMonth))))
+        .accessibilityValue(L10n.formatDayKey(DateUtil.dayKeyOf(selectedDate)))
+        .accessibilityAdjustableAction { direction in
+            guard let onAdjacentDaySelected else { return }
+            let delta = direction == .increment ? 1 : -1
+            onAdjacentDaySelected(DateUtil.addDays(selectedDate, delta))
+        }
+        .accessibilityAction {
+            onTapDay?(selectedDate)
+        }
     }
 
     private func dayAt(point: CGPoint) -> Date? {

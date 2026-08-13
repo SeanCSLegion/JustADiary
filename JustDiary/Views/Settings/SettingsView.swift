@@ -1,22 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @State private var settings = SettingsStore.load()
-    @State private var showDayStartPicker = false
-    @State private var showRemindPicker = false
-    @State private var themeMenuShowing = false
-    @State private var langMenuShowing = false
-    @State private var weekMenuShowing = false
-    @State private var busyText: String?
-    @State private var resultAlert: ResultAlert?
-    @State private var exportChooserShowing = false
-    @State private var importModeShowing = false
-    @State private var showImportPicker = false
-    @State private var importURL: URL?
-    @State private var exportURL: URL?
-    @State private var showExportSheet = false
-    @State private var locStatusText = ""
-    @State private var notifStatusText = ""
+    @State private var vm = SettingsViewModel()
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -32,59 +17,59 @@ struct SettingsView: View {
             .padding(.horizontal, 16)
             .padding(.top, 12)
         }
-        .task { await refreshStatus() }
+        .task { await vm.refreshStatus() }
         .onReceive(NotificationCenter.default.publisher(for: .uiTickChanged)) { _ in
-            settings = SettingsStore.load()
+            vm.refreshSettings()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            Task { await refreshStatus() }
+            Task { await vm.refreshStatus() }
         }
-        .sheet(isPresented: $showExportSheet) {
-            if let url = exportURL {
+        .sheet(isPresented: $vm.showExportSheet) {
+            if let url = vm.exportURL {
                 ShareLink(item: url, preview: SharePreview(L10n.str("EntryAbility_label")))
                     .buttonStyle(.glassProminent)
                     .padding(24)
                     .presentationDetents([.height(170)])
             }
         }
-        .fileImporter(isPresented: $showImportPicker,
-                      allowedContentTypes: [.data],
-                      allowsMultipleSelection: false) { result in
-            if case .success(let urls) = result, let url = urls.first {
-                importURL = url
-                importModeShowing = true
+        .sheet(isPresented: $vm.showImportPicker) {
+            DocumentPicker { url in
+                vm.showImportPicker = false
+                guard let url else { return }
+                vm.importURL = url
+                vm.importModeShowing = true
             }
         }
         .confirmationDialog(L10n.str("settings_import_mode_title"),
-                            isPresented: $importModeShowing,
+                            isPresented: $vm.importModeShowing,
                             titleVisibility: .visible) {
-            Button(L10n.str("settings_import_skip")) { runImport(mode: "skip") }
-            Button(L10n.str("settings_import_overwrite")) { runImport(mode: "overwrite") }
+            Button(L10n.str("settings_import_skip")) { vm.runImport(mode: "skip") }
+            Button(L10n.str("settings_import_overwrite")) { vm.runImport(mode: "overwrite") }
             Button(L10n.str("cancel"), role: .cancel) {}
         }
-        .sheet(isPresented: $showDayStartPicker) {
+        .sheet(isPresented: $vm.showDayStartPicker) {
             hourPickerSheet(title: L10n.str("settings_day_start"),
-                            hour: Binding(get: { settings.dayStartHour },
-                                          set: { settings.dayStartHour = $0 }),
+                            hour: Binding(get: { vm.settings.dayStartHour },
+                                          set: { vm.settings.dayStartHour = $0 }),
                             minute: Binding(get: { 0 }, set: { _ in }),
-                            isPresented: $showDayStartPicker,
-                            onApply: { applyDayStart() })
+                            isPresented: $vm.showDayStartPicker,
+                            onApply: { vm.applyDayStart() })
                 .presentationDetents([.height(320)])
                 .presentationBackground(.ultraThinMaterial)
         }
-        .sheet(isPresented: $showRemindPicker) {
+        .sheet(isPresented: $vm.showRemindPicker) {
             hourPickerSheet(title: L10n.str("settings_remind_time"),
-                            hour: Binding(get: { settings.remindHour },
-                                          set: { settings.remindHour = $0 }),
-                            minute: Binding(get: { settings.remindMinute },
-                                            set: { settings.remindMinute = $0 }),
-                            isPresented: $showRemindPicker,
-                            onApply: { applyRemindTime() })
+                            hour: Binding(get: { vm.settings.remindHour },
+                                          set: { vm.settings.remindHour = $0 }),
+                            minute: Binding(get: { vm.settings.remindMinute },
+                                            set: { vm.settings.remindMinute = $0 }),
+                            isPresented: $vm.showRemindPicker,
+                            onApply: { vm.applyRemindTime() })
                 .presentationDetents([.height(320)])
                 .presentationBackground(.ultraThinMaterial)
         }
         .overlay {
-            if let busyText {
+            if let busyText = vm.busyText {
                 ZStack {
                     Color.black.opacity(0.25)
                         .ignoresSafeArea()
@@ -103,34 +88,13 @@ struct SettingsView: View {
                 .transition(.opacity)
             }
         }
-        .alert(item: $resultAlert) { alert in
-            Alert(title: Text(alert.title), message: Text(alert.message))
-        }
-    }
-
-    struct ResultAlert: Identifiable {
-        let id = UUID()
-        var title: String
-        var message: String
+        .appAlert(item: $vm.resultAlert)
     }
 
     // MARK: - Header
 
     private var header: some View {
         PageHeader(title: L10n.str("settings_title"))
-    }
-
-    // MARK: - Status
-
-    private func refreshStatus() async {
-        switch LocStatus.current() {
-        case .authorizedAlways, .authorizedWhenInUse:
-            locStatusText = LocStatus.isPrecise ? L10n.str("settings_loc_exact") : L10n.str("settings_loc_fuzzy")
-        default:
-            locStatusText = L10n.str("settings_loc_none")
-        }
-        let enabled = await ReminderService.notificationEnabled()
-        notifStatusText = enabled ? L10n.str("settings_notif_on") : L10n.str("settings_notif_off")
     }
 
     // MARK: - Cards
@@ -153,7 +117,10 @@ struct SettingsView: View {
     }
 
     private func valueRow(icon: String, title: String, sub: String?, value: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
             HStack(spacing: 12) {
                 GlassIconBadge(systemName: icon)
                 VStack(alignment: .leading, spacing: 2) {
@@ -177,6 +144,7 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 12)
             .frame(minHeight: 56)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -199,7 +167,9 @@ struct SettingsView: View {
             Toggle("", isOn: isOn)
                 .labelsHidden()
                 .tint(Theme.primary())
+                .accessibilityLabel(title)
                 .onChange(of: isOn.wrappedValue) { _, newValue in
+                    Haptics.tap()
                     onChange(newValue)
                 }
         }
@@ -215,29 +185,29 @@ struct SettingsView: View {
             valueRow(icon: "globe", title: L10n.str("settings_language"),
                      sub: L10n.str("settings_language_sub"),
                      value: langLabel) {
-                langMenuShowing = true
+                vm.langMenuShowing = true
             }
-            .confirmationDialog(L10n.str("settings_language"), isPresented: $langMenuShowing) {
-                Button(L10n.str("settings_lang_system")) { setLanguage("system") }
-                Button(L10n.str("settings_lang_zh")) { setLanguage("zh") }
-                Button(L10n.str("settings_lang_en")) { setLanguage("en") }
+            .confirmationDialog(L10n.str("settings_language"), isPresented: $vm.langMenuShowing) {
+                Button(L10n.str("settings_lang_system")) { vm.setLanguage("system") }
+                Button(L10n.str("settings_lang_zh")) { vm.setLanguage("zh") }
+                Button(L10n.str("settings_lang_en")) { vm.setLanguage("en") }
             }
             RowDivider(horizontalPadding: 12)
             valueRow(icon: "paintpalette", title: L10n.str("settings_theme"),
                      sub: L10n.str("settings_theme_sub"),
                      value: themeLabel) {
-                themeMenuShowing = true
+                vm.themeMenuShowing = true
             }
-            .confirmationDialog(L10n.str("settings_theme"), isPresented: $themeMenuShowing) {
-                Button(L10n.str("settings_theme_system")) { setTheme("system") }
-                Button(L10n.str("settings_theme_light")) { setTheme("light") }
-                Button(L10n.str("settings_theme_dark")) { setTheme("dark") }
+            .confirmationDialog(L10n.str("settings_theme"), isPresented: $vm.themeMenuShowing) {
+                Button(L10n.str("settings_theme_system")) { vm.setTheme("system") }
+                Button(L10n.str("settings_theme_light")) { vm.setTheme("light") }
+                Button(L10n.str("settings_theme_dark")) { vm.setTheme("dark") }
             }
         }
     }
 
     private var themeLabel: String {
-        switch settings.themeMode {
+        switch vm.settings.themeMode {
         case "light": return L10n.str("settings_theme_light")
         case "dark": return L10n.str("settings_theme_dark")
         default: return L10n.str("settings_theme_system")
@@ -245,24 +215,11 @@ struct SettingsView: View {
     }
 
     private var langLabel: String {
-        switch settings.appLanguage {
+        switch vm.settings.appLanguage {
         case "zh": return "中文"
         case "en": return "English"
         default: return L10n.str("settings_lang_system")
         }
-    }
-
-    private func setTheme(_ mode: String) {
-        settings.themeMode = mode
-        SettingsStore.save(settings)
-        AppConfigService.applyAll()
-    }
-
-    private func setLanguage(_ lang: String) {
-        settings.appLanguage = lang
-        SettingsStore.save(settings)
-        resultAlert = ResultAlert(title: L10n.str("settings_language"),
-                                  message: L10n.str("settings_lang_restart_msg"))
     }
 
     // MARK: - Rules
@@ -272,87 +229,43 @@ struct SettingsView: View {
             sectionTitle(L10n.str("settings_section_rules"))
             valueRow(icon: "sun.horizon", title: L10n.str("settings_day_start"),
                      sub: L10n.str("settings_day_start_sub"),
-                     value: L10n.dayStartLabel(settings.dayStartHour)) {
-                showDayStartPicker = true
+                     value: L10n.dayStartLabel(vm.settings.dayStartHour)) {
+                vm.showDayStartPicker = true
             }
             RowDivider(horizontalPadding: 12)
             valueRow(icon: "calendar", title: L10n.str("settings_week_start"),
                      sub: L10n.str("settings_week_start_sub"),
-                     value: settings.weekStart == "sunday" ? L10n.str("settings_week_sunday") : L10n.str("settings_week_monday")) {
-                weekMenuShowing = true
+                     value: vm.settings.weekStart == "sunday" ? L10n.str("settings_week_sunday") : L10n.str("settings_week_monday")) {
+                vm.weekMenuShowing = true
             }
-            .confirmationDialog(L10n.str("settings_week_start"), isPresented: $weekMenuShowing) {
-                Button(L10n.str("settings_week_monday")) { setWeekStart("monday") }
-                Button(L10n.str("settings_week_sunday")) { setWeekStart("sunday") }
+            .confirmationDialog(L10n.str("settings_week_start"), isPresented: $vm.weekMenuShowing) {
+                Button(L10n.str("settings_week_monday")) { vm.setWeekStart("monday") }
+                Button(L10n.str("settings_week_sunday")) { vm.setWeekStart("sunday") }
             }
             RowDivider(horizontalPadding: 12)
             switchRow(icon: "clock", title: L10n.str("settings_auto_time"),
                       sub: L10n.str("settings_auto_time_sub"),
-                      isOn: Binding(get: { settings.autoTime },
-                                    set: { settings.autoTime = $0; SettingsStore.save(settings) })) { _ in }
+                      isOn: Binding(get: { vm.settings.autoTime },
+                                    set: { vm.setAutoTime($0) })) { _ in }
             RowDivider(horizontalPadding: 12)
             switchRow(icon: "location", title: L10n.str("settings_auto_loc"),
                       sub: L10n.str("settings_auto_loc_sub"),
-                      isOn: Binding(get: { settings.autoLoc },
-                                    set: { settings.autoLoc = $0; SettingsStore.save(settings) })) { enabled in
-                if enabled {
-                    LocationService.shared.requestPermission()
-                    Task { await DiaryRepository.shared.backfillBlockRegions() }
-                }
-            }
-            if settings.autoLoc {
+                      isOn: Binding(get: { vm.settings.autoLoc },
+                                    set: { vm.setAutoLoc($0) })) { _ in }
+            if vm.settings.autoLoc {
                 RowDivider(horizontalPadding: 12)
                 valueRow(icon: "location.circle", title: L10n.str("settings_loc_permission"),
                          sub: L10n.str("settings_loc_permission_sub"),
-                         value: locStatusText) {
-                    handleLocPermission()
+                         value: vm.locStatusText) {
+                    vm.handleLocPermission()
                 }
             }
             RowDivider(horizontalPadding: 12)
             switchRow(icon: "pencil", title: L10n.str("settings_history_edit"),
                       sub: L10n.str("settings_history_edit_sub"),
-                      isOn: Binding(get: { settings.allowHistoryEdit },
-                                    set: { settings.allowHistoryEdit = $0; SettingsStore.save(settings) })) { _ in }
+                      isOn: Binding(get: { vm.settings.allowHistoryEdit },
+                                    set: { vm.setAllowHistoryEdit($0) })) { _ in }
         }
-    }
-
-    private func setWeekStart(_ value: String) {
-        settings.weekStart = value
-        SettingsStore.save(settings)
-        DiaryRepository.shared.bumpUiTick()
-    }
-
-    private func handleLocPermission() {
-        switch LocStatus.current() {
-        case .notDetermined:
-            LocationService.shared.requestPermission()
-        default:
-            if let url = URL(string: UIApplication.openSettingsURLString) {
-                UIApplication.shared.open(url)
-            }
-        }
-        Task {
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            await refreshStatus()
-        }
-    }
-
-    private func applyDayStart() {
-        SettingsStore.save(settings)
-        let newHour = settings.dayStartHour
-        Task {
-            let conflicts = await DiaryRepository.shared.recomputeDayKeys(dayStartHour: newHour)
-            DiaryRepository.shared.bumpDiaryVersion()
-            if conflicts > 0 {
-                resultAlert = ResultAlert(title: L10n.str("settings_day_recalc_title"),
-                                          message: L10n.fmt("settings_day_recalc_msg", conflicts))
-            }
-        }
-    }
-
-    private func applyRemindTime() {
-        SettingsStore.save(settings)
-        Task { await ReminderService.rearm() }
     }
 
     // MARK: - Reminder
@@ -362,37 +275,22 @@ struct SettingsView: View {
             sectionTitle(L10n.str("settings_section_remind"))
             switchRow(icon: "bell", title: L10n.str("settings_remind_enabled"),
                       sub: L10n.str("settings_remind_enabled_sub"),
-                      isOn: Binding(get: { settings.remindEnabled },
-                                    set: { settings.remindEnabled = $0; SettingsStore.save(settings) })) { enabled in
-                if enabled {
-                    Task {
-                        let granted = await ReminderService.requestEnable()
-                        if granted {
-                            await ReminderService.ensureDailyReminder()
-                        }
-                        await refreshStatus()
-                    }
-                } else {
-                    ReminderService.cancelAll()
-                }
-            }
-            if settings.remindEnabled {
+                      isOn: Binding(get: { vm.settings.remindEnabled },
+                                    set: { vm.setRemindEnabled($0) })) { _ in }
+            if vm.settings.remindEnabled {
                 RowDivider(horizontalPadding: 12)
                 valueRow(icon: "clock.badge", title: L10n.str("settings_remind_time"),
                          sub: L10n.str("settings_remind_time_sub"),
-                         value: DateUtil.hourMinuteLabel(settings.remindHour, minute: settings.remindMinute)) {
-                    showRemindPicker = true
+                         value: DateUtil.hourMinuteLabel(vm.settings.remindHour, minute: vm.settings.remindMinute)) {
+                    vm.showRemindPicker = true
                 }
             }
-            if settings.remindEnabled && notifStatusText == L10n.str("settings_notif_off") {
+            if vm.settings.remindEnabled && vm.notifStatusText == L10n.str("settings_notif_off") {
                 RowDivider(horizontalPadding: 12)
                 valueRow(icon: "bell.badge", title: L10n.str("settings_notif_permission"),
                          sub: L10n.str("settings_notif_permission_sub"),
-                         value: notifStatusText) {
-                    Task {
-                        _ = await ReminderService.requestEnable()
-                        await refreshStatus()
-                    }
+                         value: vm.notifStatusText) {
+                    vm.requestNotificationPermission()
                 }
             }
         }
@@ -405,66 +303,16 @@ struct SettingsView: View {
             sectionTitle(L10n.str("settings_section_data"))
             valueRow(icon: "square.and.arrow.up", title: L10n.str("settings_export"),
                      sub: L10n.str("settings_export_sub"), value: "") {
-                exportChooserShowing = true
+                vm.exportChooserShowing = true
             }
-            .confirmationDialog(L10n.str("settings_export_choice_title"), isPresented: $exportChooserShowing) {
-                Button(L10n.str("settings_export_data_only")) { runExport(includeSettings: false) }
-                Button(L10n.str("settings_export_data_settings")) { runExport(includeSettings: true) }
+            .confirmationDialog(L10n.str("settings_export_choice_title"), isPresented: $vm.exportChooserShowing) {
+                Button(L10n.str("settings_export_data_only")) { vm.runExport(includeSettings: false) }
+                Button(L10n.str("settings_export_data_settings")) { vm.runExport(includeSettings: true) }
             }
             RowDivider(horizontalPadding: 12)
             valueRow(icon: "square.and.arrow.down", title: L10n.str("settings_import"),
                      sub: L10n.str("settings_import_sub"), value: "") {
-                showImportPicker = true
-            }
-        }
-    }
-
-    private func runExport(includeSettings: Bool) {
-        busyText = L10n.str("settings_export_busy")
-        Task {
-            do {
-                let url = try await BackupService.exportBackup(includeSettings: includeSettings)
-                await MainActor.run {
-                    busyText = nil
-                    exportURL = url
-                    showExportSheet = true
-                }
-            } catch {
-                await MainActor.run {
-                    busyText = nil
-                    resultAlert = ResultAlert(title: L10n.str("settings_export_failed_title"),
-                                              message: L10n.str("settings_export_failed_msg"))
-                }
-            }
-        }
-    }
-
-    private func runImport(mode: String) {
-        guard let url = importURL else { return }
-        busyText = L10n.str("settings_import_busy")
-        Task {
-            do {
-                let stats = try await BackupService.importBackup(fileURL: url, mode: mode)
-                await MainActor.run {
-                    busyText = nil
-                    settings = SettingsStore.load()
-                    DiaryRepository.shared.bumpDiaryVersion()
-                    DiaryRepository.shared.bumpUiTick()
-                    var message = L10n.fmt("settings_import_success_msg",
-                                           stats.importedDays, stats.skippedDays, stats.overwrittenDays,
-                                           stats.importedBlocks, stats.importedImages)
-                    if stats.settingsRestored {
-                        message += "\n" + L10n.str("settings_settings_restored")
-                    }
-                    resultAlert = ResultAlert(title: L10n.str("settings_import_success_title"),
-                                              message: message)
-                }
-            } catch {
-                await MainActor.run {
-                    busyText = nil
-                    resultAlert = ResultAlert(title: L10n.str("settings_import_failed_title"),
-                                              message: L10n.str("settings_import_failed_msg"))
-                }
+                vm.showImportPicker = true
             }
         }
     }
@@ -484,11 +332,8 @@ struct SettingsView: View {
     private func hourPickerSheet(title: String, hour: Binding<Int>, minute: Binding<Int>,
                                  isPresented: Binding<Bool>, onApply: @escaping () -> Void) -> some View {
         VStack(spacing: 16) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Theme.onSurface())
-                Spacer()
+            GlassSheetHeader(title: title) {
+                isPresented.wrappedValue = false
             }
             HStack(spacing: 8) {
                 Picker("", selection: hour) {
@@ -515,5 +360,36 @@ struct SettingsView: View {
             }
         }
         .padding(20)
+    }
+}
+
+struct DocumentPicker: UIViewControllerRepresentable {
+    var onPick: (URL?) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data])
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let parent: DocumentPicker
+
+        init(_ parent: DocumentPicker) {
+            self.parent = parent
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            parent.onPick(urls.first)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            parent.onPick(nil)
+        }
     }
 }

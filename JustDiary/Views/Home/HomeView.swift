@@ -7,21 +7,19 @@ struct HomeView: View {
         self.openEditor = openEditor
     }
 
-    @State private var selectedDate = Date()
-    @State private var monthPage = DateUtil.monthFirst(Date())
-    @State private var yearPage = DateUtil.calendar.component(.year, from: Date())
+    @State private var vm = HomeViewModel()
     @State private var mode: CalendarMode = .month
     @State private var zoom: Double = 0
     @State private var ymMorph: (year: Int, month: Date)?
     @State private var expand: Double = 0
     @State private var mwMorphMonth: Date?
-    @State private var flags: Set<String> = []
-    @State private var dayBlocks: [EditBlock]?
     @State private var showFutureToast = false
-    @State private var settings = SettingsStore.load()
+    @State private var futureToastTask: Task<Void, Never>?
 
-    private var weekStart: String { settings.weekStart }
+    private var weekStart: String { vm.weekStart }
     private var showsLunar: Bool { AppLanguage.isZh }
+    private var selectedDate: Date { vm.selectedDate }
+    private var flags: Set<String> { vm.flags }
 
     var body: some View {
         GeometryReader { geo in
@@ -47,36 +45,17 @@ struct HomeView: View {
                     }
                     .shadow(color: Theme.shadowColor(), radius: 12, y: 4)
                     .padding(.bottom, 24)
-                    .transition(.opacity)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .sensoryFeedback(.warning, trigger: showFutureToast)
             }
         }
-        .task { await loadInitial() }
+        .task { await vm.loadInitial() }
         .onReceive(NotificationCenter.default.publisher(for: .diaryVersionChanged)) { _ in
-            Task { await loadInitial() }
+            Task { await vm.loadInitial() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .uiTickChanged)) { _ in
-            settings = SettingsStore.load()
+            vm.refreshSettings()
             resetToToday()
-        }
-    }
-
-    // MARK: - Data
-
-    private func loadInitial() async {
-        let thisYear = DateUtil.calendar.component(.year, from: Date())
-        let pageYear = DateUtil.calendar.component(.year, from: monthPage)
-        let from = "\(min(thisYear, pageYear) - 1)-01-01"
-        let to = "\(max(thisYear, pageYear) + 1)-12-31"
-        flags = Set(await DiaryRepository.shared.getDiaryFlagsRange(fromKey: from, toKey: to))
-        await reloadDayBlocks()
-    }
-
-    private func reloadDayBlocks() async {
-        let key = DateUtil.dayKeyOf(selectedDate)
-        if let diary = await DiaryRepository.shared.getDiaryByDay(key) {
-            dayBlocks = await DiaryRepository.shared.getBlocks(diaryId: diary.id)
-        } else {
-            dayBlocks = nil
         }
     }
 
@@ -85,11 +64,11 @@ struct HomeView: View {
     private var titleText: String {
         switch mode {
         case .year:
-            return L10n.fmt("date_year", yearPage)
+            return L10n.fmt("date_year", vm.yearPage)
         case .month:
-            return L10n.fmt("date_year", DateUtil.calendar.component(.year, from: monthPage))
+            return L10n.fmt("date_year", DateUtil.calendar.component(.year, from: vm.monthPage))
         case .week:
-            return L10n.monthFull(monthPage)
+            return L10n.monthFull(vm.monthPage)
         }
     }
 
@@ -120,13 +99,13 @@ struct HomeView: View {
             .buttonStyle(.plain)
             .opacity(mode == .year ? 0 : 1)
             .allowsHitTesting(mode != .year)
+            .animation(.diaryStandard, value: mode)
 
             Spacer()
 
             InfoCapsule(text: relativeDayLabel(), action: todayTapped)
         }
         .frame(height: 52)
-        .animation(.easeInOut(duration: 0.25), value: mode)
     }
 
     private func relativeDayLabel() -> String {
@@ -144,15 +123,15 @@ struct HomeView: View {
         guard ymMorph == nil else { return }
         Haptics.tap()
         var comps = DateComponents()
-        comps.year = yearPage
+        comps.year = vm.yearPage
         comps.month = month
         comps.day = 1
-        let monthDate = DateUtil.calendar.date(from: comps) ?? monthPage
+        let monthDate = DateUtil.calendar.date(from: comps) ?? vm.monthPage
         var tr = Transaction()
         tr.disablesAnimations = true
         withTransaction(tr) {
-            monthPage = monthDate
-            ymMorph = (yearPage, monthDate)
+            vm.selectMonth(monthDate)
+            ymMorph = (vm.yearPage, monthDate)
             mode = .month
             zoom = 1
         }
@@ -169,9 +148,8 @@ struct HomeView: View {
         var tr = Transaction()
         tr.disablesAnimations = true
         withTransaction(tr) {
-            selectedDate = day
-            monthPage = DateUtil.monthFirst(day)
-            mwMorphMonth = monthPage
+            vm.select(day)
+            mwMorphMonth = vm.monthPage
             mode = .week
             expand = 0
         }
@@ -180,7 +158,7 @@ struct HomeView: View {
         } completion: {
             mwMorphMonth = nil
         }
-        Task { await reloadDayBlocks() }
+        Task { await vm.reloadDayBlocks() }
     }
 
     private func goBack() {
@@ -190,8 +168,8 @@ struct HomeView: View {
             var tr = Transaction()
             tr.disablesAnimations = true
             withTransaction(tr) {
-                monthPage = DateUtil.monthFirst(selectedDate)
-                mwMorphMonth = monthPage
+                vm.selectMonth(DateUtil.monthFirst(selectedDate))
+                mwMorphMonth = vm.monthPage
                 mode = .month
                 expand = 1
             }
@@ -204,8 +182,8 @@ struct HomeView: View {
             var tr = Transaction()
             tr.disablesAnimations = true
             withTransaction(tr) {
-                yearPage = DateUtil.calendar.component(.year, from: monthPage)
-                ymMorph = (yearPage, monthPage)
+                vm.yearPage = DateUtil.calendar.component(.year, from: vm.monthPage)
+                ymMorph = (vm.yearPage, vm.monthPage)
                 mode = .year
                 zoom = 0
             }
@@ -224,24 +202,20 @@ struct HomeView: View {
         let now = Date()
         switch mode {
         case .year:
-            selectedDate = now
-            yearPage = DateUtil.calendar.component(.year, from: now)
+            vm.resetToToday()
             openMonthFromYear(DateUtil.calendar.component(.month, from: now))
         case .month:
             Haptics.tap()
             withAnimation(.snappy(duration: 0.3)) {
-                selectedDate = now
-                monthPage = DateUtil.monthFirst(now)
-                yearPage = DateUtil.calendar.component(.year, from: now)
+                vm.resetToToday()
             }
-            Task { await reloadDayBlocks() }
+            Task { await vm.reloadDayBlocks() }
         case .week:
             Haptics.tap()
             withAnimation(.snappy(duration: 0.3)) {
-                selectedDate = now
-                monthPage = DateUtil.monthFirst(now)
+                vm.select(now)
             }
-            Task { await reloadDayBlocks() }
+            Task { await vm.reloadDayBlocks() }
         }
     }
 
@@ -251,10 +225,22 @@ struct HomeView: View {
         zoom = 0
         expand = 0
         mode = .month
-        selectedDate = Date()
-        monthPage = DateUtil.monthFirst(selectedDate)
-        yearPage = DateUtil.calendar.component(.year, from: selectedDate)
-        Task { await loadInitial() }
+        vm.resetToToday()
+        Task { await vm.loadInitial() }
+    }
+
+    private func showFutureDateToast() {
+        futureToastTask?.cancel()
+        withAnimation(.snappy(duration: 0.25)) {
+            showFutureToast = true
+        }
+        futureToastTask = Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            withAnimation(.snappy(duration: 0.25)) {
+                showFutureToast = false
+            }
+        }
     }
 
     // MARK: - Calendar area
@@ -300,11 +286,11 @@ struct HomeView: View {
 
     private func yearLayer(w: CGFloat, h: CGFloat) -> some View {
         DragPagePager(keys: CalendarLayout.allYears,
-                      current: yearPage,
+                      current: vm.yearPage,
                       axis: .vertical,
                       pageSize: h,
                       disabled: morphing,
-                      onPageChange: { yearPage = $0 }) { y in
+                      onPageChange: { vm.yearPage = $0 }) { y in
             YearPageView(year: y,
                          selectedDate: selectedDate,
                          flags: flags,
@@ -317,12 +303,12 @@ struct HomeView: View {
 
     private func monthLayer(w: CGFloat, h: CGFloat) -> some View {
         DragPagePager(keys: CalendarLayout.allMonthKeys,
-                      current: CalendarLayout.monthKey(monthPage),
+                      current: CalendarLayout.monthKey(vm.monthPage),
                       axis: .vertical,
                       pageSize: h,
                       disabled: morphing,
                       onPageChange: { key in
-            monthPage = CalendarLayout.dateForMonthKey(key)
+            vm.selectMonth(CalendarLayout.dateForMonthKey(key))
         }) { key in
             let d = CalendarLayout.dateForMonthKey(key)
             VStack(spacing: 0) {
@@ -335,7 +321,8 @@ struct HomeView: View {
                             selectedDate: selectedDate,
                             flags: flags,
                             showAdjacent: false,
-                            onTapDay: openDay)
+                            onTapDay: openDay,
+                            onAdjacentDaySelected: openDay)
             }
             .frame(width: w, height: h)
         }
@@ -356,9 +343,8 @@ struct HomeView: View {
                 let curStart = CalendarLayout.weekStart(of: selectedDate, ws: weekStart)
                 let delta = DateUtil.calendar.dateComponents([.day], from: curStart, to: newStart).day ?? 0
                 guard delta != 0 else { return }
-                selectedDate = DateUtil.addDays(selectedDate, delta)
-                monthPage = DateUtil.monthFirst(selectedDate)
-                Task { await reloadDayBlocks() }
+                vm.select(DateUtil.addDays(selectedDate, delta))
+                Task { await vm.reloadDayBlocks() }
             }) { key in
                 let start = CalendarLayout.dateForWeekKey(key)
                 WeekRowCanvas(week: CalendarLayout.weekOf(start, ws: weekStart),
@@ -367,9 +353,8 @@ struct HomeView: View {
                               flags: flags,
                               onTapDay: { day in
                     Haptics.tap()
-                    selectedDate = day
-                    monthPage = DateUtil.monthFirst(day)
-                    Task { await reloadDayBlocks() }
+                    vm.select(day)
+                    Task { await vm.reloadDayBlocks() }
                 })
                 .frame(width: w, height: CalendarLayout.weekStripH)
             }
@@ -396,161 +381,12 @@ struct HomeView: View {
             }
             .frame(height: CalendarLayout.dayTitleH)
             Divider()
-            DayContentView(blocks: dayBlocks,
+            DayContentView(blocks: vm.dayBlocks,
                            dayKey: dayKey,
                            isFuture: dayKey > DateUtil.dayKeyOf(Date()),
                            openEditor: openEditor,
-                           showFutureToast: { showFutureToast = true })
+                           showFutureToast: showFutureDateToast)
         }
         .frame(width: w, height: h - stripBottom)
-    }
-}
-
-// MARK: - Year <-> Month zoom morph
-
-struct YearMonthMorphView: View, Animatable {
-    var progress: Double
-    var year: Int
-    var month: Date
-    var size: CGSize
-    var weekStart: String
-    var selectedDate: Date
-    var flags: Set<String>
-    var showsLunar: Bool
-
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    var body: some View {
-        let t = CL.clamp01(1 - progress)
-        let monthNum = DateUtil.calendar.component(.month, from: month)
-        let miniRect = CalendarLayout.miniGridRect(month: monthNum, in: size)
-        let fullRect = CalendarLayout.fullMonthGridRect(in: size)
-        let grid = CL.lerp(miniRect, fullRect, t)
-        let mini = DayMetrics(cellW: miniRect.width / 7,
-                              cellH: miniRect.height / 6,
-                              dayFont: 11,
-                              lunarFont: 11,
-                              lunarAlpha: 0,
-                              dividerAlpha: 0)
-        let full = CalendarLayout.monthMetrics(width: size.width, areaH: size.height, lunar: showsLunar)
-        var metrics = DayMetrics.lerp(mini, full, t)
-        metrics.cellW = grid.width / 7
-        metrics.cellH = grid.height / 6
-        metrics.lunarAlpha = showsLunar ? CL.clamp01((t - 0.5) / 0.5) : 0
-        metrics.dividerAlpha = CL.clamp01((t - 0.55) / 0.45)
-        let late = CL.clamp01((t - 0.55) / 0.45)
-        let card = CalendarLayout.yearCardRect(month: monthNum, in: size)
-        let anchor = UnitPoint(x: card.midX / size.width, y: card.midY / size.height)
-        let yearOpacity = CL.clamp01((progress - 0.45) / 0.55)
-        let yearScale = 1 + (1 - progress) * 0.6
-        return ZStack(alignment: .topLeading) {
-            YearPageView(year: year,
-                         selectedDate: selectedDate,
-                         flags: flags,
-                         weekStart: weekStart,
-                         containerSize: size,
-                         hiddenMonth: monthNum,
-                         onSelectMonth: { _ in })
-                .scaleEffect(yearScale, anchor: anchor)
-                .opacity(yearOpacity)
-            VStack(spacing: 0) {
-                MonthBigTitle(month: month)
-                WeekdayHeaderView(weekStart: weekStart, cellW: size.width / 7)
-                    .frame(height: CalendarLayout.weekdayHeaderH)
-            }
-            .opacity(late)
-            MonthCanvas(weeks: CalendarLayout.weeks(inMonth: month, ws: weekStart),
-                        anchorMonth: month,
-                        metrics: metrics,
-                        selectedDate: selectedDate,
-                        flags: flags,
-                        showAdjacent: false,
-                        onTapDay: nil)
-                .frame(width: grid.width, height: grid.height)
-                .offset(x: grid.minX, y: grid.minY)
-        }
-        .frame(width: size.width, height: size.height)
-        .clipped()
-        .allowsHitTesting(false)
-    }
-}
-
-// MARK: - Month <-> Week expand morph
-
-struct MonthWeekMorphView<Content: View>: View, Animatable {
-    var progress: Double
-    var month: Date
-    var selectedDate: Date
-    var flags: Set<String>
-    var weekStart: String
-    var size: CGSize
-    var showsLunar: Bool
-    @ViewBuilder var content: () -> Content
-
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    var body: some View {
-        let weeks = CalendarLayout.weeks(inMonth: month, ws: weekStart)
-        let selRow = CalendarLayout.weekRowIndex(of: selectedDate, in: month, ws: weekStart)
-        let titleH = CalendarLayout.bigTitleH
-        let headH = CalendarLayout.weekdayHeaderH
-        let cellH = CalendarLayout.monthCellH(areaH: size.height)
-        let mMetrics = CalendarLayout.monthMetrics(width: size.width, areaH: size.height, lunar: showsLunar)
-        let wMetrics = CalendarLayout.weekMetrics(width: size.width, lunar: showsLunar)
-        let stripBottom = headH + CalendarLayout.weekStripH
-        let contentT = CL.clamp01((progress - 0.1) / 0.9)
-        return ZStack(alignment: .top) {
-            MonthBigTitle(month: month)
-                .offset(y: -progress * titleH)
-                .opacity(1 - CL.clamp01(progress * 2))
-            WeekdayHeaderView(weekStart: weekStart, cellW: size.width / 7)
-                .frame(width: size.width, height: headH)
-                .offset(y: CL.lerp(titleH, 0, progress))
-            ForEach(0..<6, id: \.self) { i in
-                row(i, weeks: weeks, selRow: selRow, titleH: titleH, headH: headH,
-                    cellH: cellH, mMetrics: mMetrics, wMetrics: wMetrics)
-            }
-            content()
-                .offset(y: CL.lerp(size.height, stripBottom, contentT))
-                .opacity(CL.clamp01((progress - 0.25) / 0.75))
-        }
-        .frame(width: size.width, height: size.height)
-        .clipped()
-        .allowsHitTesting(false)
-    }
-
-    private func row(_ i: Int, weeks: [WeekDays], selRow: Int,
-                     titleH: CGFloat, headH: CGFloat, cellH: CGFloat,
-                     mMetrics: DayMetrics, wMetrics: DayMetrics) -> some View {
-        let base = titleH + headH + CGFloat(i) * cellH
-        var y: CGFloat
-        var alpha: Double
-        var metrics = mMetrics
-        if i == selRow {
-            y = CL.lerp(base, headH, progress)
-            alpha = 1
-            metrics = DayMetrics.lerp(mMetrics, wMetrics, progress)
-        } else if i < selRow {
-            y = base - CGFloat(progress) * (base + cellH)
-            alpha = 1 - CL.clamp01(progress * 1.4)
-        } else {
-            y = base + CGFloat(progress) * (size.height - base)
-            alpha = 1 - CL.clamp01(progress * 1.4)
-        }
-        return WeekRowCanvas(week: weeks[i],
-                             metrics: metrics,
-                             selectedDate: selectedDate,
-                             flags: flags,
-                             alpha: alpha,
-                             showDivider: i > 0,
-                             onTapDay: nil)
-            .frame(width: size.width, height: metrics.cellH)
-            .offset(y: y)
     }
 }

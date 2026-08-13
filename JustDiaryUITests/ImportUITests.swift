@@ -44,7 +44,7 @@ final class ImportUITests: XCTestCase {
         attach("after-import-tap", "sheet.exists=\(sheet.exists) navBar.exists=\(navBar.exists)\n\n" + app.debugDescription)
 
         // Navigate: Browse -> On My iPhone -> file
-        let browse = app.buttons["浏览"]
+        let browse = app.buttons.matching(identifier: "浏览").firstMatch
         if browse.waitForExistence(timeout: 3) {
             browse.tap()
             sleep(1)

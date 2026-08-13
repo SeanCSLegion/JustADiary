@@ -1,6 +1,15 @@
 import SwiftUI
 import UIKit
 
+// MARK: - Animations
+
+extension Animation {
+    static let diaryQuick = Animation.easeOut(duration: 0.22)
+    static let diaryStandard = Animation.easeInOut(duration: 0.3)
+    static let diaryMorph = Animation.easeInOut(duration: 0.4)
+    static let diarySpring = Animation.spring(response: 0.35, dampingFraction: 0.8)
+}
+
 // MARK: - Screen metrics
 
 enum Screen {
@@ -127,6 +136,7 @@ struct GlassPrimaryButton: View {
     var icon: String? = nil
     var fullWidth = false
     var compact = false
+    var enabled = true
     var action: () -> Void
 
     var body: some View {
@@ -144,7 +154,7 @@ struct GlassPrimaryButton: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.white.opacity(enabled ? 1 : 0.55))
             .padding(.horizontal, compact ? 14 : 20)
             .padding(.vertical, compact ? 7 : 12)
             .frame(maxWidth: fullWidth ? .infinity : nil)
@@ -152,10 +162,16 @@ struct GlassPrimaryButton: View {
         }
         .buttonStyle(.plain)
         .background {
-            Capsule()
-                .fill(Theme.primary())
-                .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
-                .shadow(color: Theme.glowColor(), radius: compact ? 8 : 10, y: compact ? 2 : 3)
+            if enabled {
+                Capsule()
+                    .fill(Theme.primary())
+                    .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
+                    .shadow(color: Theme.glowColor(), radius: compact ? 8 : 10, y: compact ? 2 : 3)
+            } else {
+                Capsule()
+                    .fill(Theme.primaryContainer())
+                    .opacity(0.6)
+            }
         }
     }
 }
@@ -200,6 +216,7 @@ struct GlassIconButton: View {
     var systemName: String
     var size: CGFloat = 32
     var tint: Color? = nil
+    var accessibilityLabel: String? = nil
     var action: () -> Void
 
     var body: some View {
@@ -210,11 +227,12 @@ struct GlassIconButton: View {
             Image(systemName: systemName)
                 .font(.system(size: size > 36 ? 16 : 14, weight: .semibold))
                 .foregroundStyle(tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(Theme.onSurfaceVariant()))
-                .frame(width: size, height: size)
+                .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Circle())
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
+        .accessibilityLabel(accessibilityLabel ?? systemName)
     }
 }
 
@@ -222,6 +240,7 @@ struct PressableGlassIcon: View {
     var systemName: String
     var size: CGFloat = 40
     var active = false
+    var accessibilityLabel: String? = nil
     var action: () -> Void
 
     var body: some View {
@@ -233,12 +252,14 @@ struct PressableGlassIcon: View {
                 .font(.system(size: 16, weight: .medium))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(active ? AnyShapeStyle(Theme.primary()) : AnyShapeStyle(Theme.onSurface()))
-                .frame(width: size, height: size)
+                .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Circle())
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
         .symbolEffect(.bounce, value: active)
+        .accessibilityLabel(accessibilityLabel ?? systemName)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
 
@@ -268,8 +289,6 @@ struct GlassChip: View {
     var active = false
     var action: () -> Void
 
-    @State private var pressed = false
-
     var body: some View {
         Button {
             Haptics.tap()
@@ -286,20 +305,13 @@ struct GlassChip: View {
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.capsule)
-        .scaleEffect(pressed ? 0.94 : 1)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in pressed = true }
-                .onEnded { _ in pressed = false }
-        )
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
 
 struct InfoCapsule: View {
     var text: String
     var action: (() -> Void)? = nil
-
-    @State private var pressed = false
 
     var body: some View {
         Button {
@@ -317,12 +329,128 @@ struct InfoCapsule: View {
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.capsule)
-        .scaleEffect(pressed ? 0.94 : 1)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in pressed = true }
-                .onEnded { _ in pressed = false }
-        )
+    }
+}
+
+// MARK: - Badges & action chips
+
+struct GlassCountBadge: View {
+    var text: String
+    var icon: String? = nil
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            Text(text)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .foregroundStyle(Theme.primary())
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background {
+            Capsule()
+                .fill(Theme.primaryContainer())
+                .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
+                .shadow(color: Theme.glowColor(), radius: 6, y: 2)
+        }
+    }
+}
+
+struct GlassActionChip: View {
+    var label: String
+    var systemImage: String? = nil
+    var action: () -> Void
+
+    var body: some View {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
+            HStack(spacing: 4) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 11, weight: .medium))
+                }
+                Text(label)
+                    .font(.system(size: 13))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundStyle(Theme.primary())
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+    }
+}
+
+// MARK: - Empty state
+
+struct GlassEmptyState: View {
+    var systemImage: String
+    var text: String
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 26))
+                .foregroundStyle(Theme.onSurfaceVariant().opacity(0.5))
+            Text(text)
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.onSurfaceVariant())
+            if let actionTitle, let action {
+                GlassPrimaryButton(title: actionTitle, compact: true, action: action)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 56)
+    }
+}
+
+// MARK: - Shared alert
+
+struct AppAlertItem: Identifiable {
+    let id = UUID()
+    var title: String
+    var message: String
+    var cancelLabel: String = L10n.str("cancel")
+    var secondaryLabel: String?
+    var primaryAction: (() -> Void)?
+
+    static func confirm(title: String, message: String, confirmLabel: String,
+                        action: (() -> Void)? = nil) -> AppAlertItem {
+        AppAlertItem(title: title, message: message, secondaryLabel: confirmLabel, primaryAction: action)
+    }
+
+    static func info(title: String, message: String, action: (() -> Void)? = nil) -> AppAlertItem {
+        AppAlertItem(title: title, message: message, primaryAction: action)
+    }
+}
+
+extension View {
+    func appAlert(item: Binding<AppAlertItem?>) -> some View {
+        alert(item: item) { item in
+            if let secondary = item.secondaryLabel {
+                return Alert(title: Text(item.title), message: Text(item.message),
+                             primaryButton: .default(Text(secondary)) {
+                    item.primaryAction?()
+                },
+                             secondaryButton: .cancel(Text(item.cancelLabel)))
+            }
+            return Alert(title: Text(item.title), message: Text(item.message),
+                         dismissButton: .default(Text(item.cancelLabel)) {
+                item.primaryAction?()
+            })
+        }
     }
 }
 
@@ -417,14 +545,14 @@ struct GlassIconBadge: View {
 // MARK: - Flow light overlay
 
 struct FlowLightOverlay: View {
-    @State private var animating = false
+    @State private var paused = false
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(Theme.flowMaskColor())
-                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: paused)) { context in
                     let t = context.date.timeIntervalSinceReferenceDate
                     let cycle = (t.truncatingRemainder(dividingBy: 4.0)) / 4.0
                     let pos = cycle * geo.size.width * 2
@@ -447,6 +575,13 @@ struct FlowLightOverlay: View {
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .allowsHitTesting(false)
+        .task {
+            try? await Task.sleep(for: .seconds(10))
+            withAnimation(.easeInOut(duration: 1.0)) {
+                paused = true
+            }
+        }
+        .onDisappear { paused = false }
     }
 }
 

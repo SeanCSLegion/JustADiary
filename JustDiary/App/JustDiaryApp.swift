@@ -1,5 +1,18 @@
 import SwiftUI
-import Darwin
+
+extension String {
+    func appendToFile2(_ path: String) throws {
+        if let data = data(using: .utf8) {
+            let fm = FileManager.default
+            if !fm.fileExists(atPath: path) { fm.createFile(atPath: path, contents: nil) }
+            if let handle = try? FileHandle(forWritingTo: URL(fileURLWithPath: path)) {
+                defer { try? handle.close() }
+                handle.seekToEndOfFile()
+                handle.write(data)
+            }
+        }
+    }
+}
 
 @main
 struct JustDiaryApp: App {
@@ -30,47 +43,38 @@ struct JustDiaryApp: App {
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        installCrashLogger()
         AppConfigService.applyThemeMode()
+        Log.app.info("app launched v\(SettingsStore.appVersion, privacy: .public)")
         return true
-    }
-
-    private func installCrashLogger() {
-        NSSetUncaughtExceptionHandler { exception in
-            let stack = exception.callStackSymbols.joined(separator: "\n")
-            let log = "EXCEPTION: \(exception.name) \(exception.reason ?? "")\n\(stack)\n"
-            try? log.write(toFile: NSHomeDirectory() + "/Documents/crash.log", atomically: true, encoding: .utf8)
-        }
-        func crashHandler(_ sig: Int32) {
-            var stack = [UnsafeMutableRawPointer?](repeating: nil, count: 64)
-            let frameCount = stack.withUnsafeMutableBufferPointer { buf in
-                backtrace(buf.baseAddress, 64)
-            }
-            var log = "SIGNAL \(sig) at \(Date())\n"
-            if let symbols = stack.withUnsafeBufferPointer({ buf in
-                backtrace_symbols(buf.baseAddress, frameCount)
-            }) {
-                for i in 0..<Int(frameCount) {
-                    if let sym = symbols[i] {
-                        log += String(cString: sym) + "\n"
-                    }
-                }
-                free(symbols)
-            }
-            try? log.write(toFile: NSHomeDirectory() + "/Documents/crash.log", atomically: true, encoding: .utf8)
-        }
-        signal(SIGABRT, crashHandler)
-        signal(SIGILL, crashHandler)
-        signal(SIGTRAP, crashHandler)
-        signal(SIGSEGV, crashHandler)
-        signal(SIGBUS, crashHandler)
-        signal(SIGFPE, crashHandler)
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         Task {
             await DiaryRepository.shared.prepare()
             await ReminderService.rearm()
+            if ProcessInfo.processInfo.arguments.contains("-ui-test-import") {
+                await runAutoImport()
+            }
+        }
+    }
+
+    private func runAutoImport() async {
+        let args = ProcessInfo.processInfo.arguments
+        guard let idx = args.firstIndex(of: "-ui-test-import"), args.count > idx + 1 else { return }
+        let path = args[idx + 1]
+        let mode = args.contains("-ui-test-import-overwrite") ? "overwrite" : "skip"
+        let resultLog = NSHomeDirectory() + "/Documents/import-result.log"
+        try? "start import \(path) mode=\(mode)\n".write(toFile: resultLog, atomically: true, encoding: .utf8)
+        do {
+            let stats = try await BackupService.importBackup(fileURL: URL(fileURLWithPath: path), mode: mode)
+            let msg = """
+            OK importedDays=\(stats.importedDays) skippedDays=\(stats.skippedDays) overwrittenDays=\(stats.overwrittenDays) blocks=\(stats.importedBlocks) images=\(stats.importedImages) settings=\(stats.settingsRestored)
+            """
+            try? msg.appendToFile2(resultLog)
+            try? msg.write(toFile: NSHomeDirectory() + "/Documents/import-ok.log", atomically: true, encoding: .utf8)
+        } catch {
+            try? "FAIL \(error)\n".write(toFile: NSHomeDirectory() + "/Documents/import-fail.log", atomically: true, encoding: .utf8)
+            try? "FAIL \(error)\n".appendToFile2(resultLog)
         }
     }
 }
