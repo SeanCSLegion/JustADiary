@@ -32,6 +32,11 @@ final class HomeViewModel {
         } else {
             dayBlocks = nil
         }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-morph-log") {
+            MorphProgressLog.shared.append("reload")
+        }
+        #endif
     }
 
     func select(_ day: Date) {

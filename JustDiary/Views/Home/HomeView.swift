@@ -153,9 +153,14 @@ struct HomeView: View {
             mode = .week
             expand = 0
         }
-        withAnimation(CalendarLayout.morphAnimation) {
+        withAnimation(CalendarLayout.morphSlideAnimation) {
             expand = 1
         } completion: {
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-morph-log") {
+                MorphProgressLog.shared.append("completion-open")
+            }
+            #endif
             mwMorphMonth = nil
         }
         Task { await vm.reloadDayBlocks() }
@@ -173,9 +178,14 @@ struct HomeView: View {
                 mode = .month
                 expand = 1
             }
-            withAnimation(CalendarLayout.morphAnimation) {
+            withAnimation(CalendarLayout.morphSlideAnimation) {
                 expand = 0
             } completion: {
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-morph-log") {
+                    MorphProgressLog.shared.append("completion-back")
+                }
+                #endif
                 mwMorphMonth = nil
             }
         case .month:

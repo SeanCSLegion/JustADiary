@@ -55,9 +55,15 @@ enum CalendarLayout {
         if ProcessInfo.processInfo.environment["SLOW_MORPH"] == "1" { return 3.0 }
         if ProcessInfo.processInfo.arguments.contains("-slow-morph") { return 3.0 }
         #endif
-        return 0.4
+        return 0.8
     }()
     static var morphAnimation: Animation { .easeInOut(duration: morphDuration) }
+
+    // 月↔周滑动切换：无回弹的速度连续曲线——起步带速度、减速集中在尾部、
+    // 精确停在终点（无弹簧过冲/回弹），日期行与内容区共用同一曲线
+    static var morphSlideAnimation: Animation {
+        .timingCurve(0.2, 0.75, 0.3, 1.0, duration: morphDuration)
+    }
 
     static let weekdayHeaderH: CGFloat = 30
     static let bigTitleH: CGFloat = 72

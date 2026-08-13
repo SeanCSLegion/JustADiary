@@ -86,19 +86,26 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
 
     var animatableData: Double {
         get { progress }
-        set { progress = newValue }
+        set {
+            progress = newValue
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-morph-log") {
+                MorphProgressLog.shared.append(newValue)
+            }
+            #endif
+        }
     }
 
     var body: some View {
         let weeks = CalendarLayout.weeks(inMonth: month, ws: weekStart)
         let selRow = CalendarLayout.weekRowIndex(of: selectedDate, in: month, ws: weekStart)
         let titleH = CalendarLayout.bigTitleH
-        let headH = CalendarLayout.weekdayHeaderH
+        let headH = 12.0 - CalendarLayout.weekdayHeaderH
         let cellH = CalendarLayout.monthCellH(areaH: size.height)
         let mMetrics = CalendarLayout.monthMetrics(width: size.width, areaH: size.height, lunar: showsLunar)
         let wMetrics = CalendarLayout.weekMetrics(width: size.width, lunar: showsLunar)
         let stripBottom = headH + CalendarLayout.weekStripH
-        let contentT = CL.clamp01((progress - 0.1) / 0.9)
+        let contentT = CL.clamp01((progress - 0.25) / 0.75)
         return ZStack(alignment: .top) {
             MonthBigTitle(month: month)
                 .offset(y: -progress * titleH)
@@ -111,8 +118,8 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
                     cellH: cellH, mMetrics: mMetrics, wMetrics: wMetrics)
             }
             content()
-                .offset(y: CL.lerp(size.height, stripBottom, contentT))
-                .opacity(CL.clamp01((progress - 0.25) / 0.75))
+                .offset(y: stripBottom + 96 * (1 - contentT))
+                .opacity(CL.clamp01((progress - 0.3) / 0.5))
         }
         .frame(width: size.width, height: size.height)
         .clipped()
