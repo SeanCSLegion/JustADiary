@@ -37,7 +37,8 @@ struct MapView: View {
                     ForEach(vm.years, id: \.self) { year in
                         yearChip(year, value: year)
                     }
-                    GlassActionChip(label: L10n.str("map_time_custom"), systemImage: "calendar") {
+                    GlassActionChip(label: vm.timeRangeLabel, systemImage: "calendar",
+                                    active: vm.timeKind == .custom) {
                         Haptics.tap()
                         showTimeFilter = true
                     }
@@ -68,9 +69,9 @@ struct MapView: View {
     // MARK: - Filter chips
 
     private func yearChip(_ label: String, value: String) -> some View {
-        GlassChip(label: label, active: vm.yearFilter == value) {
+        GlassChip(label: label, active: vm.timeKind == .all && vm.yearFilter == value) {
             vm.yearFilter = value
-            vm.monthFilter = "all"
+            vm.applyTimeKind(.all)
             Task { await vm.reloadPoints() }
         }
     }
@@ -364,61 +365,59 @@ struct MapView: View {
 
     private var timeFilterSheet: some View {
         VStack(spacing: 16) {
-            GlassSheetHeader(title: L10n.str("map_time_filter")) {
+            GlassSheetHeader(title: L10n.str("search_time_title")) {
                 showTimeFilter = false
             }
-            if !vm.months.isEmpty {
-                Text(L10n.str("map_time_month"))
-                    .font(.system(size: 14))
+            HStack(spacing: 8) {
+                quickChip(L10n.str("search_time_week"), kind: .thisWeek)
+                quickChip(L10n.str("search_time_month"), kind: .thisMonth)
+                quickChip(L10n.str("search_time_year"), kind: .thisYear)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.str("search_time_start"))
+                    .font(.system(size: 12))
                     .foregroundStyle(Theme.onSurfaceVariant())
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 8) {
-                    monthChip(L10n.str("map_time_all"), value: "all")
-                    ForEach(vm.months, id: \.self) { m in
-                        monthChip("\(m)", value: m)
-                    }
-                }
+                DatePicker("", selection: Binding(
+                    get: { vm.customFrom ?? DateUtil.monthFirst(Date()) },
+                    set: { vm.customFrom = DateUtil.startOfDay($0) }
+                ), displayedComponents: .date)
+                    .datePickerStyle(.compact)
+                    .tint(Theme.primary())
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.str("search_time_end"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.onSurfaceVariant())
+                DatePicker("", selection: Binding(
+                    get: { vm.customTo ?? Date() },
+                    set: { vm.customTo = DateUtil.startOfDay($0) }
+                ), displayedComponents: .date)
+                    .datePickerStyle(.compact)
+                    .tint(Theme.primary())
             }
             HStack(spacing: 12) {
-                GlassSecondaryButton(title: L10n.str("map_time_clear"), fullWidth: true) {
-                    vm.monthFilter = "all"
+                GlassSecondaryButton(title: L10n.str("search_time_clear"), fullWidth: true) {
+                    vm.clearTimeFilter()
                     showTimeFilter = false
                     Task { await vm.reloadPoints() }
                 }
-                GlassPrimaryButton(title: L10n.str("map_time_apply"), fullWidth: true) {
+                GlassPrimaryButton(title: L10n.str("search_time_apply"), fullWidth: true) {
+                    vm.applyCustomTime()
                     showTimeFilter = false
                     Task { await vm.reloadPoints() }
                 }
             }
-            .padding(.top, 8)
+            .padding(.top, 12)
         }
         .padding(20)
         .padding(.bottom, 8)
     }
 
-    private func monthChip(_ label: String, value: String) -> some View {
-        Button {
-            Haptics.tap()
-            vm.monthFilter = value
-        } label: {
-            Text(label)
-                .font(.system(size: 13))
-                .foregroundStyle(vm.monthFilter == value ? .white : Theme.onSurface())
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 40)
-                .background {
-                    if vm.monthFilter == value {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Theme.primary())
-                            .glassEffect(tintedGlass(Theme.primary(), interactive: true), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    } else {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Theme.glassDim())
-                            .glassEffect(tintedGlass(nil, interactive: true), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }
-                }
+    private func quickChip(_ label: String, kind: TimeRangeKind) -> some View {
+        GlassChip(label: label, active: vm.timeKind == kind) {
+            vm.applyTimeKind(kind)
+            showTimeFilter = false
+            Task { await vm.reloadPoints() }
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(vm.monthFilter == value ? .isSelected : [])
     }
 }

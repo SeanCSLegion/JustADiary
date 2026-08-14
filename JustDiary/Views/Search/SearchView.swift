@@ -77,11 +77,10 @@ struct SearchView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     timeChip(L10n.str("search_all_time"), kind: .all)
-                    timeChip(L10n.str("search_7d"), kind: .d7)
-                    timeChip(L10n.str("search_30d"), kind: .d30)
+                    timeChip(L10n.str("search_time_week"), kind: .thisWeek)
                     timeChip(L10n.str("search_time_month"), kind: .thisMonth)
                     timeChip(L10n.str("search_time_year"), kind: .thisYear)
-                    timeChip(L10n.str("search_custom"), kind: .custom)
+                    timeChip(vm.timeRangeLabel, kind: .custom)
                 }
             }
             Text(L10n.str("search_filter_loc"))
@@ -216,18 +215,9 @@ struct SearchView: View {
                 vm.showTimeSheet = false
             }
             HStack(spacing: 8) {
-                quickRangeChip(L10n.str("search_7d")) {
-                    vm.applyQuickRange(.d7)
-                }
-                quickRangeChip(L10n.str("search_30d")) {
-                    vm.applyQuickRange(.d30)
-                }
-                quickRangeChip(L10n.str("search_time_month")) {
-                    vm.applyQuickRange(.thisMonth)
-                }
-                quickRangeChip(L10n.str("search_time_year")) {
-                    vm.applyQuickRange(.thisYear)
-                }
+                quickRangeChip(L10n.str("search_time_week"), kind: .thisWeek)
+                quickRangeChip(L10n.str("search_time_month"), kind: .thisMonth)
+                quickRangeChip(L10n.str("search_time_year"), kind: .thisYear)
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.str("search_time_start"))
@@ -265,8 +255,10 @@ struct SearchView: View {
         .padding(.bottom, 8)
     }
 
-    private func quickRangeChip(_ label: String, action: @escaping () -> Void) -> some View {
-        GlassActionChip(label: label, action: action)
+    private func quickRangeChip(_ label: String, kind: TimeRangeKind) -> some View {
+        GlassChip(label: label, active: vm.timeKind == kind) {
+            vm.applyQuickRange(kind)
+        }
     }
 
     private var locSheet: some View {

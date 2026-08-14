@@ -1485,38 +1485,6 @@
         }
       }
     },
-    "map_time_apply" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apply"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "应用"
-          }
-        }
-      }
-    },
-    "map_time_clear" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "清除"
-          }
-        }
-      }
-    },
     "map_time_custom" : {
       "localizations" : {
         "en" : {
@@ -1529,38 +1497,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义"
-          }
-        }
-      }
-    },
-    "map_time_filter" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Time Filter"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "时间筛选"
-          }
-        }
-      }
-    },
-    "map_time_month" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Month"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "月份"
           }
         }
       }
@@ -1982,38 +1918,6 @@
         }
       }
     },
-    "search_7d" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Last 7 days"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "近 7 天"
-          }
-        }
-      }
-    },
-    "search_30d" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Last 30 days"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "近 30 天"
-          }
-        }
-      }
-    },
     "search_all_loc" : {
       "localizations" : {
         "en" : {
@@ -2067,13 +1971,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Custom…"
+            "value" : "Custom"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自定义…"
+            "value" : "自定义"
           }
         }
       }
@@ -2443,6 +2347,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义时间范围"
+          }
+        }
+      }
+    },
+    "search_time_week" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This week"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周"
           }
         }
       }

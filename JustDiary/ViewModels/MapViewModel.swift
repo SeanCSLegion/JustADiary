@@ -21,8 +21,9 @@ final class MapViewModel {
     var points: [MapPoint] = []
     var unlocated = 0
     var yearFilter = "all"
-    var months: [String] = []
-    var monthFilter = "all"
+    var timeKind: TimeRangeKind = .all
+    var customFrom: Date?
+    var customTo: Date?
     var years: [String] = []
     var stats = TravelStats()
     var cameraAnimation: CameraAnimation?
@@ -36,6 +37,31 @@ final class MapViewModel {
         points.filter { $0.lat != 0 || $0.lng != 0 }.count
     }
 
+    var timeRangeLabel: String {
+        if timeKind == .custom, let from = customFrom, let to = customTo {
+            return L10n.dateRange(from, to)
+        }
+        return L10n.str("map_time_custom")
+    }
+
+    func applyTimeKind(_ kind: TimeRangeKind) {
+        timeKind = kind
+        if kind != .custom {
+            customFrom = nil
+            customTo = nil
+        }
+    }
+
+    func clearTimeFilter() {
+        timeKind = .all
+        customFrom = nil
+        customTo = nil
+    }
+
+    func applyCustomTime() {
+        timeKind = .custom
+    }
+
     func load() async {
         guard !loaded else { return }
         loaded = true
@@ -47,39 +73,32 @@ final class MapViewModel {
         let rows = await DiaryRepository.shared.getAllMapPoints()
         let build = MapDataService.buildMapPoints(rows)
         var filtered = yearFilter == "all" ? build.points : build.points.filter { $0.dayKey.hasPrefix(yearFilter) }
-        if monthFilter != "all", let monthInt = Int(monthFilter) {
-            filtered = filtered.filter {
-                guard $0.dayKey.count >= 6 else { return false }
-                let month = String($0.dayKey.dropFirst(4).prefix(2))
-                return Int(month) == monthInt
-            }
+        if timeKind != .all {
+            let range = timeKind.dayKeyRange(customFrom: customFrom, customTo: customTo)
+            filtered = filtered.filter { $0.dayKey >= range.0 && $0.dayKey <= range.1 }
         }
         points = filtered
         unlocated = build.unlocated
         var yearSet = Set<String>()
-        var monthSet = Set<String>()
         for p in build.points {
             if p.dayKey.count >= 4 {
                 yearSet.insert(String(p.dayKey.prefix(4)))
             }
-            if p.dayKey.count >= 6 {
-                monthSet.insert(String(p.dayKey.prefix(6).suffix(2)))
-            }
         }
         years = yearSet.sorted(by: >)
-        months = monthSet.sorted()
         computeStats()
         let maxTime = rows.map { $0.startTimeUtc }.max() ?? 0
         let isFirst = lastMaxTimeUtc == 0
+        let animated = !isFirst
         if maxTime > lastMaxTimeUtc {
             lastMaxTimeUtc = maxTime
             if !isFirst, let newest = rows.first(where: { $0.startTimeUtc == maxTime }) {
                 flyToPoint(lat: newest.latitude, lng: newest.longitude)
             } else {
-                frameToFirstDiary(rows)
+                frameToFirstDiary(rows, animated: animated)
             }
         } else {
-            frameToFirstDiary(rows)
+            frameToFirstDiary(rows, animated: animated)
         }
     }
 
@@ -95,10 +114,10 @@ final class MapViewModel {
         stats = s
     }
 
-    private func frameToFirstDiary(_ rows: [MapPointRow]) {
+    private func frameToFirstDiary(_ rows: [MapPointRow], animated: Bool) {
         let located = rows.filter { $0.latitude != 0 || $0.longitude != 0 }
         guard !located.isEmpty else {
-            flyTo(lng: 104, lat: 35, zoom: zoomRange().min + 0.3)
+            flyTo(lng: 104, lat: 35, zoom: zoomRange().min + 0.3, animated: animated)
             return
         }
         if let newest = located.max(by: { $0.startTimeUtc < $1.startTimeUtc }) {
@@ -111,11 +130,11 @@ final class MapViewModel {
                     focusFeature = feat
                     level = 2
                     loadCityDataIfNeeded(feat)
-                    flyToFeatureBounds(feat)
+                    flyToFeatureBounds(feat, animated: animated)
                     return
                 }
             }
-            flyTo(lng: newest.longitude, lat: newest.latitude, zoom: 4.5)
+            flyTo(lng: newest.longitude, lat: newest.latitude, zoom: 4.5, animated: animated)
         }
     }
 
@@ -219,10 +238,11 @@ final class MapViewModel {
 
     // MARK: - Camera
 
-    func flyToFeatureBounds(_ f: GeoFeature) {
+    func flyToFeatureBounds(_ f: GeoFeature, animated: Bool = true) {
         flyTo(lng: GeoMath.xToLng((f.minX + f.maxX) / 2),
               lat: GeoMath.yToLat((f.minY + f.maxY) / 2),
-              zoom: fitZoom(of: f))
+              zoom: fitZoom(of: f),
+              animated: animated)
     }
 
     func fitZoom(of f: GeoFeature) -> Double {
@@ -251,11 +271,17 @@ final class MapViewModel {
         }
     }
 
-    func flyTo(lng: Double, lat: Double, zoom: Double) {
+    func flyTo(lng: Double, lat: Double, zoom: Double, animated: Bool = true) {
         let range = zoomRange()
         let z = min(max(zoom, range.min), range.max)
         let target = GeoCamera(centerLng: lng, centerLat: lat, zoom: z)
-        animateCamera(to: target)
+        if animated {
+            animateCamera(to: target)
+        } else {
+            animationToken += 1
+            camera = target
+            cameraAnimation = nil
+        }
     }
 
     func animateCamera(to target: GeoCamera) {

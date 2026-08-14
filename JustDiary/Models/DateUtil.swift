@@ -53,6 +53,11 @@ enum DateUtil {
         return calendar.date(from: comps) ?? date
     }
 
+    static func weekFirst(_ date: Date) -> Date {
+        let lead = weekdayIndex(date, weekStart: SettingsStore.load().weekStart)
+        return calendar.date(byAdding: .day, value: -lead, to: startOfDay(date)) ?? date
+    }
+
     static func daysInMonth(_ date: Date) -> Int {
         calendar.range(of: .day, in: .month, for: date)?.count ?? 30
     }

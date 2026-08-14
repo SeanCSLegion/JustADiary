@@ -2,11 +2,31 @@ import SwiftUI
 
 enum TimeRangeKind: String {
     case all
-    case d7
-    case d30
+    case thisWeek
     case thisMonth
     case thisYear
     case custom
+
+    func dayKeyRange(customFrom: Date?, customTo: Date?) -> (String, String) {
+        let today = Date()
+        switch self {
+        case .thisWeek:
+            return (DateUtil.dayKeyOf(DateUtil.weekFirst(today)), DateUtil.dayKeyOf(today))
+        case .thisMonth:
+            return (DateUtil.dayKeyOf(DateUtil.monthFirst(today)), DateUtil.dayKeyOf(today))
+        case .thisYear:
+            let year = DateUtil.calendar.component(.year, from: today)
+            let start = DateUtil.calendar.date(from: DateComponents(year: year, month: 1, day: 1)) ?? today
+            return (DateUtil.dayKeyOf(start), DateUtil.dayKeyOf(today))
+        case .custom:
+            let from = customFrom ?? DateUtil.startOfDay(today)
+            let to = customTo ?? DateUtil.startOfDay(today)
+            let sorted = from <= to ? (from, to) : (to, from)
+            return (DateUtil.dayKeyOf(sorted.0), DateUtil.dayKeyOf(sorted.1))
+        case .all:
+            return ("0000-01-01", "9999-12-31")
+        }
+    }
 }
 
 @Observable
@@ -43,6 +63,13 @@ final class SearchViewModel {
 
     var hasFilters: Bool {
         timeKind != .all || locFilter.country != "" || locFilter.noLoc
+    }
+
+    var timeRangeLabel: String {
+        if timeKind == .custom, let from = customFrom, let to = customTo {
+            return L10n.dateRange(from, to)
+        }
+        return L10n.str("search_custom")
     }
 
     var filteredOptions: [LocOption] {
@@ -171,25 +198,6 @@ final class SearchViewModel {
     }
 
     private func currentRange() -> (String, String) {
-        let today = Date()
-        switch timeKind {
-        case .d7:
-            return (DateUtil.dayKeyOf(DateUtil.addDays(DateUtil.startOfDay(today), -6)), DateUtil.dayKeyOf(today))
-        case .d30:
-            return (DateUtil.dayKeyOf(DateUtil.addDays(DateUtil.startOfDay(today), -29)), DateUtil.dayKeyOf(today))
-        case .thisMonth:
-            return (DateUtil.dayKeyOf(DateUtil.monthFirst(today)), DateUtil.dayKeyOf(today))
-        case .thisYear:
-            let year = DateUtil.calendar.component(.year, from: today)
-            let start = DateUtil.calendar.date(from: DateComponents(year: year, month: 1, day: 1)) ?? today
-            return (DateUtil.dayKeyOf(start), DateUtil.dayKeyOf(today))
-        case .custom:
-            let from = customFrom ?? DateUtil.startOfDay(today)
-            let to = customTo ?? DateUtil.startOfDay(today)
-            let sorted = from <= to ? (from, to) : (to, from)
-            return (DateUtil.dayKeyOf(sorted.0), DateUtil.dayKeyOf(sorted.1))
-        case .all:
-            return ("0000-01-01", "9999-12-31")
-        }
+        timeKind.dayKeyRange(customFrom: customFrom, customTo: customTo)
     }
 }

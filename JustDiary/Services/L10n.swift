@@ -68,6 +68,10 @@ enum L10n {
         return fmt("date_day_only", monthName(month), day)
     }
 
+    static func dateRange(_ from: Date, _ to: Date) -> String {
+        "\(dateOnly(from)) ~ \(dateOnly(to))"
+    }
+
     private static let monthFullFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = AppLanguage.locale

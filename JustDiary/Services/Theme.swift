@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct Theme {
-    static let seed = Color(hex: 0x2B5DB7)
+    static let seed = Color(hex: 0x2563EB)
 
     static func primary() -> Color { seed }
 

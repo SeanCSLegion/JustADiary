@@ -117,7 +117,7 @@ enum DayDraw {
 
         if flags.contains(dayKey) {
             let w = min(20, m.cellW * 0.5)
-            let uy = (lineH > 0.5 ? lunarY + lineH / 2 : numY + m.dayFont / 2) + 3
+            let uy = numY + m.dayFont / 2 + 2
             let underline = Path(roundedRect: CGRect(x: cx - w / 2, y: uy, width: w, height: 2),
                                  cornerRadius: 1)
             let color: Color = isSelected ? Theme.onPrimary() : Theme.primary()

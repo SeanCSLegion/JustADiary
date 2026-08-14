@@ -14,12 +14,12 @@ TOKENS = {
     "glassDim": (0x73FFFFFF, 0x80262B36),
     "glassBorder": (0x8CFFFFFF, 0x33FFFFFF),
     "flowLight": (0xCCFFFFFF, 0x59FFFFFF),
-    "blobA": (0x80AAC7FF, 0x8000468F),
-    "blobB": (0x99BAD8FF, 0x8C264678),
-    "blobC": (0x6EBBE9FF, 0x6E264678),
+    "blobA": (0x8093C5FD, 0x801E40AF),
+    "blobB": (0x99BFDBFE, 0x8C1E3A8A),
+    "blobC": (0x6EE0E7FF, 0x6E312E81),
     "shadowColor": (0x14000000, 0x26000000),
     "quoteBg": (0xE4EAF9, 0x2B3344),
-    "primaryContainer": (0xD0DBEF, 0x16233B),
+    "primaryContainer": (0xDBEAFE, 0x1E3A8A),
 }
 
 

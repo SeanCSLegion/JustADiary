@@ -14,6 +14,13 @@ extension Animation {
 
 enum Screen {
     static var size: CGSize {
+        if Thread.isMainThread {
+            return currentSize
+        }
+        return DispatchQueue.main.sync { currentSize }
+    }
+
+    private static var currentSize: CGSize {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first?.screen.bounds.size
             ?? CGSize(width: 393, height: 852)
@@ -364,6 +371,7 @@ struct GlassCountBadge: View {
 struct GlassActionChip: View {
     var label: String
     var systemImage: String? = nil
+    var active = false
     var action: () -> Void
 
     var body: some View {
@@ -381,13 +389,14 @@ struct GlassActionChip: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
-            .foregroundStyle(Theme.primary())
+            .foregroundStyle(active ? Theme.primary() : Theme.onSurface())
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .contentShape(Capsule())
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.capsule)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
 
