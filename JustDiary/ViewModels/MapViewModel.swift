@@ -117,29 +117,40 @@ final class MapViewModel {
     private func frameToFirstDiary(_ rows: [MapPointRow], animated: Bool) {
         let located = rows.filter { $0.latitude != 0 || $0.longitude != 0 }
         guard !located.isEmpty else {
-            flyTo(lng: 104, lat: 35, zoom: zoomRange().min + 0.3, animated: animated)
+            frameChinaOrFallback(animated: animated)
             return
         }
-        if let newest = located.max(by: { $0.startTimeUtc < $1.startTimeUtc }) {
-            let country = newest.country
-            let province = newest.region1
-            if country == "中国" || country == "China", !province.isEmpty {
-                if let feat = geoData.china.first(where: { $0.name == province }) {
-                    focusCountry = nil
-                    focusProvince = province
-                    focusFeature = feat
-                    level = 2
-                    loadCityDataIfNeeded(feat)
-                    flyToFeatureBounds(feat, animated: animated)
-                    return
-                }
-            }
-            flyTo(lng: newest.longitude, lat: newest.latitude, zoom: 4.5, animated: animated)
+        level = 1
+        focusCountry = nil
+        focusProvince = nil
+        focusFeature = nil
+        if let newest = located.max(by: { $0.startTimeUtc < $1.startTimeUtc }),
+           isInChina(lat: newest.latitude, lng: newest.longitude) {
+            flyTo(lng: newest.longitude, lat: newest.latitude,
+                  zoom: zoomRange().min + 0.8, animated: animated)
+        } else {
+            frameChinaOrFallback(animated: animated)
         }
+    }
+
+    private func frameChinaOrFallback(animated: Bool) {
+        if let china = chinaFallback() {
+            flyToFeatureBounds(china, animated: animated)
+        } else {
+            flyTo(lng: 104, lat: 35, zoom: zoomRange().min + 0.3, animated: animated)
+        }
+    }
+
+    private func isInChina(lat: Double, lng: Double) -> Bool {
+        guard let b = chinaFallback() else { return true }
+        let x = GeoMath.lngToX(lng)
+        let y = GeoMath.latToY(lat)
+        return x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY
     }
 
     private func flyToPoint(lat: Double, lng: Double) {
         if lat == 0 && lng == 0 { return }
+        guard isInChina(lat: lat, lng: lng) else { return }
         flyTo(lng: lng, lat: lat, zoom: 4.5)
     }
 
@@ -180,7 +191,11 @@ final class MapViewModel {
 
     func zoomBarSet(pct: CGFloat) {
         let range = zoomRange()
-        camera.zoom = GeoMath.clampZoom(range.max - Double(pct) * (range.max - range.min))
+        if cameraAnimation != nil {
+            animationToken += 1
+            cameraAnimation = nil
+        }
+        camera.zoom = min(max(range.max - Double(pct) * (range.max - range.min), range.min), range.max)
     }
 
     func tap(at point: CGPoint, viewport: CGSize) {
@@ -326,16 +341,17 @@ final class MapViewModel {
         Haptics.medium()
         level = lvl
         if lvl == 1, !geoData.china.isEmpty {
-            let bounds = MapDataService.fitBounds(points)
+            let chinaPoints = points.filter { isInChina(lat: $0.lat, lng: $0.lng) }
+            let bounds = MapDataService.fitBounds(chinaPoints)
             if let b = bounds {
                 let dx = max(GeoMath.lngToX(b.maxLng) - GeoMath.lngToX(b.minLng), 1)
-                let dy = max(GeoMath.latToY(b.maxLat) - GeoMath.latToY(b.minLat), 1)
+                let dy = max(GeoMath.latToY(b.minLat) - GeoMath.latToY(b.maxLat), 1)
                 let vpW = Screen.width - 32
                 let vpH = Screen.height * 0.55
                 let zoom = min(log2(vpW * 0.75 / dx), log2(vpH * 0.75 / dy))
                 flyTo(lng: (b.minLng + b.maxLng) / 2, lat: (b.minLat + b.maxLat) / 2, zoom: zoom)
             } else {
-                flyTo(lng: 105, lat: 35, zoom: 3.6)
+                frameChinaOrFallback(animated: true)
             }
         } else if lvl == 0 {
             focusCountry = nil
