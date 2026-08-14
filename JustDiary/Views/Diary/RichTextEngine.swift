@@ -4,6 +4,7 @@ import UIKit
 final class RichEditorController {
     weak var textView: UITextView?
     var onFormatChange: (() -> Void)?
+    var imageMaxWidth: CGFloat?
 
     func baseTypingAttributes() -> [NSAttributedString.Key: Any] {
         [
@@ -234,7 +235,7 @@ final class RichEditorController {
         let ratio = image.size.height / max(1, image.size.width)
         let displayH = max(40, maxW * ratio)
         let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: maxW, h: displayH))
-        attachment.image = image
+        attachment.image = DiaryImageStore.rounded(image, size: CGSize(width: maxW, height: displayH), radius: 20)
         attachment.bounds = CGRect(x: 0, y: 0, width: maxW, height: displayH)
         let attributed = NSMutableAttributedString(attachment: attachment)
         attributed.append(NSAttributedString(string: "\n", attributes: baseTypingAttributes()))
@@ -251,7 +252,7 @@ final class RichEditorController {
 
     func load(parts: [ContentPart]) {
         guard let tv = textView else { return }
-        tv.textStorage.setAttributedString(PartsCodec.attributedString(from: parts))
+        tv.textStorage.setAttributedString(PartsCodec.attributedString(from: parts, imageMaxWidth: imageMaxWidth))
         tv.typingAttributes = baseTypingAttributes()
         tv.selectedRange = NSRange(location: 0, length: 0)
         onFormatChange?()
@@ -329,7 +330,7 @@ enum MarkerAttachment {
 }
 
 enum PartsCodec {
-    static func attributedString(from parts: [ContentPart]) -> NSAttributedString {
+    static func attributedString(from parts: [ContentPart], imageMaxWidth: CGFloat? = nil) -> NSAttributedString {
         let result = NSMutableAttributedString()
         for part in parts {
             switch part.type {
@@ -352,11 +353,15 @@ enum PartsCodec {
                 }
             case ContentPartType.image:
                 if let src = part.src {
-                    let w = max(1, CGFloat(part.w ?? 300))
-                    let h = max(1, CGFloat(part.h ?? 200))
-                    if let image = DiaryImageStore.shared.image(for: src, maxPixel: max(w, h) * 3) {
-                        let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: w, h: h))
-                        attachment.image = image
+                    let storedW = max(1, CGFloat(part.w ?? 300))
+                    let storedH = max(1, CGFloat(part.h ?? 200))
+                    let fallbackW = max(60, UIScreen.main.bounds.width - 76)
+                    let maxW = max(60, imageMaxWidth ?? fallbackW)
+                    let w = min(storedW, maxW)
+                    let h = storedH * w / storedW
+                    if let image = DiaryImageStore.shared.image(for: src, maxPixel: max(storedW, storedH) * 3) {
+                        let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: storedW, h: storedH))
+                        attachment.image = DiaryImageStore.rounded(image, size: CGSize(width: w, height: h), radius: 20)
                         attachment.bounds = CGRect(x: 0, y: 0, width: w, height: h)
                         let att = NSMutableAttributedString(attachment: attachment)
                         result.append(att)

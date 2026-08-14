@@ -37,7 +37,7 @@ struct MapView: View {
                     ForEach(vm.years, id: \.self) { year in
                         yearChip(year, value: year)
                     }
-                    GlassActionChip(label: vm.timeRangeLabel, systemImage: "calendar",
+                    GlassActionChip(label: vm.timeRangeLabel,
                                     active: vm.timeKind == .custom) {
                         Haptics.tap()
                         showTimeFilter = true

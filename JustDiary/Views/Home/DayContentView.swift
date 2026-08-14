@@ -52,10 +52,8 @@ struct DayContentView: View {
             Text(isFuture ? L10n.str("index_future_empty") : L10n.str("index_day_empty"))
                 .font(.system(size: 14))
                 .foregroundStyle(Theme.onSurfaceVariant())
-            GlassPrimaryButton(title: L10n.str("index_write"), enabled: !isFuture) {
-                if isFuture {
-                    showFutureToast()
-                } else {
+            if !isFuture, dayKey == DateUtil.dayKeyOf(Date()) {
+                GlassPrimaryButton(title: L10n.str("index_write")) {
                     openEditor(dayKey)
                 }
             }

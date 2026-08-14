@@ -141,6 +141,7 @@
       }
     },
     "continue" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -333,6 +334,7 @@
       }
     },
     "editor_edit_target_msg" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -349,6 +351,7 @@
       }
     },
     "editor_edit_target_title" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -611,7 +614,6 @@
       }
     },
     "editor_location_retry_action" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2715,7 +2717,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "允许补写 / 修改历史日记"
+            "value" : "允许修改 / 删除历史日记"
           }
         }
       }
@@ -2725,13 +2727,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Past entries are read-only when off"
+            "value" : "Modify or delete existing blocks only; new blocks can't be added to past days"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "关闭时历史日记只读，空白过去日不可补写"
+            "value" : "仅可修改或删除已有编辑块，历史日期不可新增内容"
           }
         }
       }

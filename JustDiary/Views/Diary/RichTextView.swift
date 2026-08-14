@@ -85,6 +85,17 @@ struct RichTextView: UIViewRepresentable {
 
     func updateUIView(_ uiView: PlaceholderTextView, context: Context) {
         uiView.placeholder = placeholder
+        let width = uiView.bounds.width
+        if width > 40 {
+            let inset = uiView.textContainerInset
+            let available = max(60, width - inset.left - inset.right)
+            if controller.imageMaxWidth == nil || abs((controller.imageMaxWidth ?? 0) - available) > 1 {
+                controller.imageMaxWidth = available
+                if context.coordinator.lastToken == loadToken, !loadParts.isEmpty {
+                    controller.load(parts: loadParts)
+                }
+            }
+        }
         if loadToken != context.coordinator.lastToken {
             if loadParts.isEmpty {
                 controller.clear()
@@ -179,9 +190,9 @@ struct FontToolbar: View {
                     controller.toggleUnderline()
                 }
             }
-            .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
+        .padding(.horizontal, 12)
         .background {
             GlassCapsule(cornerRadius: 26, blur: 24)
                 .shadow(color: Theme.shadowColor(), radius: 14, y: 4)

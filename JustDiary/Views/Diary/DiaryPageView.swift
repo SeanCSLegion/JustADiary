@@ -145,12 +145,11 @@ struct DiaryPageView: View {
             }
             Spacer()
             if vm.selectMode {
-                GlassCountBadge(text: L10n.fmt("editor_delete_count", vm.selectedIds.count))
-                    .onTapGesture {
-                        Haptics.tap()
-                        vm.confirmDeleteSelected()
-                    }
-                    .accessibilityAddTraits(.isButton)
+                GlassPrimaryButton(title: L10n.fmt("editor_delete_count", vm.selectedIds.count),
+                                   icon: "trash") {
+                    Haptics.tap()
+                    vm.confirmDeleteSelected()
+                }
             } else if vm.isRead {
                 PressableGlassIcon(systemName: "magnifyingglass", size: 40, active: vm.showSearch,
                                    accessibilityLabel: L10n.str("search_title")) {
@@ -159,7 +158,7 @@ struct DiaryPageView: View {
                         if !vm.showSearch { vm.searchText = ""; vm.hits = [] }
                     }
                 }
-                if vm.canEditToday || vm.settings.allowHistoryEdit {
+                if vm.canEditToday {
                     PressableGlassIcon(systemName: "square.and.pencil", size: 40,
                                        accessibilityLabel: L10n.str("index_write")) {
                         vm.enterWrite()
@@ -211,44 +210,50 @@ struct DiaryPageView: View {
     // MARK: - Read hero
 
     private var readHero: some View {
-        ZStack(alignment: .topLeading) {
-            FlowLightOverlay()
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(L10n.formatDayKey(vm.actualDayKey))
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(Theme.onSurface())
-                    if vm.canEditToday {
-                        Text(L10n.str("index_card_today"))
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background {
-                                Capsule().fill(Theme.primary())
-                                    .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
-                            }
-                            .shadow(color: Theme.glowColor(), radius: 6, y: 1)
-                    }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(L10n.formatDayKey(vm.actualDayKey))
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(Theme.onSurface())
+                if vm.canEditToday {
+                    Text(L10n.str("index_card_today"))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background {
+                            Capsule().fill(Theme.primary())
+                                .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
+                        }
+                        .shadow(color: Theme.glowColor(), radius: 6, y: 1)
                 }
-                HStack(spacing: 8) {
-                    if let first = vm.blocks.first {
-                        Text(L10n.startLine(first.startTimeUtc, locText: first.locText))
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                if let first = vm.blocks.first {
+                    HStack(spacing: 8) {
+                        Text(L10n.timeOf(first.startTimeUtc))
                             .font(.system(size: 13))
                             .foregroundStyle(Theme.onSurfaceVariant())
                         Text(L10n.fmt("read_hero_segments", vm.blocks.count))
                             .font(.system(size: 13))
                             .foregroundStyle(Theme.onSurfaceVariant())
-                    } else {
-                        Text(L10n.str("read_day_empty"))
+                    }
+                    if !first.locText.isEmpty {
+                        Label(first.locText, systemImage: "location.fill")
                             .font(.system(size: 13))
                             .foregroundStyle(Theme.onSurfaceVariant())
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
                     }
+                } else {
+                    Text(L10n.str("read_day_empty"))
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.onSurfaceVariant())
                 }
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .diaryGlassCard(cornerRadius: 18)
         .padding(.bottom, 2)
     }
@@ -259,25 +264,33 @@ struct DiaryPageView: View {
         let parts = ContentFlatten.parseContentCached(block.contentJson)
         let isSelected = vm.selectedIds.contains(block.id)
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 if vm.selectMode {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 16))
                         .foregroundStyle(isSelected ? Theme.primary() : Theme.onSurfaceVariant())
+                        .padding(.top, 1)
                 }
-                Text(L10n.timeOf(block.startTimeUtc))
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Theme.primary())
-                if !block.locText.isEmpty {
-                    Text(block.locText)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.onSurfaceVariant())
-                        .lineLimit(1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.timeOf(block.startTimeUtc))
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Theme.primary())
+                    if !block.locText.isEmpty {
+                        Label(block.locText, systemImage: "location.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.onSurfaceVariant())
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
                 Spacer()
                 if vm.editingIndex == index {
                     GlassCountBadge(text: L10n.str("editor_editing"))
                 }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                handleBlockTap(block, index: index, parts: parts)
             }
             DiaryPartsView(parts: parts,
                            keyword: vm.showSearch ? vm.searchText : "",
@@ -286,14 +299,13 @@ struct DiaryPageView: View {
             },
                            onImageTap: { src, ratio in
                 vm.previewImage = PreviewItem(src: src, ratio: ratio)
+            },
+                           onTapText: {
+                handleBlockTap(block, index: index, parts: parts)
             })
         }
         .padding(12)
         .diaryGlassCard(cornerRadius: 18)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            handleBlockTap(block, index: index, parts: parts)
-        }
         .onLongPressGesture(minimumDuration: 0.4) {
             vm.enterSelect(block.id)
         }
@@ -311,7 +323,6 @@ struct DiaryPageView: View {
             }
             return
         }
-        guard !vm.isRead else { return }
         vm.enterEditBlock(index: index)
     }
 
@@ -329,7 +340,7 @@ struct DiaryPageView: View {
                         Capsule().fill(Theme.primaryContainer())
                             .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
                     }
-                if vm.settings.autoLoc {
+                if vm.settings.autoLoc, vm.editingIndex == nil || vm.canEditToday {
                     Button {
                         Haptics.tap()
                         if vm.location == nil {
@@ -355,6 +366,9 @@ struct DiaryPageView: View {
                     }
                     .buttonStyle(.plain)
                     .confirmationDialog(L10n.str("search_loc_title"), isPresented: $showPrecisionMenu) {
+                        Button(L10n.str("editor_location_retry_action"), role: .none) {
+                            vm.refreshLocation()
+                        }
                         ForEach(LocationResolver.availablePrecisions(), id: \.self) { precision in
                             Button(L10n.precisionLabel(precision)) {
                                 vm.applyPrecision(precision)

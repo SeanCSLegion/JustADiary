@@ -83,6 +83,20 @@ final class DiaryImageStore {
         return loadDownsampled(data: data, maxPixel: maxPixel)
     }
 
+    static func rounded(_ image: UIImage, size: CGSize, radius: CGFloat) -> UIImage {
+        guard radius > 0, size.width > 0, size.height > 0 else { return image }
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in
+            let rect = CGRect(origin: .zero, size: size)
+            let path = UIBezierPath(roundedRect: rect, cornerRadius: radius)
+            path.addClip()
+            let scale = min(size.width / max(1, image.size.width), size.height / max(1, image.size.height))
+            let drawSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            let origin = CGPoint(x: (size.width - drawSize.width) / 2, y: (size.height - drawSize.height) / 2)
+            image.draw(in: CGRect(origin: origin, size: drawSize))
+        }
+    }
+
     static func loadDownsampled(at path: String, maxPixel: CGFloat) -> UIImage? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
         return loadDownsampled(data: data, maxPixel: maxPixel)

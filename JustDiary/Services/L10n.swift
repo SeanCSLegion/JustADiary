@@ -64,7 +64,7 @@ enum L10n {
         let month = cal.component(.month, from: date)
         let day = cal.component(.day, from: date)
         let wd = cal.component(.weekday, from: date)
-        return fmt("date_day_title", monthName(month), day, weekdayShort(wd - 1))
+        return fmt("date_day_title", monthName(month), day, weekdayName(wd - 1))
     }
 
     static func dateOnly(_ date: Date) -> String {

@@ -19,14 +19,15 @@ struct DiaryImageView: View {
     var body: some View {
         GeometryReader { geo in
             let w = min(max(40, geo.size.width), max(40, displayW))
+            let fitH = max(1, displayH * w / max(displayW, 1))
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
                 if let image = DiaryImageStore.shared.image(for: src, maxPixel: max(displayW, displayH) * 3) {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
-                        .frame(maxWidth: w, maxHeight: max(1, geo.size.height))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .frame(width: w, height: fitH)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .contentShape(Rectangle())
                         .onTapGesture {
                             Haptics.tap()

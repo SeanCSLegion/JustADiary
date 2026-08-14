@@ -72,11 +72,23 @@ final class DiaryRepository {
     }
 
     func bumpDiaryVersion() {
-        NotificationCenter.default.post(name: .diaryVersionChanged, object: nil)
+        if Thread.isMainThread {
+            NotificationCenter.default.post(name: .diaryVersionChanged, object: nil)
+        } else {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .diaryVersionChanged, object: nil)
+            }
+        }
     }
 
     func bumpUiTick() {
-        NotificationCenter.default.post(name: .uiTickChanged, object: nil)
+        if Thread.isMainThread {
+            NotificationCenter.default.post(name: .uiTickChanged, object: nil)
+        } else {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .uiTickChanged, object: nil)
+            }
+        }
     }
 
     private func migrateSchema() throws {

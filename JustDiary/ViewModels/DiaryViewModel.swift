@@ -106,23 +106,9 @@ final class DiaryViewModel {
     // MARK: - Mode transitions
 
     func enterWrite() {
-        if actualDayKey != DateUtil.dayKeyOf(Date()), !settings.allowHistoryEdit {
+        if actualDayKey != DateUtil.dayKeyOf(Date()) {
             alertItem = .info(title: L10n.str("editor_history_no_add_title"),
                               message: L10n.str("editor_history_no_add_msg"))
-            return
-        }
-        if !blocks.isEmpty {
-            alertItem = .confirm(title: L10n.str("editor_edit_target_title"),
-                                 message: L10n.str("editor_edit_target_msg"),
-                                 confirmLabel: L10n.str("continue")) {
-                self.loadParts = []
-                self.loadToken += 1
-                withAnimation(.diaryStandard) {
-                    self.isRead = false
-                    self.editingIndex = nil
-                }
-                self.beginLocateIfNeeded()
-            }
             return
         }
         loadParts = []
@@ -156,6 +142,11 @@ final class DiaryViewModel {
     }
 
     func enterSelect(_ id: Int64) {
+        if actualDayKey != DateUtil.dayKeyOf(Date()), !settings.allowHistoryEdit {
+            alertItem = .info(title: L10n.str("editor_readonly_title"),
+                              message: L10n.str("editor_readonly_msg"))
+            return
+        }
         withAnimation(.diaryQuick) {
             selectMode = true
             selectedIds.insert(id)
@@ -361,6 +352,11 @@ final class DiaryViewModel {
         snapshot.locPrecision = precision
         snapshot.locText = LocationResolver.text(for: snapshot.placemark, precision: precision)
         location = snapshot
+    }
+
+    func refreshLocation() {
+        location = nil
+        beginLocate()
     }
 
     var locationLabel: String {
