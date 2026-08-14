@@ -1982,6 +1982,22 @@
         }
       }
     },
+    "search_clear_all" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear all filters"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除全部条件"
+          }
+        }
+      }
+    },
     "search_custom" : {
       "localizations" : {
         "en" : {
@@ -2208,6 +2224,7 @@
       }
     },
     "search_no_result_hint" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2267,6 +2284,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "找到 %d 条日记"
+          }
+        }
+      }
+    },
+    "search_start_title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search your diary"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索你的日记"
           }
         }
       }

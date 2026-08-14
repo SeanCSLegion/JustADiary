@@ -29,9 +29,23 @@ enum TimeRangeKind: String {
     }
 }
 
+enum SearchFilterKind: Hashable {
+    case keyword
+    case time
+    case location
+}
+
+struct SearchFilterItem: Identifiable {
+    var kind: SearchFilterKind
+    var label: String
+    var value: String?
+    var id: String { value.map { "\(String(describing: kind))-\($0)" } ?? String(describing: kind) }
+}
+
 @Observable
 final class SearchViewModel {
     var keyword = ""
+    var keywords: [String] = []
     var timeKind: TimeRangeKind = .all
     var customFrom: Date?
     var customTo: Date?
@@ -63,6 +77,64 @@ final class SearchViewModel {
 
     var hasFilters: Bool {
         timeKind != .all || locFilter.country != "" || locFilter.noLoc
+    }
+
+    var effectiveKeywords: [String] {
+        var list = keywords
+        let input = keyword.trimmingCharacters(in: .whitespaces)
+        if !input.isEmpty, !list.contains(input) {
+            list.append(input)
+        }
+        return list
+    }
+
+    var combinedKeyword: String {
+        effectiveKeywords.joined(separator: " ")
+    }
+
+    var hasAnyCondition: Bool {
+        !effectiveKeywords.isEmpty || hasFilters
+    }
+
+    var activeFilterItems: [SearchFilterItem] {
+        var items: [SearchFilterItem] = []
+        let input = keyword.trimmingCharacters(in: .whitespaces)
+        if !input.isEmpty, !keywords.contains(input) {
+            items.append(SearchFilterItem(kind: .keyword, label: "“\(input)”", value: nil))
+        }
+        for term in keywords {
+            items.append(SearchFilterItem(kind: .keyword, label: "“\(term)”", value: term))
+        }
+        switch timeKind {
+        case .thisWeek:
+            items.append(SearchFilterItem(kind: .time, label: L10n.str("search_time_week"), value: nil))
+        case .thisMonth:
+            items.append(SearchFilterItem(kind: .time, label: L10n.str("search_time_month"), value: nil))
+        case .thisYear:
+            items.append(SearchFilterItem(kind: .time, label: L10n.str("search_time_year"), value: nil))
+        case .custom:
+            if let from = customFrom, let to = customTo {
+                items.append(SearchFilterItem(kind: .time, label: L10n.dateRange(from, to), value: nil))
+            } else {
+                items.append(SearchFilterItem(kind: .time, label: L10n.str("search_custom"), value: nil))
+            }
+        case .all:
+            break
+        }
+        if locFilter.noLoc {
+            items.append(SearchFilterItem(kind: .location, label: L10n.str("search_loc_no_loc"), value: nil))
+        } else if !locFilter.country.isEmpty {
+            if locFilter.region1.isEmpty {
+                items.append(SearchFilterItem(kind: .location,
+                                              label: "\(locFilter.country) · \(L10n.str("search_loc_country_only"))",
+                                              value: nil))
+            } else {
+                items.append(SearchFilterItem(kind: .location,
+                                              label: "\(locFilter.country) · \(locFilter.region1)",
+                                              value: nil))
+            }
+        }
+        return items
     }
 
     var timeRangeLabel: String {
@@ -135,6 +207,51 @@ final class SearchViewModel {
         Task { await doSearch(reset: true) }
     }
 
+    func clearAll() {
+        keyword = ""
+        keywords = []
+        timeKind = .all
+        customFrom = nil
+        customTo = nil
+        locFilter = LocFilter(country: "", region1: "", noLoc: false)
+        Task { await doSearch(reset: true) }
+    }
+
+    func commitKeyword() {
+        let term = keyword.trimmingCharacters(in: .whitespaces)
+        keyword = ""
+        guard !term.isEmpty else { return }
+        if !keywords.contains(term) {
+            keywords.append(term)
+        }
+        Task { await doSearch(reset: true) }
+    }
+
+    func removeKeyword(_ term: String) {
+        keywords.removeAll { $0 == term }
+        Task { await doSearch(reset: true) }
+    }
+
+    func clearKeywordInput() {
+        keyword = ""
+        Task { await doSearch(reset: true) }
+    }
+
+    func clearFilter(_ kind: SearchFilterKind) {
+        switch kind {
+        case .keyword:
+            keyword = ""
+            keywords = []
+        case .time:
+            timeKind = .all
+            customFrom = nil
+            customTo = nil
+        case .location:
+            locFilter = LocFilter(country: "", region1: "", noLoc: false)
+        }
+        Task { await doSearch(reset: true) }
+    }
+
     func loadMore() {
         Task { await doSearch(reset: false) }
     }
@@ -153,7 +270,8 @@ final class SearchViewModel {
     }
 
     func doSearch(reset: Bool) async {
-        if !keyword.trimmingCharacters(in: .whitespaces).isEmpty || hasFilters {
+        let query = combinedKeyword
+        if !query.isEmpty || hasFilters {
             searching = true
         } else {
             results = []
@@ -174,7 +292,7 @@ final class SearchViewModel {
         let fromKey = range.0
         let toKey = range.1
         let newOffset = reset ? 0 : offset
-        let result = await DiaryRepository.shared.search(keyword: keyword,
+        let result = await DiaryRepository.shared.search(keyword: query,
                                                          fromKey: fromKey,
                                                          toKey: toKey,
                                                          filter: locFilter,

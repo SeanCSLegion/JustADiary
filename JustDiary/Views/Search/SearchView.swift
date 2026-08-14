@@ -4,6 +4,8 @@ struct SearchView: View {
     var openDiary: (String) -> Void
 
     @State private var vm = SearchViewModel()
+    @State private var hideTopControls = false
+    @State private var topControlsHeight: CGFloat = 0
     @FocusState private var searchFocused: Bool
     @FocusState private var locSearchFocused: Bool
 
@@ -26,18 +28,101 @@ struct SearchView: View {
         VStack(spacing: 0) {
             header
                 .padding(.horizontal, 16)
-            searchBar
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-            filterPanel
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
+            if !hideTopControls {
+                VStack(spacing: 0) {
+                    searchBar
+                        .padding(.horizontal, 16)
+                        .padding(.top, 10)
+                    filterPanel
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                }
+                .background(
+                    GeometryReader { g in
+                        Color.clear
+                            .onAppear { topControlsHeight = g.size.height }
+                            .onChange(of: g.size.height) { _, h in
+                                if h > 20 { topControlsHeight = h }
+                            }
+                    }
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+            if vm.hasAnyCondition {
+                filterSummary
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
             resultsList
         }
         .padding(.top, 12)
+        .animation(.diaryStandard, value: hideTopControls)
+        .animation(.diaryQuick, value: vm.hasAnyCondition)
         .onChange(of: vm.keyword) { _, _ in
             vm.onKeywordChanged()
         }
+        .onChange(of: searchFocused) { _, focused in
+            if focused, hideTopControls {
+                withAnimation(.diaryStandard) { hideTopControls = false }
+            }
+        }
+    }
+
+    private var filterSummary: some View {
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(vm.activeFilterItems) { item in
+                        filterCapsule(item)
+                    }
+                }
+            }
+            GlassIconButton(systemName: "xmark.circle.fill", size: 28,
+                            accessibilityLabel: L10n.str("search_clear_all")) {
+                searchFocused = false
+                vm.clearAll()
+            }
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 4)
+        .frame(height: 44)
+        .diaryGlassCard(cornerRadius: 18)
+    }
+
+    private func filterCapsule(_ item: SearchFilterItem) -> some View {
+        Button {
+            Haptics.tap()
+            if item.kind == .keyword {
+                if let term = item.value {
+                    vm.removeKeyword(term)
+                } else {
+                    searchFocused = false
+                    vm.clearKeywordInput()
+                }
+            } else {
+                vm.clearFilter(item.kind)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(item.label)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundStyle(Theme.primary())
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background {
+                Capsule().fill(Theme.primaryContainer())
+                    .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(item.label)
+        .accessibilityHint(L10n.str("search_clear_all"))
     }
 
     private var header: some View {
@@ -52,7 +137,7 @@ struct SearchView: View {
         GlassSearchField(text: $vm.keyword,
                          placeholder: L10n.str("search_placeholder"),
                          focus: $searchFocused,
-                         onSubmit: { searchFocused = false },
+                         onSubmit: { vm.commitKeyword() },
                          trailing: {
             if searchFocused {
                 Button {
@@ -92,7 +177,7 @@ struct SearchView: View {
                     locChip(L10n.str("search_all_loc"),
                             country: "", region1: "", noLoc: false)
                     locChip(vm.locFilterLabel, country: vm.locFilter.country, region1: vm.locFilter.region1,
-                            noLoc: vm.locFilter.noLoc)
+                            noLoc: vm.locFilter.noLoc, custom: true)
                 }
             }
         }
@@ -110,12 +195,14 @@ struct SearchView: View {
         }
     }
 
-    private func locChip(_ label: String, country: String, region1: String, noLoc: Bool) -> some View {
-        let active = vm.locFilter.country == country && vm.locFilter.region1 == region1 && vm.locFilter.noLoc == noLoc
+    private func locChip(_ label: String, country: String, region1: String, noLoc: Bool,
+                         custom: Bool = false) -> some View {
+        let active = custom ? (country != "" || noLoc)
+            : (vm.locFilter.country == country && vm.locFilter.region1 == region1 && vm.locFilter.noLoc == noLoc)
         return GlassChip(label: label, active: active) {
             if active {
                 vm.resetLocFilter()
-            } else if country.isEmpty && !noLoc {
+            } else if custom && country.isEmpty && !noLoc {
                 vm.showLocSheet = true
             } else {
                 vm.selectLocRow(country: country, region1: region1, noLoc: noLoc)
@@ -149,6 +236,22 @@ struct SearchView: View {
             .padding(.top, 10)
         }
         .scrollDismissesKeyboard(.immediately)
+        .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geo in
+            updateTopControls(geo)
+        }
+    }
+
+    private func updateTopControls(_ geo: ScrollGeometry) {
+        let y = geo.contentOffset.y
+        let hide: Bool
+        if hideTopControls {
+            hide = y > 8
+        } else {
+            let extra = topControlsHeight > 20 ? topControlsHeight : 170
+            hide = y > 24 && geo.contentSize.height > geo.containerSize.height + extra + 24
+        }
+        guard hide != hideTopControls else { return }
+        withAnimation(.diaryStandard) { hideTopControls = hide }
     }
 
     @ViewBuilder
@@ -163,14 +266,22 @@ struct SearchView: View {
                     .foregroundStyle(Theme.onSurface())
             }
             .padding(.top, 60)
-        } else if !vm.keyword.isEmpty || vm.hasFilters {
-            ContentUnavailableView.search(text: vm.keyword)
-                .padding(.top, 60)
+        } else if vm.hasAnyCondition {
+            VStack(spacing: 16) {
+                ContentUnavailableView.search(text: vm.combinedKeyword)
+                GlassPrimaryButton(title: L10n.str("search_clear_all"), compact: true) {
+                    searchFocused = false
+                    vm.clearAll()
+                }
+            }
+            .padding(.top, 60)
         } else {
-            ContentUnavailableView(L10n.str("search_empty"),
-                                   systemImage: "magnifyingglass",
-                                   description: Text(L10n.str("search_no_result_hint")))
-                .padding(.top, 60)
+            ContentUnavailableView {
+                Label(L10n.str("search_start_title"), systemImage: "magnifyingglass")
+            } description: {
+                Text(L10n.str("search_empty"))
+            }
+            .padding(.top, 60)
         }
     }
 
@@ -190,7 +301,7 @@ struct SearchView: View {
                     Capsule().fill(Theme.primaryContainer())
                         .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
                 }
-                HighlightedText(snippet: item.snippet, summary: item.summary, keyword: vm.keyword)
+                HighlightedText(snippet: item.snippet, summary: item.summary, keyword: vm.combinedKeyword)
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.onSurface())
                     .lineLimit(2)
@@ -309,7 +420,7 @@ struct SearchView: View {
         .padding(20)
         .padding(.bottom, 8)
         .onAppear {
-            if vm.locOptions.isEmpty { vm.loadLocationOptions() }
+            vm.loadLocationOptions()
         }
     }
 
