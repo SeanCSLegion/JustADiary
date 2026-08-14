@@ -31,6 +31,7 @@ struct HomeView: View {
                 calendarArea(size: size)
             }
         }
+        .ignoresSafeArea(edges: .bottom)
         .overlay(alignment: .bottom) {
             if showFutureToast {
                 Text(L10n.str("index_future_toast"))
@@ -379,22 +380,28 @@ struct HomeView: View {
         let dayKey = DateUtil.dayKeyOf(selectedDate)
         return VStack(spacing: 0) {
             Divider()
-            VStack(spacing: 4) {
+            HStack(spacing: 12) {
                 Text(L10n.weekHeaderTitle(selectedDate))
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Theme.onSurface())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer()
                 if showsLunar {
                     Text(Lunar.fullLabel(selectedDate))
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                         .foregroundStyle(Theme.onSurfaceVariant().opacity(0.8))
+                        .lineLimit(1)
                 }
             }
+            .padding(.horizontal, 20)
             .frame(height: CalendarLayout.dayTitleH)
             Divider()
             DayContentView(blocks: vm.dayBlocks,
                            dayKey: dayKey,
                            isFuture: dayKey > DateUtil.dayKeyOf(Date()),
                            openEditor: openEditor,
+                           openDiary: openEditor,
                            showFutureToast: showFutureDateToast)
         }
         .frame(width: w, height: h - stripBottom)

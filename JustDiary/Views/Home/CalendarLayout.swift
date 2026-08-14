@@ -68,7 +68,7 @@ enum CalendarLayout {
     static let weekdayHeaderH: CGFloat = 30
     static let bigTitleH: CGFloat = 72
     static let weekStripH: CGFloat = 68
-    static let dayTitleH: CGFloat = 76
+    static let dayTitleH: CGFloat = 40
 
     static let yearTitleH: CGFloat = 62
     static let yearPad: CGFloat = 16

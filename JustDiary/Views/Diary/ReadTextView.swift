@@ -14,6 +14,7 @@ struct ReadTextView: UIViewRepresentable {
     var keyword: String = ""
     var onToggleTodo: ((Int, Int) -> Void)? = nil
     var onImageTap: ((String, CGFloat) -> Void)? = nil
+    var onTapText: (() -> Void)? = nil
     var textContainerInset: UIEdgeInsets = .zero
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -135,6 +136,7 @@ struct ReadTextView: UIViewRepresentable {
                 parent.onImageTap?(cb.0, cb.1)
                 return
             }
+            parent.onTapText?()
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,

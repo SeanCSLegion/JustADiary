@@ -123,7 +123,7 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
                     cellH: cellH, mMetrics: mMetrics, wMetrics: wMetrics)
             }
             content()
-                .offset(y: stripBottom + 96 * (1 - contentT))
+                .offset(y: stripBottom + (CalendarLayout.dayTitleH + 20) * (1 - contentT))
                 .opacity(CL.clamp01((progress - 0.3) / 0.5))
         }
         .frame(width: size.width, height: size.height, alignment: .top)

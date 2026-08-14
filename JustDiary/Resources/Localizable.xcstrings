@@ -965,6 +965,22 @@
         }
       }
     },
+    "index_continue_write" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue writing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "继续写日记"
+          }
+        }
+      }
+    },
     "index_day_empty" : {
       "localizations" : {
         "en" : {

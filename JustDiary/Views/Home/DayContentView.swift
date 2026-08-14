@@ -8,22 +8,39 @@ struct DayContentView: View {
     var dayKey: String
     var isFuture: Bool
     var openEditor: (String) -> Void
+    var openDiary: (String) -> Void
     var showFutureToast: () -> Void
+    @State private var previewImage: PreviewItem?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
                 if let blocks, !blocks.isEmpty {
                     ForEach(blocks, id: \.id) { block in
-                        DiaryBlockCard(block: block)
+                        DiaryBlockCard(block: block,
+                                       onOpenDiary: { openDiary(dayKey) },
+                                       onImageTap: { src, ratio in
+                            previewImage = PreviewItem(src: src, ratio: ratio)
+                        })
+                    }
+                    if dayKey == DateUtil.dayKeyOf(Date()) {
+                        GlassPrimaryButton(title: L10n.str("index_continue_write")) {
+                            Haptics.tap()
+                            openEditor(dayKey)
+                        }
+                        .frame(maxWidth: .infinity)
                     }
                 } else {
                     emptyState
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 96)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .fullScreenCover(item: $previewImage) { item in
+            ImagePreviewView(item: item)
         }
     }
 
@@ -35,7 +52,7 @@ struct DayContentView: View {
             Text(isFuture ? L10n.str("index_future_empty") : L10n.str("index_day_empty"))
                 .font(.system(size: 14))
                 .foregroundStyle(Theme.onSurfaceVariant())
-            GlassPrimaryButton(title: L10n.str("index_write"), compact: true, enabled: !isFuture) {
+            GlassPrimaryButton(title: L10n.str("index_write"), enabled: !isFuture) {
                 if isFuture {
                     showFutureToast()
                 } else {
@@ -50,25 +67,40 @@ struct DayContentView: View {
 
 struct DiaryBlockCard: View {
     var block: EditBlock
+    var onOpenDiary: () -> Void
+    var onImageTap: (String, CGFloat) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let parts = ContentFlatten.parseContentCached(block.contentJson)
+        VStack(alignment: .leading, spacing: 10) {
             if block.startTimeUtc > 0 || !block.locText.isEmpty {
-                HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
                     if block.startTimeUtc > 0 {
                         Label(L10n.timeOf(block.startTimeUtc), systemImage: "clock")
                     }
                     if !block.locText.isEmpty {
                         Label(block.locText, systemImage: "location.fill")
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
                     }
-                    Spacer()
                 }
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.onSurfaceVariant())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    Haptics.tap()
+                    onOpenDiary()
+                }
             }
-            ReadTextView(parts: ContentFlatten.parseContentCached(block.contentJson),
-                         textContainerInset: UIEdgeInsets(top: 2, left: 0, bottom: 2, right: 0))
+            DiaryPartsView(parts: parts,
+                           onImageTap: onImageTap,
+                           onTapText: {
+                Haptics.tap()
+                onOpenDiary()
+            })
         }
-        .padding(.bottom, 2)
+        .padding(12)
+        .diaryGlassCard(cornerRadius: 18)
     }
 }

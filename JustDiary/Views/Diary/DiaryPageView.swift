@@ -279,12 +279,12 @@ struct DiaryPageView: View {
                     GlassCountBadge(text: L10n.str("editor_editing"))
                 }
             }
-            ReadTextView(parts: parts,
-                         keyword: vm.showSearch ? vm.searchText : "",
-                         onToggleTodo: { partIndex, itemIndex in
+            DiaryPartsView(parts: parts,
+                           keyword: vm.showSearch ? vm.searchText : "",
+                           onToggleTodo: { partIndex, itemIndex in
                 vm.toggleTodo(block: block, partIndex: partIndex, itemIndex: itemIndex)
             },
-                         onImageTap: { src, ratio in
+                           onImageTap: { src, ratio in
                 vm.previewImage = PreviewItem(src: src, ratio: ratio)
             })
         }

@@ -41,6 +41,12 @@ enum L10n {
         return symbols[weekdayIndex]
     }
 
+    static func weekdayName(_ weekdayIndex: Int) -> String {
+        let symbols = calendar.shortWeekdaySymbols
+        guard symbols.indices.contains(weekdayIndex) else { return "" }
+        return symbols[weekdayIndex]
+    }
+
     static func weekdayNames(weekStart: String) -> [String] {
         let symbols = calendar.veryShortWeekdaySymbols
         let base = weekStart == "sunday" ? 0 : 1
@@ -89,7 +95,7 @@ enum L10n {
         let m = cal.component(.month, from: date)
         let d = cal.component(.day, from: date)
         let wd = cal.component(.weekday, from: date)
-        return fmt("index_week_head", y, monthName(m), d, weekdayShort(wd - 1))
+        return fmt("index_week_head", y, monthName(m), d, weekdayName(wd - 1))
     }
 
     static func formatDayKey(_ dayKey: String) -> String {
