@@ -5,6 +5,8 @@ import os
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJ = os.path.join(ROOT, "JustDiary.xcodeproj")
 
+ICON_REF = "97EDEE5130319B09000E17D3"
+ICON_BUILD = "97EDEE5230319B09000E17D3"
 APP_SYNC = "A10000000000000000000001"
 APP_TARGET = "B10000000000000000000001"
 APP_PRODUCT = "C10000000000000000000001"
@@ -106,7 +108,7 @@ project_settings = {
 
 app_settings = {
     "Debug": {
-        "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
+        "ASSETCATALOG_COMPILER_APPICON_NAME": '"JustDiary"',
         "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
         "CODE_SIGN_ENTITLEMENTS": "JustDiary/JustDiary.entitlements",
         "CODE_SIGN_STYLE": "Automatic",
@@ -129,7 +131,7 @@ app_settings = {
         "TARGETED_DEVICE_FAMILY": "1",
     },
     "Release": {
-        "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
+        "ASSETCATALOG_COMPILER_APPICON_NAME": '"JustDiary"',
         "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
         "CODE_SIGN_ENTITLEMENTS": "JustDiary/JustDiary.entitlements",
         "CODE_SIGN_STYLE": "Automatic",
@@ -201,7 +203,12 @@ content = f"""// !$*UTF8*$!
 	objectVersion = 77;
 	objects = {{
 
+/* Begin PBXBuildFile section */
+		{ICON_BUILD} /* JustDiary.icon in Resources */ = {{isa = PBXBuildFile; fileRef = {ICON_REF} /* JustDiary.icon */; }};
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
+		{ICON_REF} /* JustDiary.icon */ = {{isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = "JustDiary.icon"; sourceTree = "<group>"; }};
 		{APP_PRODUCT} /* JustDiary.app */ = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JustDiary.app; sourceTree = BUILT_PRODUCTS_DIR; }};
 		{UITEST_PRODUCT} /* JustDiaryUITests.xctest */ = {{isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JustDiaryUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; }};
 /* End PBXFileReference section */
@@ -256,6 +263,7 @@ content = f"""// !$*UTF8*$!
 				{APP_SYNC} /* JustDiary */,
 				{UITEST_SYNC} /* JustDiaryUITests */,
 				{PRODUCTS_GROUP} /* Products */,
+				{ICON_REF} /* JustDiary.icon */,
 			);
 			sourceTree = "<group>";
 		}};
@@ -364,6 +372,7 @@ content = f"""// !$*UTF8*$!
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				{ICON_BUILD} /* JustDiary.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		}};

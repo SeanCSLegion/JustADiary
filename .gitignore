@@ -9,3 +9,6 @@ xcuserdata/
 
 # Temporary
 /tmp/
+
+# Icon generation script (assets already committed in JustDiary.icon)
+generate_icon_assets.py
