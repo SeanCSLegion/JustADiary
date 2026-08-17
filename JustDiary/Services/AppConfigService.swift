@@ -9,9 +9,15 @@ enum AppConfigService {
         }
     }
 
-    static func applyThemeMode() {}
+    static func applyThemeMode() {
+        // Colors resolve against UIKit traits; nothing to apply statically.
+    }
 
     static func applyAll() {
+        // The calendar canvases cache resolved text with the color baked in.
+        // Drop it on every settings change so a theme switch re-resolves the
+        // dynamic colors immediately instead of keeping the previous scheme.
+        DayDraw.clearCache()
         DiaryRepository.shared.bumpUiTick()
     }
 }

@@ -34,7 +34,13 @@ struct RootView: View {
     }
 
     var body: some View {
-        TabView(selection: activeTab) {
+        // Read the ui tick inside body so a .uiTickChanged notification (language,
+        // theme, week start, …) invalidates RootView and re-evaluates the modifiers
+        // below (.preferredColorScheme / .environment(\.locale) / .id). Without the
+        // read, @Observable invalidation would not reach RootView and language/theme
+        // changes would only take effect after the app is restarted.
+        let settingsTick = appState.uiTick
+        return TabView(selection: activeTab) {
             Tab(L10n.str("index_title"), systemImage: "house.fill", value: AppTab.home) {
                 HomeView(openEditor: { dayKey in
                     appState.editorDayKey = dayKey
@@ -65,7 +71,23 @@ struct RootView: View {
         .tint(Theme.primary())
         .preferredColorScheme(AppConfigService.colorScheme)
         .environment(\.locale, AppLanguage.locale)
-        .id(AppLanguage.current)
+        // Rebuild the whole tree whenever the language or any settings-driven UI
+        // tick changes. This guarantees all L10n strings, the color scheme and the
+        // canvas layers re-render immediately instead of after an app restart.
+        .id("\(AppLanguage.current)#\(settingsTick)")
+        .overlay(alignment: .topLeading) {
+            // UI-test-only probe that exposes the live app language/theme through
+            // the accessibility tree. It reads the ui tick so it always reflects
+            // the latest app state, independent of whether the tab tree rebuilt.
+            if ProcessInfo.processInfo.arguments.contains("-ui-test-state") {
+                Text(appStateProbeText())
+                    .font(.system(size: 1))
+                    .frame(width: 1, height: 1)
+                    .opacity(0.02)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("app.state")
+            }
+        }
         .fullScreenCover(isPresented: Binding(
             get: { appState.presentEditor },
             set: { appState.presentEditor = $0 }), onDismiss: {
@@ -128,5 +150,16 @@ struct RootView: View {
             appState.editorDayKey = dayKey
             appState.presentEditor = true
         }
+    }
+
+    /// UI-test-only: live language/theme snapshot used by `-ui-test-state`.
+    private func appStateProbeText() -> String {
+        let scheme: String
+        switch AppConfigService.colorScheme {
+        case .light: scheme = "light"
+        case .dark: scheme = "dark"
+        default: scheme = "nil"
+        }
+        return "L:\(AppLanguage.current)|T:\(scheme)|tick:\(appState.uiTick)"
     }
 }

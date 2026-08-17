@@ -33,6 +33,7 @@ enum DayDraw {
         var size: CGFloat
         var weight: Int
         var color: Int
+        var isDark: Bool
     }
 
     static func clearCache() {
@@ -51,6 +52,7 @@ enum DayDraw {
                      todayKey: String,
                      flags: Set<String>,
                      anchorMonth: Date?,
+                     isDark: Bool,
                      adjacentAlpha: Double = 1) {
         let dayKey = DateUtil.dayKeyOf(day)
         let isSelected = dayKey == selectedKey
@@ -104,13 +106,13 @@ enum DayDraw {
         }
 
         let dayNum = DateUtil.calendar.component(.day, from: day)
-        let num = resolvedText(context, "\(dayNum)", size: m.dayFont, weight: isSelected ? 1 : 0, color: colorKey, colorStyle: textColor)
+        let num = resolvedText(context, "\(dayNum)", size: m.dayFont, weight: isSelected ? 1 : 0, color: colorKey, colorStyle: textColor, isDark: isDark)
         context.drawLayer { layer in
             layer.opacity = cellAlpha
             layer.draw(num, at: CGPoint(x: cx, y: numY), anchor: .center)
             if lineH > 0.5 {
                 let lunar = resolvedText(context, Lunar.dayLabel(day), size: m.lunarFont, weight: 0, color: colorKey,
-                                         colorStyle: textColor.opacity(isSelected ? 0.95 : 0.75))
+                                         colorStyle: textColor.opacity(isSelected ? 0.95 : 0.75), isDark: isDark)
                 layer.draw(lunar, at: CGPoint(x: cx, y: lunarY), anchor: .center)
             }
         }
@@ -126,9 +128,9 @@ enum DayDraw {
     }
 
     private static func resolvedText(_ context: GraphicsContext, _ text: String, size: CGFloat, weight: Int, color: Int,
-                                     colorStyle: Color) -> GraphicsContext.ResolvedText {
+                                     colorStyle: Color, isDark: Bool) -> GraphicsContext.ResolvedText {
         let quantizedSize = (size * 2).rounded() / 2
-        let key = TextKey(text: text, size: quantizedSize, weight: weight, color: color)
+        let key = TextKey(text: text, size: quantizedSize, weight: weight, color: color, isDark: isDark)
         lock.lock()
         if let cached = textCache[key] {
             lock.unlock()
@@ -149,6 +151,8 @@ enum DayDraw {
 }
 
 struct MonthCanvas: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var weeks: [WeekDays]
     var anchorMonth: Date
     var metrics: DayMetrics
@@ -175,7 +179,7 @@ struct MonthCanvas: View {
                     }
                     DayDraw.draw(context, day: day, col: col, rowY: rowY, m: metrics, alpha: 1,
                                  selectedKey: selectedKey, todayKey: todayKey, flags: flags,
-                                 anchorMonth: anchorMonth, adjacentAlpha: 1)
+                                 anchorMonth: anchorMonth, isDark: colorScheme == .dark, adjacentAlpha: 1)
                 }
             }
         }
@@ -215,6 +219,8 @@ struct MonthCanvas: View {
 }
 
 struct WeekRowCanvas: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var week: WeekDays
     var metrics: DayMetrics
     var selectedDate: Date
@@ -236,7 +242,7 @@ struct WeekRowCanvas: View {
             for (col, day) in week.days.enumerated() {
                 DayDraw.draw(context, day: day, col: col, rowY: 0, m: metrics, alpha: alpha,
                              selectedKey: selectedKey, todayKey: todayKey, flags: flags,
-                             anchorMonth: anchorMonth, adjacentAlpha: adjacentAlpha)
+                             anchorMonth: anchorMonth, isDark: colorScheme == .dark, adjacentAlpha: adjacentAlpha)
             }
         }
         .contentShape(Rectangle())

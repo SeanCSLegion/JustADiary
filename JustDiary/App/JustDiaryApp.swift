@@ -43,6 +43,9 @@ struct JustDiaryApp: App {
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        if ProcessInfo.processInfo.arguments.contains("-ui-test-reset-settings") {
+            SettingsStore.save(AppSettings())
+        }
         AppConfigService.applyThemeMode()
         Log.app.info("app launched v\(SettingsStore.appVersion, privacy: .public)")
         return true
