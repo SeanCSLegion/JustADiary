@@ -330,7 +330,7 @@ struct DiaryPageView: View {
 
     private var editorCard: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(L10n.timeOf(vm.startUtc))
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(Theme.primary())
@@ -376,7 +376,6 @@ struct DiaryPageView: View {
                         }
                     }
                 }
-                Spacer()
             }
             RichTextView(controller: vm.controller,
                          placeholder: L10n.str(vm.editingIndex != nil ? "editor_placeholder_edit" : "editor_placeholder_new"),

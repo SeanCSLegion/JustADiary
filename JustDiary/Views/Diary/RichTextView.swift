@@ -116,15 +116,28 @@ struct RichTextView: UIViewRepresentable {
             self.parent = parent
         }
 
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange,
+                      replacementText text: String) -> Bool {
+            // While a centered paragraph is empty, ignore a newline keystroke so
+            // users cannot create a cascade of blank centered lines without typing.
+            if text == "\n" {
+                let caret = textView.selectedRange.location
+                if parent.controller.shouldBlockNewline(at: caret) {
+                    return false
+                }
+            }
+            return true
+        }
+
         func textViewDidChange(_ textView: UITextView) {
             if let pv = textView as? PlaceholderTextView {
                 pv.refreshPlaceholder()
             }
-            parent.controller.onFormatChange?()
+            parent.controller.notifyFormatChange()
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
-            parent.controller.onFormatChange?()
+            parent.controller.notifyFormatChange()
         }
 
         func notifyFormatChange() {
@@ -137,56 +150,83 @@ struct FontToolbar: View {
     var controller: RichEditorController
     var onTap: (() -> Void)? = nil
 
-    private func btn(_ label: String, active: Bool, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+    private func btn(_ systemName: String, accessibilityLabel: String, active: Bool,
+                     disabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button {
             Haptics.tap()
             action()
             onTap?()
         } label: {
-            Text(label)
-                .font(.system(size: 13))
+            Image(systemName: systemName)
+                .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(active ? .white : Theme.onSurface())
-                .padding(.horizontal, 9)
-                .frame(minHeight: 40)
+                .frame(minWidth: 34, minHeight: 40)
+                .contentShape(Capsule())
                 .background {
                     Capsule().fill(active ? Theme.primary() : .clear)
                 }
-                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(disabled)
         .opacity(disabled ? 0.35 : 1)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
+    @ViewBuilder
     var body: some View {
+        // Observing the controller's format tick re-evaluates this body after
+        // every edit/cursor move/format toggle, keeping the button states live.
+        let styles = controller.activeStyles()
+        let heading = controller.currentHeadingLevel() == 1
+        let center = controller.isCenterActive()
+        let list = controller.isListActive()
+        let quote = controller.isQuoteActive()
+        let todo = controller.isTodoActive()
+        let blockStyleActive = list || quote || todo
+
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                btn(L10n.str("editor_tool_heading"), active: controller.currentHeadingLevel() == 1) {
+                btn("textformat.size", accessibilityLabel: L10n.str("editor_tool_heading"),
+                    active: heading) {
                     controller.applyHeading(controller.currentHeadingLevel() == 1 ? 0 : 1)
                 }
-                btn(L10n.str("editor_tool_center"), active: controller.isCenterActive()) {
+                btn("text.aligncenter", accessibilityLabel: L10n.str("editor_tool_center"),
+                    active: center, disabled: blockStyleActive) {
                     controller.toggleCenter()
                 }
-                btn(L10n.str("editor_tool_list"), active: false) {
+                Divider()
+                    .frame(height: 20)
+                    .overlay(Theme.outlineVariant().opacity(0.5))
+                btn("list.bullet", accessibilityLabel: L10n.str("editor_tool_list"),
+                    active: list) {
                     controller.toggleList()
                 }
-                let styles = controller.activeStyles()
-                btn(L10n.str("editor_tool_bold"), active: styles.bold) {
-                    controller.toggleBold()
-                }
-                btn(L10n.str("editor_tool_quote"), active: controller.isQuoteActive()) {
+                btn("text.quote", accessibilityLabel: L10n.str("editor_tool_quote"),
+                    active: quote) {
                     controller.toggleQuote()
                 }
-                btn(L10n.str("editor_tool_todo"), active: false) {
+                btn("checklist", accessibilityLabel: L10n.str("editor_tool_todo"),
+                    active: todo) {
                     controller.toggleTodo()
                 }
-                btn(L10n.str("editor_tool_italic"), active: styles.italic) {
+                Divider()
+                    .frame(height: 20)
+                    .overlay(Theme.outlineVariant().opacity(0.5))
+                btn("bold", accessibilityLabel: L10n.str("editor_tool_bold"),
+                    active: styles.bold) {
+                    controller.toggleBold()
+                }
+                btn("italic", accessibilityLabel: L10n.str("editor_tool_italic"),
+                    active: styles.italic) {
                     controller.toggleItalic()
                 }
-                btn(L10n.str("editor_tool_strike"), active: styles.strike) {
+                btn("strikethrough", accessibilityLabel: L10n.str("editor_tool_strike"),
+                    active: styles.strike) {
                     controller.toggleStrike()
                 }
-                btn(L10n.str("editor_tool_underline"), active: styles.underline) {
+                btn("underline", accessibilityLabel: L10n.str("editor_tool_underline"),
+                    active: styles.underline) {
                     controller.toggleUnderline()
                 }
             }
@@ -198,5 +238,9 @@ struct FontToolbar: View {
                 .shadow(color: Theme.shadowColor(), radius: 14, y: 4)
         }
         .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        // Establishing a dependency on the @Observable formatTick makes SwiftUI
+        // re-evaluate body (and thus the button active states) whenever the
+        // controller mutation/tick changes — no explicit @State refetch needed.
+        .onChange(of: controller.formatTick) { _, _ in }
     }
 }

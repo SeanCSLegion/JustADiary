@@ -1,10 +1,13 @@
 import SwiftUI
 import UIKit
+import Observation
 
+@Observable
 final class RichEditorController {
     weak var textView: UITextView?
     var onFormatChange: (() -> Void)?
     var imageMaxWidth: CGFloat?
+    private(set) var formatTick = 0
 
     func baseTypingAttributes() -> [NSAttributedString.Key: Any] {
         [
@@ -16,6 +19,14 @@ final class RichEditorController {
 
     func refreshTypingAttributes() {
         textView?.typingAttributes = baseTypingAttributes()
+        notifyFormatChange()
+    }
+
+    /// Bumps the observable tick so SwiftUI toolbar buttons re-evaluate their
+    /// active state after any format mutation or cursor move.
+    func notifyFormatChange() {
+        formatTick += 1
+        onFormatChange?()
     }
 
     // MARK: - Character styles
@@ -31,8 +42,8 @@ final class RichEditorController {
     private func toggleFontStyle(_ trait: UIFontDescriptor.SymbolicTraits) {
         guard let tv = textView else { return }
         let range = tv.selectedRange
-        apply { attributed in
-            if range.length > 0 {
+        if range.length > 0 {
+            apply { attributed in
                 attributed.enumerateAttribute(.font, in: range) { value, subRange, _ in
                     guard let font = value as? UIFont else { return }
                     var sym = font.fontDescriptor.symbolicTraits
@@ -41,22 +52,40 @@ final class RichEditorController {
                     } else {
                         sym.insert(trait)
                     }
-                    guard let desc = font.fontDescriptor.withSymbolicTraits(sym) else { return }
+                    guard let base = font.fontDescriptor.withSymbolicTraits(sym) else { return }
+                    let desc = Self.applyItalicSlant(base, trait: trait, adding: !font.fontDescriptor.symbolicTraits.contains(trait))
                     attributed.removeAttribute(.font, range: subRange)
                     attributed.addAttribute(.font, value: UIFont(descriptor: desc, size: font.pointSize), range: subRange)
                 }
-            } else {
-                let font = (tv.typingAttributes[.font] as? UIFont) ?? UIFont.systemFont(ofSize: 15)
-                var sym = font.fontDescriptor.symbolicTraits
-                if sym.contains(trait) {
-                    sym.remove(trait)
-                } else {
-                    sym.insert(trait)
-                }
-                if let desc = font.fontDescriptor.withSymbolicTraits(sym) {
-                    tv.typingAttributes[.font] = UIFont(descriptor: desc, size: font.pointSize)
-                }
             }
+        } else {
+            let font = (tv.typingAttributes[.font] as? UIFont) ?? UIFont.systemFont(ofSize: 15)
+            var sym = font.fontDescriptor.symbolicTraits
+            if sym.contains(trait) {
+                sym.remove(trait)
+            } else {
+                sym.insert(trait)
+            }
+            if let base = font.fontDescriptor.withSymbolicTraits(sym) {
+                let desc = Self.applyItalicSlant(base, trait: trait, adding: !font.fontDescriptor.symbolicTraits.contains(trait))
+                tv.typingAttributes[.font] = UIFont(descriptor: desc, size: font.pointSize)
+            }
+            notifyFormatChange()
+        }
+    }
+
+    /// CJK glyphs (PingFang etc.) have no true italic outline, so merely toggling
+    /// `.traitItalic` leaves Chinese text looking barely slanted. Applying a mild
+    /// oblique transform to the descriptor matrix makes the italic obvious while
+    /// keeping other traits (bold) intact.
+    private static func applyItalicSlant(_ descriptor: UIFontDescriptor, trait: UIFontDescriptor.SymbolicTraits,
+                                         adding: Bool) -> UIFontDescriptor {
+        guard trait == .traitItalic else { return descriptor }
+        if adding {
+            let skew = CGAffineTransform(a: 1, b: 0, c: 0.24, d: 1, tx: 0, ty: 0)
+            return descriptor.addingAttributes([.matrix: NSValue(cgAffineTransform: skew)])
+        } else {
+            return descriptor.addingAttributes([.matrix: NSValue(cgAffineTransform: .identity)])
         }
     }
 
@@ -71,130 +100,347 @@ final class RichEditorController {
     private func toggleLineStyle(key: NSAttributedString.Key) {
         guard let tv = textView else { return }
         let range = tv.selectedRange
-        apply { attributed in
-            if range.length > 0 {
+        if range.length > 0 {
+            apply { attributed in
                 attributed.enumerateAttribute(key, in: range) { value, subRange, _ in
                     let active = (value as? Int ?? 0) != 0
                     attributed.removeAttribute(key, range: subRange)
                     attributed.addAttribute(key, value: active ? 0 : 1, range: subRange)
                 }
-            } else {
-                let active = (tv.typingAttributes[key] as? Int ?? 0) != 0
-                tv.typingAttributes[key] = active ? 0 : 1
             }
+        } else {
+            let active = (tv.typingAttributes[key] as? Int ?? 0) != 0
+            tv.typingAttributes[key] = active ? 0 : 1
+            notifyFormatChange()
         }
     }
 
-    // MARK: - Paragraph styles
+    // MARK: - Block styles (heading / list / quote / todo are mutually exclusive)
+
+    /// Block styles are mutually exclusive. Turning one on first cancels the
+    /// others on the paragraph: list/todo markers are removed, quote background
+    /// is cleared and font sizes are reset. Center alignment is only cancelled
+    /// when the new block style is list/quote/todo (heading may coexist with it).
+    private func normalizeBlockStyle(_ attributed: NSMutableAttributedString,
+                                     lineStart: Int,
+                                     cancelCenter: Bool) {
+        let loc = lineStart
+        if loc < attributed.length,
+           let payload = (attributed.attribute(.attachment, at: loc, effectiveRange: nil) as? PayloadAttachment)?.payload,
+           payload.kind == "bullet" || payload.kind == "todo" {
+            attributed.replaceCharacters(in: NSRange(location: loc, length: 1), with: "")
+        }
+        let para = paragraphRange(in: attributed, around: loc)
+        attributed.enumerateAttribute(.font, in: para) { value, r, _ in
+            guard let font = value as? UIFont else { return }
+            let traits = font.fontDescriptor.symbolicTraits
+            let weight: UIFont.Weight = traits.contains(.traitBold) ? .bold : .regular
+            var base = UIFont.systemFont(ofSize: 15, weight: weight)
+            if traits.contains(.traitItalic), let d = base.fontDescriptor.withSymbolicTraits(.traitItalic) {
+                base = UIFont(descriptor: Self.applyItalicSlant(d, trait: .traitItalic, adding: true), size: 15)
+            }
+            attributed.removeAttribute(.font, range: r)
+            attributed.addAttribute(.font, value: base, range: r)
+        }
+        attributed.enumerateAttribute(.backgroundColor, in: para) { value, r, _ in
+            attributed.removeAttribute(.backgroundColor, range: r)
+        }
+        attributed.enumerateAttribute(.paragraphStyle, in: para) { value, r, _ in
+            let style = ((value as? NSParagraphStyle) ?? NSParagraphStyle()).mutableCopy() as! NSMutableParagraphStyle
+            if cancelCenter {
+                style.alignment = .left
+            }
+            style.lineSpacing = 2
+            attributed.addAttribute(.paragraphStyle, value: style, range: r)
+        }
+    }
 
     func applyHeading(_ level: Int) {
         guard let tv = textView else { return }
         let size: CGFloat = level == 1 ? 22 : (level == 2 ? 18 : 15)
-        let paragraphRange = paragraphRange(around: tv.selectedRange)
-        apply { attributed in
-            attributed.enumerateAttribute(.font, in: paragraphRange) { value, range, _ in
-                guard let font = value as? UIFont else { return }
-                let weight: UIFont.Weight = font.fontDescriptor.symbolicTraits.contains(.traitBold) ? .bold : .regular
-                attributed.removeAttribute(.font, range: range)
-                attributed.addAttribute(.font, value: UIFont.systemFont(ofSize: size, weight: weight), range: range)
+        let range = tv.selectedRange
+
+        if range.length > 0 {
+            // A real selection: apply the heading to the selected runs and drop
+            // quote/list/todo styling from them (mutual exclusion). Center is
+            // preserved: heading and center may coexist.
+            apply { attributed in
+                if level > 0 {
+                    let para = paragraphRange(in: attributed, around: range.location)
+                    if para.length > 0,
+                       let payload = (attributed.attribute(.attachment, at: para.location, effectiveRange: nil) as? PayloadAttachment)?.payload,
+                       payload.kind == "bullet" || payload.kind == "todo" {
+                        attributed.replaceCharacters(in: NSRange(location: para.location, length: 1), with: "")
+                    }
+                    attributed.enumerateAttribute(.backgroundColor, in: range) { value, r, _ in
+                        if let bg = value as? UIColor, !bg.isEqual(UIColor.clear) {
+                            attributed.removeAttribute(.backgroundColor, range: r)
+                        }
+                    }
+                }
+                attributed.enumerateAttribute(.font, in: range) { value, subRange, _ in
+                    guard let font = value as? UIFont else { return }
+                    let traits = font.fontDescriptor.symbolicTraits
+                    let weight: UIFont.Weight = traits.contains(.traitBold) ? .bold : .regular
+                    var f = UIFont.systemFont(ofSize: size, weight: weight)
+                    if traits.contains(.traitItalic), let d = f.fontDescriptor.withSymbolicTraits(.traitItalic) {
+                        f = UIFont(descriptor: Self.applyItalicSlant(d, trait: .traitItalic, adding: true), size: size)
+                    }
+                    attributed.removeAttribute(.font, range: subRange)
+                    attributed.addAttribute(.font, value: f, range: subRange)
+                }
+                if level > 0 {
+                    attributed.enumerateAttribute(.paragraphStyle, in: range) { value, r, _ in
+                        let style = ((value as? NSParagraphStyle) ?? NSParagraphStyle()).mutableCopy() as! NSMutableParagraphStyle
+                        style.lineSpacing = 2
+                        attributed.addAttribute(.paragraphStyle, value: style, range: r)
+                    }
+                }
             }
+        } else {
+            // Empty caret: heading (like bold/strike/underline/italic) only
+            // affects content typed afterwards; other block styles on the line
+            // are cancelled first (mutual exclusion).
+            if level > 0 {
+                let start = paragraphRange(around: tv.selectedRange).location
+                apply { attributed in
+                    normalizeBlockStyle(attributed, lineStart: start, cancelCenter: false)
+                }
+            } else {
+                notifyFormatChange()
+            }
+            tv.typingAttributes[.font] = UIFont.systemFont(ofSize: size)
         }
-        tv.typingAttributes[.font] = UIFont.systemFont(ofSize: size)
     }
 
     func currentHeadingLevel() -> Int {
-        guard let tv = textView, tv.textStorage.length > 0 else { return 0 }
-        let range = paragraphRange(around: tv.selectedRange)
-        guard range.location < tv.textStorage.length else { return 0 }
-        let font = tv.textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont
-        let size = font?.pointSize ?? 15
-        if size >= 22 { return 1 }
-        if size >= 18 { return 2 }
+        guard let tv = textView else { return 0 }
+        // Empty caret: what gets typed next governs the toggle state (UIKit keeps
+        // typingAttributes in sync with the attributes at the insertion point).
+        if tv.selectedRange.length == 0 {
+            let size = (tv.typingAttributes[.font] as? UIFont)?.pointSize ?? 15
+            if size >= 22 { return 1 }
+            if size >= 18 { return 2 }
+            return 0
+        }
+        let location = min(tv.selectedRange.location, max(0, tv.textStorage.length - 1))
+        guard tv.textStorage.length > 0, location < tv.textStorage.length else { return 0 }
+        let f = tv.textStorage.attribute(.font, at: location, effectiveRange: nil) as? UIFont
+        let s = f?.pointSize ?? 15
+        if s >= 22 { return 1 }
+        if s >= 18 { return 2 }
         return 0
     }
 
     func toggleCenter() {
         guard let tv = textView else { return }
-        let range = paragraphRange(around: tv.selectedRange)
+        // Center cannot coexist with list/quote/todo; the toolbar disables the
+        // button while one of them is active, guard here too.
+        if isListActive() || isQuoteActive() || isTodoActive() { return }
+        let location = tv.selectedRange.location
         let center = isCenterActive()
-        apply { attributed in
-            attributed.enumerateAttribute(.paragraphStyle, in: range) { value, r, _ in
-                let style = ((value as? NSParagraphStyle) ?? NSParagraphStyle()).mutableCopy() as! NSMutableParagraphStyle
+
+        // On an empty line there is no typed text on THIS line to restyle; only
+        // affect subsequent typing. Otherwise paragraphRange would (via the old
+        // getParagraphStart) pull in the preceding line's range and reset it too.
+        if Self.paragraphIsEmpty(in: tv.textStorage, location: location) {
+            if let style = tv.typingAttributes[.paragraphStyle] as? NSMutableParagraphStyle {
                 style.alignment = center ? .left : .center
-                attributed.addAttribute(.paragraphStyle, value: style, range: r)
+            } else if let style = tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle {
+                let mutable = style.mutableCopy() as! NSMutableParagraphStyle
+                mutable.alignment = center ? .left : .center
+                tv.typingAttributes[.paragraphStyle] = mutable
+            } else {
+                let style = NSMutableParagraphStyle()
+                style.alignment = center ? .left : .center
+                tv.typingAttributes[.paragraphStyle] = style
+            }
+            notifyFormatChange()
+            return
+        }
+
+        apply { attributed in
+            let para = paragraphRange(in: attributed, around: location)
+            if para.length > 0 {
+                let existing = (attributed.attribute(.paragraphStyle, at: para.location, effectiveRange: nil) as? NSParagraphStyle) ?? NSParagraphStyle()
+                let style = existing.mutableCopy() as! NSMutableParagraphStyle
+                style.alignment = center ? .left : .center
+                attributed.addAttribute(.paragraphStyle, value: style, range: para)
             }
         }
-        let style = (tv.typingAttributes[.paragraphStyle] as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-        style.alignment = center ? .left : .center
-        tv.typingAttributes[.paragraphStyle] = style
+        if let style = tv.typingAttributes[.paragraphStyle] as? NSMutableParagraphStyle {
+            style.alignment = center ? .left : .center
+        } else if let style = tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle {
+            let mutable = style.mutableCopy() as! NSMutableParagraphStyle
+            mutable.alignment = center ? .left : .center
+            tv.typingAttributes[.paragraphStyle] = mutable
+        } else {
+            let style = NSMutableParagraphStyle()
+            style.alignment = center ? .left : .center
+            tv.typingAttributes[.paragraphStyle] = style
+        }
     }
 
     func isCenterActive() -> Bool {
-        guard let tv = textView, tv.textStorage.length > 0 else { return false }
+        guard let tv = textView, tv.textStorage.length > 0 else {
+            return (textView?.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.alignment == .center
+        }
+        let location = tv.selectedRange.location
+        // On an empty current line, report the *typing* state for this line, not
+        // the paragraphStyle that leaks from the preceding line's newline run.
+        if Self.paragraphIsEmpty(in: tv.textStorage, location: location) {
+            return (tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.alignment == .center
+        }
         let range = paragraphRange(around: tv.selectedRange)
         guard range.location < tv.textStorage.length else { return false }
-        let style = tv.textStorage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
-        return style?.alignment == .center
+        if let style = tv.textStorage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle,
+           style.alignment == .center {
+            return true
+        }
+        return false
+    }
+
+    /// Called before inserting a newline. While a paragraph is centered we do not
+    /// allow consecutive blank lines: pressing return on an empty, centered line
+    /// is ignored until the user actually types something on it.
+    func shouldBlockNewline(at location: Int) -> Bool {
+        guard let tv = textView else { return true }
+        guard Self.paragraphIsEmpty(in: tv.textStorage, location: location) else { return false }
+        return isCenterActive()
     }
 
     func toggleList() {
-        toggleMarkerMarker(kind: "bullet") { payload in
-            payload?.kind == "bullet"
-        }
+        toggleMarker(kind: "bullet")
     }
 
     func toggleTodo() {
-        toggleMarkerMarker(kind: "todo") { payload in
-            payload?.kind == "todo"
+        toggleMarker(kind: "todo")
+    }
+
+    private func toggleMarker(kind: String) {
+        guard let tv = textView else { return }
+        let location = tv.selectedRange.location
+        // Determine the current line start. For an empty line there is no typed
+        // text to scan, so we anchor on the caret; use it directly instead of
+        // relying on the (unreliable) tokenizer for a fresh empty paragraph.
+        let lineRange = paragraphRange(in: tv.textStorage, around: location)
+
+        let payload: AttachmentPayload? = lineRange.length > 0 && lineRange.location < tv.textStorage.length
+            ? (tv.textStorage.attribute(.attachment, at: lineRange.location, effectiveRange: nil) as? PayloadAttachment)?.payload
+            : nil
+        let isMarked = payload?.kind == kind
+
+        // Insertion target: at the start of the (possibly empty) current line.
+        let insertLocation = lineRange.location
+
+        apply { attributed in
+            if !isMarked {
+                // Turning on: cancel heading / quote / other marker / center first.
+                normalizeBlockStyle(attributed, lineStart: insertLocation, cancelCenter: true)
+            }
+            if isMarked {
+                // Only strip a marker we can actually confirm exists at the line start.
+                if insertLocation < attributed.length,
+                   let p = (attributed.attribute(.attachment, at: insertLocation, effectiveRange: nil) as? PayloadAttachment)?.payload,
+                   p.kind == kind {
+                    attributed.replaceCharacters(in: NSRange(location: insertLocation, length: 1), with: "")
+                }
+            } else {
+                let attachment = MarkerAttachment.attachment(kind: kind)
+                attributed.insert(NSAttributedString(attachment: attachment), at: insertLocation)
+            }
+        }
+
+        // Reset typing attributes to a plain block line.
+        tv.typingAttributes[.font] = UIFont.systemFont(ofSize: 15)
+        tv.typingAttributes[.backgroundColor] = UIColor.clear
+        if let style = tv.typingAttributes[.paragraphStyle] as? NSMutableParagraphStyle {
+            style.alignment = .left
+            style.lineSpacing = 2
+        } else if let style = tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle {
+            let mutable = style.mutableCopy() as! NSMutableParagraphStyle
+            mutable.alignment = .left
+            mutable.lineSpacing = 2
+            tv.typingAttributes[.paragraphStyle] = mutable
+        } else {
+            let style = NSMutableParagraphStyle()
+            style.alignment = .left
+            style.lineSpacing = 2
+            tv.typingAttributes[.paragraphStyle] = style
         }
     }
 
-    private func toggleMarkerMarker(kind: String, isMarked: (AttachmentPayload?) -> Bool) {
-        guard let tv = textView else { return }
-        let selected = tv.selectedRange
-        guard let startPos = tv.position(from: tv.beginningOfDocument, offset: selected.location),
-              let para = tv.tokenizer.rangeEnclosingPosition(startPos, with: .paragraph, inDirection: .storage(.backward)) else { return }
-        let lineRange = NSRange(location: tv.offset(from: tv.beginningOfDocument, to: para.start),
-                                length: tv.offset(from: para.start, to: para.end))
-        let payload: AttachmentPayload? = lineRange.location < tv.textStorage.length
-            ? (tv.textStorage.attribute(.attachment, at: lineRange.location, effectiveRange: nil) as? PayloadAttachment)?.payload
-            : nil
-        apply { attributed in
-            if isMarked(payload) {
-                attributed.replaceCharacters(in: NSRange(location: lineRange.location, length: 1), with: "")
-            } else {
-                let attachment = MarkerAttachment.attachment(kind: kind)
-                attributed.insert(NSAttributedString(attachment: attachment), at: lineRange.location)
-            }
-        }
+    func isListActive() -> Bool { currentMarkerKind() == "bullet" }
+
+    func isTodoActive() -> Bool { currentMarkerKind() == "todo" }
+
+    private func currentMarkerKind() -> String? {
+        guard let tv = textView, tv.textStorage.length > 0 else { return nil }
+        let range = paragraphRange(around: tv.selectedRange)
+        guard range.location < tv.textStorage.length else { return nil }
+        return (tv.textStorage.attribute(.attachment, at: range.location, effectiveRange: nil) as? PayloadAttachment)?.payload.kind
     }
 
     func toggleQuote() {
         guard let tv = textView else { return }
         let range = paragraphRange(around: tv.selectedRange)
         let isQuote = isQuoteActive()
-        let bg: UIColor = isQuote ? .clear : Theme.quoteBgUIColor()
-        let size: CGFloat = isQuote ? 15 : 13
+
         apply { attributed in
-            attributed.enumerateAttribute(.paragraphStyle, in: range) { value, r, _ in
+            let para = paragraphRange(in: attributed, around: range.location)
+            if !isQuote {
+                // Turning on: cancel heading / list / todo / center first.
+                normalizeBlockStyle(attributed, lineStart: para.location, cancelCenter: true)
+            }
+            let para2 = paragraphRange(in: attributed, around: para.location)
+            let bg: UIColor = isQuote ? .clear : Theme.quoteBgUIColor()
+            attributed.enumerateAttribute(.paragraphStyle, in: para2) { value, r, _ in
                 let style = ((value as? NSParagraphStyle) ?? NSParagraphStyle()).mutableCopy() as! NSMutableParagraphStyle
                 style.lineSpacing = isQuote ? 0 : 7
                 attributed.addAttribute(.paragraphStyle, value: style, range: r)
             }
-            attributed.enumerateAttribute(.font, in: range) { value, r, _ in
+            attributed.enumerateAttribute(.font, in: para2) { value, r, _ in
                 guard let font = value as? UIFont else { return }
-                let weight: UIFont.Weight = font.fontDescriptor.symbolicTraits.contains(.traitBold) ? .bold : .regular
+                let traits = font.fontDescriptor.symbolicTraits
+                let weight: UIFont.Weight = traits.contains(.traitBold) ? .bold : .regular
+                var f = UIFont.systemFont(ofSize: isQuote ? 15 : 13, weight: weight)
+                if traits.contains(.traitItalic), let d = f.fontDescriptor.withSymbolicTraits(.traitItalic) {
+                    f = UIFont(descriptor: Self.applyItalicSlant(d, trait: .traitItalic, adding: true), size: isQuote ? 15 : 13)
+                }
                 attributed.removeAttribute(.font, range: r)
-                attributed.addAttribute(.font, value: UIFont.systemFont(ofSize: size, weight: weight), range: r)
+                attributed.addAttribute(.font, value: f, range: r)
             }
-            attributed.addAttribute(.backgroundColor, value: bg, range: range)
+            attributed.addAttribute(.backgroundColor, value: bg, range: para2)
         }
-        tv.typingAttributes[.backgroundColor] = bg
-        tv.typingAttributes[.font] = UIFont.systemFont(ofSize: size)
+
+        if let style = tv.typingAttributes[.paragraphStyle] as? NSMutableParagraphStyle {
+            style.lineSpacing = isQuote ? 0 : 7
+            style.alignment = .left
+        } else if let style = tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle {
+            let mutable = style.mutableCopy() as! NSMutableParagraphStyle
+            mutable.lineSpacing = isQuote ? 0 : 7
+            mutable.alignment = .left
+            tv.typingAttributes[.paragraphStyle] = mutable
+        } else {
+            let style = NSMutableParagraphStyle()
+            style.lineSpacing = isQuote ? 0 : 7
+            style.alignment = .left
+            tv.typingAttributes[.paragraphStyle] = style
+        }
+        tv.typingAttributes[.backgroundColor] = isQuote ? UIColor.clear : Theme.quoteBgUIColor()
+        tv.typingAttributes[.font] = UIFont.systemFont(ofSize: isQuote ? 15 : 13)
     }
 
     func isQuoteActive() -> Bool {
-        guard let tv = textView, tv.textStorage.length > 0, tv.selectedRange.length == 0 else { return false }
+        guard let tv = textView, tv.textStorage.length > 0 else {
+            let bg = textView?.typingAttributes[.backgroundColor] as? UIColor
+            return bg != nil && !bg!.isEqual(UIColor.clear)
+        }
+        let location = tv.selectedRange.location
+        if Self.paragraphIsEmpty(in: tv.textStorage, location: location) {
+            let tbg = tv.typingAttributes[.backgroundColor] as? UIColor
+            return tbg != nil && !tbg!.isEqual(UIColor.clear)
+        }
         let range = paragraphRange(around: tv.selectedRange)
         guard range.location < tv.textStorage.length else { return false }
         let bg = tv.textStorage.attribute(.backgroundColor, at: range.location, effectiveRange: nil) as? UIColor
@@ -202,30 +448,77 @@ final class RichEditorController {
     }
 
     private func paragraphRange(around range: NSRange) -> NSRange {
-        guard let tv = textView, let text = tv.text else { return range }
-        let ns = text as NSString
-        let start = min(max(0, range.location), max(0, ns.length - 1))
-        var paraStart = start
-        var paraEnd = start
+        guard let tv = textView else { return range }
+        return paragraphRange(in: tv.textStorage, around: range.location)
+    }
+
+    /// Whether the paragraph containing (or immediately before) `location` holds
+    /// no visible text. Used to decide if a block/toggle applies to the *current*
+    /// empty line rather than to the preceding, already-typed line.
+    private static func paragraphIsEmpty(in storage: NSAttributedString, location: Int) -> Bool {
+        let ns = storage.string as NSString
+        guard ns.length > 0 else { return true }
+        let clamped = min(max(0, location), ns.length)
+        // Caret at the very end, right after a trailing newline → empty last line.
+        if clamped >= ns.length, ns.character(at: ns.length - 1) == 0x0A { return true }
+        let searchPos = min(clamped, ns.length - 1)
+        var paraStart = searchPos, paraEnd = searchPos, contentStart = 0
+        ns.getParagraphStart(&paraStart, end: &paraEnd, contentsEnd: &contentStart,
+                             for: NSRange(location: searchPos, length: 0))
+        return (contentStart - paraStart) == 0
+    }
+
+    private func paragraphRange(in storage: NSAttributedString, around location: Int) -> NSRange {
+        let ns = storage.string as NSString
+        guard ns.length > 0 else { return NSRange(location: 0, length: 0) }
+        let clamped = min(max(0, location), ns.length)
+        // Caret at the very end, right after a trailing newline → the current
+        // line is the empty trailing paragraph; return a zero-width range there
+        // so toggles do not pull in (and reset) the preceding line.
+        if clamped >= ns.length, ns.character(at: ns.length - 1) == 0x0A {
+            return NSRange(location: ns.length, length: 0)
+        }
+        let searchPos = min(clamped, ns.length - 1)
+        var paraStart = searchPos
+        var paraEnd = searchPos
         var contentStart = 0
         ns.getParagraphStart(&paraStart, end: &paraEnd, contentsEnd: &contentStart,
-                             for: NSRange(location: start, length: 0))
-        let end = min(ns.length, paraEnd + (paraEnd < ns.length && ns.character(at: paraEnd) == 0x0A ? 1 : 0))
+                             for: NSRange(location: searchPos, length: 0))
+        let contentLen = contentStart - paraStart
+        // Empty current line → zero-width range so we only affect subsequent
+        // typing, never the adjacent (previous or next) line's content.
+        if contentLen == 0 {
+            return NSRange(location: paraStart, length: 0)
+        }
+        // paraEnd already sits just past the paragraph's terminating newline
+        // (or at the end of text when there is none), so it is the correct
+        // exclusive end. In particular we must NOT add another index when a
+        // subsequent newline exists — that would bleed into an adjacent empty
+        // line's newline and restyle it.
+        let end = min(ns.length, paraEnd)
         return NSRange(location: paraStart, length: end - paraStart)
     }
 
     func activeStyles() -> (bold: Bool, italic: Bool, strike: Bool, underline: Bool) {
         guard let tv = textView else { return (false, false, false, false) }
-        let range = paragraphRange(around: tv.selectedRange)
-        let location = range.location
-        guard location < tv.textStorage.length else { return (false, false, false, false) }
-        let font = tv.textStorage.attribute(.font, at: location, effectiveRange: nil) as? UIFont
-        let strike = (tv.textStorage.attribute(.strikethroughStyle, at: location, effectiveRange: nil) as? Int ?? 0) != 0
-        let underline = (tv.textStorage.attribute(.underlineStyle, at: location, effectiveRange: nil) as? Int ?? 0) != 0
+        if tv.selectedRange.length > 0 {
+            let location = min(tv.selectedRange.location, max(0, tv.textStorage.length - 1))
+            guard tv.textStorage.length > 0, location < tv.textStorage.length else { return (false, false, false, false) }
+            let font = tv.textStorage.attribute(.font, at: location, effectiveRange: nil) as? UIFont
+            let strike = (tv.textStorage.attribute(.strikethroughStyle, at: location, effectiveRange: nil) as? Int ?? 0) != 0
+            let underline = (tv.textStorage.attribute(.underlineStyle, at: location, effectiveRange: nil) as? Int ?? 0) != 0
+            return (font?.fontDescriptor.symbolicTraits.contains(.traitBold) ?? false,
+                    font?.fontDescriptor.symbolicTraits.contains(.traitItalic) ?? false,
+                    strike,
+                    underline)
+        }
+        // Empty caret: report what the next typed characters will look like.
+        let typing = tv.typingAttributes
+        let font = typing[.font] as? UIFont
         return (font?.fontDescriptor.symbolicTraits.contains(.traitBold) ?? false,
                 font?.fontDescriptor.symbolicTraits.contains(.traitItalic) ?? false,
-                strike,
-                underline)
+                (typing[.strikethroughStyle] as? Int ?? 0) != 0,
+                (typing[.underlineStyle] as? Int ?? 0) != 0)
     }
 
     func insertImage(_ image: UIImage, src: String) {
@@ -242,7 +535,7 @@ final class RichEditorController {
         let insertRange = NSRange(location: tv.selectedRange.location, length: 0)
         tv.textStorage.insert(attributed, at: insertRange.location)
         tv.selectedRange = NSRange(location: insertRange.location + attributed.length, length: 0)
-        onFormatChange?()
+        notifyFormatChange()
     }
 
     func currentParts() -> [ContentPart] {
@@ -255,14 +548,14 @@ final class RichEditorController {
         tv.textStorage.setAttributedString(PartsCodec.attributedString(from: parts, imageMaxWidth: imageMaxWidth))
         tv.typingAttributes = baseTypingAttributes()
         tv.selectedRange = NSRange(location: 0, length: 0)
-        onFormatChange?()
+        notifyFormatChange()
     }
 
     func clear() {
         guard let tv = textView else { return }
         tv.textStorage.setAttributedString(NSAttributedString())
         tv.typingAttributes = baseTypingAttributes()
-        onFormatChange?()
+        notifyFormatChange()
     }
 
     func isEmpty() -> Bool {
@@ -276,7 +569,7 @@ final class RichEditorController {
         let attributed = NSMutableAttributedString(attributedString: text)
         block(attributed)
         text.replaceCharacters(in: NSRange(location: 0, length: text.length), with: attributed)
-        onFormatChange?()
+        notifyFormatChange()
     }
 }
 
