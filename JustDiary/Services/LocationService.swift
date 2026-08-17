@@ -2,9 +2,13 @@ import CoreLocation
 import Foundation
 import MapKit
 
+// Reuse a single CLLocationManager for reading authorization state instead of
+// allocating a throwaway instance on every access.
+private let statusManager = CLLocationManager()
+
 enum LocStatus {
     static func current() -> CLAuthorizationStatus {
-        CLLocationManager().authorizationStatus
+        statusManager.authorizationStatus
     }
 
     static var isAuthorized: Bool {
@@ -13,20 +17,14 @@ enum LocStatus {
     }
 
     static var isPrecise: Bool {
-        isAuthorized && (CLLocationManager().accuracyAuthorization == .fullAccuracy)
+        isAuthorized && (statusManager.accuracyAuthorization == .fullAccuracy)
     }
 }
 
-final class LocationService: NSObject {
+final class LocationService {
     static let shared = LocationService()
 
     private let manager = CLLocationManager()
-
-    private override init() {
-        super.init()
-        manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-    }
 
     func requestPermission() {
         manager.requestWhenInUseAuthorization()
@@ -72,10 +70,6 @@ final class LocationService: NSObject {
             return nil
         }
     }
-}
-
-extension LocationService: CLLocationManagerDelegate {
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {}
 }
 
 struct LocationSnapshot {

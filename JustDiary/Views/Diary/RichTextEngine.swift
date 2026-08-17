@@ -355,7 +355,7 @@ enum PartsCodec {
                 if let src = part.src {
                     let storedW = max(1, CGFloat(part.w ?? 300))
                     let storedH = max(1, CGFloat(part.h ?? 200))
-                    let fallbackW = max(60, UIScreen.main.bounds.width - 76)
+                    let fallbackW = max(60, Screen.width - 76)
                     let maxW = max(60, imageMaxWidth ?? fallbackW)
                     let w = min(storedW, maxW)
                     let h = storedH * w / storedW
