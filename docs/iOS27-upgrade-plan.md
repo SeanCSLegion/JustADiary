@@ -254,3 +254,34 @@ P1 目标版本/元数据  →  P2 构建设置+并发（可选）  →  P3 MapK
 5. **`TabRole.prominent`**：要不要让「日记」标签页在 Tab Bar 上做成视觉重点？（纯设计取向，你说不做我就不做）
 
 确认后我从 P1 开始。
+
+---
+
+# 实施结果（2026-09-15）
+
+## 已完成并验证
+
+| 阶段 | 结果 |
+|---|---|
+| P1 目标版本 | 部署目标 **27.0**；`LastUpgradeCheck`/`CreatedOnToolsVersion` → 2700/27.0 |
+| P2 构建设置 | 对齐 Xcode 27 模板（约 20 项 Clang/GCC 开关、`LOCALIZATION_PREFERS_STRING_CATALOGS`、`ENABLE_USER_SCRIPT_SANDBOXING`、资源符号生成） |
+| P2 并发 | `SWIFT_DEFAULT_ACTOR_ISOLATION=MainActor` + `SWIFT_APPROACHABLE_CONCURRENCY` + `MEMBER_IMPORT_VISIBILITY`；9 个文件补 `import os`、`SettingsView` 补 `import UniformTypeIdentifiers`；数据/服务层 25 处类型标注 `nonisolated` |
+| P3 MapKit | `@diagnose` 精准抑制 `placemark` 废弃告警；`MKReverseGeocodingRequest.preferredLocale` |
+| P4 iPad/Mac | `TARGETED_DEVICE_FAMILY = "1,2"`、方向键齐备；`Screen` 改为按 window scene 取尺寸。Xcode 已把 `My Mac (Designed for [iPad,iPhone])` 列为可用目标 |
+| P5 内容区去玻璃 | `diaryGlassCard` → `diaryCard`（系统分组背景 + 细描边 + 阴影）；编辑器面板、`GlassIconBadge`、`GlassCountBadge` 及 7 处内容胶囊去玻璃；删除已无用的 `GlassCapsule`。Liquid Glass 只保留在控件层 |
+| P5 `appAlert` | 从废弃的 `Alert` 迁移到 item 版 `alert` |
+| P6 足迹页 | 删除自绘地图引擎 + 全部 GeoJSON；新增 `FootprintDataService` / `FootprintViewModel` / `FootprintView`；类型改名 `MapPointRow`→`FootprintRow` 等 |
+| P7 验证 | Debug + Release **0 error / 0 source warning**；UI 测试 **6/6 通过**；iPhone 与 iPad 截图核对 |
+
+**包体积**：Release `.app` **11 MB → 7.8 MB（−29%）**；打包资源 **3.1 MB → 200 KB**；26 个地图 JSON 全部移除；Swift 行数 11213 → 10277。
+
+## 未完成 / 与方案的差异（需你决定）
+
+1. **日记页顶栏改为系统 `Toolbar`** —— 方案 §5.1 你已同意，但**我没有做**。原因：`DiaryPageView` 是 `fullScreenCover` 里的自绘玻璃顶栏（不是 `NavigationStack`），改用系统工具条必须先把它包进 `NavigationStack`，会引入导航栏背景与安全区变化，连带影响键盘避让；而编辑器目前只有"能打开"这一条 UI 测试覆盖，风险与收益不成比例。**建议单独立项并补测试后再做。**
+2. **`TabRole.prominent`** —— 我按你的确认试了，但**已回退**。实测效果不是"视觉重点"，而是把「日记」标签从 Tab Bar 里摘出来、变成右侧一个**没有文字标签**的独立圆形按钮（主标签还离开了首位）。这个 API 是给"特殊动作型"标签（如 iOS 26 的搜索标签）用的，不适合主内容标签。截图证据：设置页可见独立圆形「日记」按钮且无文字。**如果你想要的是让「搜索」标签用这个样式，告诉我，一行就能改。**
+3. **`GeometryProxy.concentricCornerRadii` / `textInputBorderShape` / `@ContentBuilder`** —— 未做。这三项属于锦上添花，收益低且会扩大改动面，故留作后续。
+
+## 另外发现的两件事
+
+- `generate_xcstrings.py` **已失效**：它依赖的 `Resources/{en,zh-Hans}.lproj/Localizable.strings` 不存在了，现在 `Localizable.xcstrings` 是唯一真源。（已在 README 标注）
+- 验证过程中 `iPhone 17` 模拟器设备从设备集里消失（同时 `iPhone 18 Pro` 被启动），最终验证改用 **iPhone 18 Pro** 完成。
