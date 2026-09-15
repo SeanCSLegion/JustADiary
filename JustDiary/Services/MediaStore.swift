@@ -44,7 +44,7 @@ extension ContentFlatten {
 
 // MARK: - Downsampled image store
 
-final class DiaryImageStore {
+nonisolated final class DiaryImageStore {
     static let shared = DiaryImageStore()
 
     private let cache = NSCache<NSString, UIImage>()

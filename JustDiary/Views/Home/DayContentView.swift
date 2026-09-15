@@ -99,6 +99,6 @@ struct DiaryBlockCard: View {
             })
         }
         .padding(12)
-        .diaryGlassCard(cornerRadius: 18)
+        .diaryCard(cornerRadius: 18)
     }
 }

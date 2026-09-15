@@ -1,6 +1,6 @@
 import Foundation
 
-enum FtsSegment {
+nonisolated enum FtsSegment {
     static func isCJK(_ ch: Character) -> Bool {
         guard let scalar = ch.unicodeScalars.first else { return false }
         return (0x4E00...0x9FFF).contains(scalar.value)

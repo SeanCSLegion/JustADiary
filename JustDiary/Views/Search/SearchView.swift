@@ -87,7 +87,7 @@ struct SearchView: View {
         .padding(.leading, 12)
         .padding(.trailing, 4)
         .frame(height: 44)
-        .diaryGlassCard(cornerRadius: 18)
+        .diaryCard(cornerRadius: 18)
     }
 
     private func filterCapsule(_ item: SearchFilterItem) -> some View {
@@ -116,7 +116,6 @@ struct SearchView: View {
             .padding(.vertical, 6)
             .background {
                 Capsule().fill(Theme.primaryContainer())
-                    .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
             }
             .contentShape(Capsule())
         }
@@ -182,7 +181,7 @@ struct SearchView: View {
             }
         }
         .padding(10)
-        .diaryGlassCard(cornerRadius: 22)
+        .diaryCard(cornerRadius: 22)
     }
 
     private func timeChip(_ label: String, kind: TimeRangeKind) -> some View {
@@ -299,7 +298,6 @@ struct SearchView: View {
                 .padding(.vertical, 4)
                 .background {
                     Capsule().fill(Theme.primaryContainer())
-                        .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
                 }
                 HighlightedText(snippet: item.snippet, summary: item.summary, keyword: vm.combinedKeyword)
                     .font(.system(size: 13))
@@ -315,7 +313,7 @@ struct SearchView: View {
                 .foregroundStyle(Theme.onSurfaceVariant())
         }
         .padding(14)
-        .diaryGlassCard(cornerRadius: 20)
+        .diaryCard(cornerRadius: 20)
     }
 
     // MARK: - Sheets
@@ -392,7 +390,7 @@ struct SearchView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 42)
-            .diaryGlassCard(cornerRadius: 18, interactive: true)
+            .diaryCard(cornerRadius: 18, interactive: true)
             Text(L10n.str("search_loc_sort_hint"))
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.onSurfaceVariant())

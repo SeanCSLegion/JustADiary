@@ -2,14 +2,14 @@ import SwiftUI
 
 enum AppTab: Hashable, CaseIterable {
     case home
-    case map
+    case footprint
     case search
     case settings
 
     var icon: String {
         switch self {
         case .home: return "house.fill"
-        case .map: return "map.fill"
+        case .footprint: return "figure.walk"
         case .search: return "magnifyingglass"
         case .settings: return "gearshape.fill"
         }
@@ -18,7 +18,7 @@ enum AppTab: Hashable, CaseIterable {
     var label: String {
         switch self {
         case .home: return L10n.str("index_title")
-        case .map: return L10n.str("map_title")
+        case .footprint: return L10n.str("footprint_title")
         case .search: return L10n.str("search_title")
         case .settings: return L10n.str("settings_title")
         }
@@ -48,12 +48,9 @@ struct RootView: View {
                 })
                 .diaryBackground()
             }
-            Tab(L10n.str("map_title"), systemImage: "map.fill", value: AppTab.map) {
-                MapView(openDiary: { dayKey in
-                    appState.editorDayKey = dayKey
-                    appState.presentEditor = true
-                })
-                .diaryBackground()
+            Tab(L10n.str("footprint_title"), systemImage: "figure.walk", value: AppTab.footprint) {
+                FootprintView()
+                    .diaryBackground()
             }
             Tab(L10n.str("search_title"), systemImage: "magnifyingglass", value: AppTab.search) {
                 SearchView(openDiary: { dayKey in
@@ -102,7 +99,7 @@ struct RootView: View {
                ProcessInfo.processInfo.arguments.count > tabIdx + 1 {
                 let tab = ProcessInfo.processInfo.arguments[tabIdx + 1]
                 switch tab {
-                case "map": appState.activeTab = .map
+                case "footprint", "map": appState.activeTab = .footprint
                 case "search": appState.activeTab = .search
                 case "settings": appState.activeTab = .settings
                 default: appState.activeTab = .home

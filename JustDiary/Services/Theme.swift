@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct Theme {
+nonisolated struct Theme {
     static let seed = Color(hex: 0x2563EB)
 
     static func primary() -> Color { seed }
@@ -44,7 +44,7 @@ struct Theme {
     static func quoteBgUIColor() -> UIColor { UIColor(named: "quoteBg") ?? .secondarySystemFill }
 }
 
-extension Color {
+nonisolated extension Color {
     init(hex: UInt32) {
         let r = Double((hex >> 16) & 0xFF) / 255.0
         let g = Double((hex >> 8) & 0xFF) / 255.0
@@ -58,7 +58,7 @@ extension Color {
     }
 }
 
-extension UIColor {
+nonisolated extension UIColor {
     convenience init(hex: UInt32) {
         let r = CGFloat((hex >> 16) & 0xFF) / 255.0
         let g = CGFloat((hex >> 8) & 0xFF) / 255.0

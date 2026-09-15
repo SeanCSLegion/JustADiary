@@ -1,6 +1,6 @@
 import Foundation
 
-struct AppSettings: Codable, Equatable {
+nonisolated struct AppSettings: Codable, Equatable {
     var dayStartHour: Int = 4
     var autoTime: Bool = true
     var autoLoc: Bool = true
@@ -26,7 +26,7 @@ struct AppSettings: Codable, Equatable {
     }
 }
 
-enum SettingsStore {
+nonisolated enum SettingsStore {
     static let suiteName = "group.com.cov.justdiary"
     static let defaults: UserDefaults = UserDefaults(suiteName: suiteName) ?? .standard
 
@@ -78,7 +78,7 @@ enum SettingsStore {
     }
 }
 
-final class LockedBox<Value> {
+nonisolated final class LockedBox<Value> {
     private let lock = NSLock()
     private var _value: Value
 

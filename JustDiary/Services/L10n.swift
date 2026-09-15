@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-enum AppLanguage {
+nonisolated enum AppLanguage {
     static var current: String {
         let mode = SettingsStore.load().appLanguage
         if mode == "zh" { return "zh-Hans" }
@@ -18,7 +18,7 @@ enum AppLanguage {
     }
 }
 
-enum L10n {
+nonisolated enum L10n {
     // NOTE: These must NOT be built on String(localized:locale:). On iOS that
     // initializer resolves strings against the app's *active* language (the
     // AppleLanguages preference) and ignores the passed locale, so the UI would

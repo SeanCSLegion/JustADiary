@@ -2,12 +2,12 @@ import Foundation
 import Compression
 
 
-struct ZipEntry {
+nonisolated struct ZipEntry {
     var path: String
     var data: Data
 }
 
-enum ZipArchive {
+nonisolated enum ZipArchive {
     static func create(entries: [ZipEntry]) throws -> Data {
         var central: [Data] = []
         var output = Data()
@@ -195,14 +195,14 @@ enum ZipArchive {
     }
 }
 
-enum ZipError: Error {
+nonisolated enum ZipError: Error {
     case invalid
     case unsupportedMethod
     case tooLarge
     case checksumMismatch
 }
 
-enum CRC32 {
+nonisolated enum CRC32 {
     private static let table: [UInt32] = {
         var t = [UInt32](repeating: 0, count: 256)
         for i in 0..<256 {
@@ -224,7 +224,7 @@ enum CRC32 {
     }
 }
 
-private extension Data {
+nonisolated private extension Data {
     mutating func appendUInt16(_ v: UInt16) {
         append(UInt8(v & 0xFF))
         append(UInt8((v >> 8) & 0xFF))

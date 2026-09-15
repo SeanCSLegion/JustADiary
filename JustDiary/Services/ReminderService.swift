@@ -1,5 +1,6 @@
 import Foundation
 import UserNotifications
+import os
 
 enum ReminderService {
     static func notificationEnabled() async -> Bool {

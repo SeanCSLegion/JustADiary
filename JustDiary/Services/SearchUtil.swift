@@ -1,6 +1,6 @@
 import Foundation
 
-enum SearchUtil {
+nonisolated enum SearchUtil {
     static func escapeLikeTerm(_ term: String) -> String {
         var out = ""
         for ch in term {

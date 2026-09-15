@@ -1,13 +1,14 @@
 import Foundation
 import CoreLocation
 import MapKit
+import os
 
-extension Notification.Name {
+nonisolated extension Notification.Name {
     static let diaryVersionChanged = Notification.Name("diaryVersionChanged")
     static let uiTickChanged = Notification.Name("uiTickChanged")
 }
 
-final class DiaryRepository {
+nonisolated final class DiaryRepository {
     static let shared = DiaryRepository()
     static let searchLimit = 200
     static let searchIndexVersion = 3
@@ -306,7 +307,7 @@ final class DiaryRepository {
         }
     }
 
-    func getAllMapPoints() async -> [MapPointRow] {
+    func allFootprintRows() async -> [FootprintRow] {
         await runOnQueue { [self] in
             guard let db else { return [] }
             return db.query("""
@@ -319,7 +320,7 @@ final class DiaryRepository {
             FROM edit_block b JOIN diary d ON d.id = b.diary_id
             ORDER BY b.start_time_utc ASC;
             """).map { row in
-                MapPointRow(id: (row["id"] as? Int64) ?? 0,
+                FootprintRow(id: (row["id"] as? Int64) ?? 0,
                             dayKey: (row["day_key"] as? String) ?? "",
                             startTimeUtc: (row["start_time_utc"] as? Int64) ?? 0,
                             latitude: (row["latitude"] as? Double) ?? 0,
@@ -1017,7 +1018,7 @@ enum ReverseGeocoder {
     }
 }
 
-extension Array {
+nonisolated extension Array {
     func chunked(by size: Int) -> [[Element]] {
         stride(from: 0, to: count, by: size).map {
             Array(self[$0..<Swift.min($0 + size, count)])

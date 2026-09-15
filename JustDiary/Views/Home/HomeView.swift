@@ -40,9 +40,7 @@ struct HomeView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .background {
-                        Capsule()
-                            .fill(Color(.secondarySystemGroupedBackground))
-                            .glassEffect(tintedGlass(nil, interactive: true), in: Capsule())
+                        Capsule().fill(Color(.secondarySystemGroupedBackground))
                     }
                     .shadow(color: Theme.shadowColor(), radius: 12, y: 4)
                     .padding(.bottom, 24)
@@ -92,9 +90,7 @@ struct HomeView: View {
                 .padding(.horizontal, 14)
                 .frame(height: 44)
                 .background {
-                    Capsule()
-                        .fill(Color(.secondarySystemGroupedBackground))
-                        .glassEffect(tintedGlass(nil, interactive: true), in: Capsule())
+                    Capsule().fill(Color(.secondarySystemGroupedBackground))
                 }
             }
             .buttonStyle(.plain)

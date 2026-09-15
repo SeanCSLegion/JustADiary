@@ -9,7 +9,7 @@ struct TextRun: Codable, Equatable {
     var size: Double?
 }
 
-struct ContentPart: Codable, Equatable {
+nonisolated struct ContentPart: Codable, Equatable {
     var type: String
     var text: String?
     var items: [String]?
@@ -62,7 +62,7 @@ enum ContentPartType {
     static let image = "img"
 }
 
-enum ContentFlatten {
+nonisolated enum ContentFlatten {
     static func flattenPart(_ part: ContentPart) -> String {
         if let runs = part.runs, !runs.isEmpty {
             return runs.map { $0.text }.joined()
@@ -95,7 +95,7 @@ enum ContentFlatten {
     }
 }
 
-enum ImagePathUtil {
+nonisolated enum ImagePathUtil {
     static func normalizeSrcKey(_ src: String) -> String {
         if src.hasPrefix("images/") {
             return src

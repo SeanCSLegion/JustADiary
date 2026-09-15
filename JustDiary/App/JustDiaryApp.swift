@@ -1,6 +1,7 @@
 import SwiftUI
+import os
 
-extension String {
+nonisolated extension String {
     func appendToFile2(_ path: String) throws {
         if let data = data(using: .utf8) {
             let fm = FileManager.default

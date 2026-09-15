@@ -1,7 +1,13 @@
 import Foundation
 import SQLite3
+import os
 
-final class SQLite {
+// `SQLITE_TRANSIENT` is imported as a global, and MainActor default isolation
+// treats imported globals as main-actor isolated. Keep an explicitly
+// nonisolated copy so the SQLite helpers stay usable off the main actor.
+private nonisolated let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+nonisolated final class SQLite {
     private var db: OpaquePointer?
 
     init(path: String) throws {
@@ -96,7 +102,7 @@ final class SQLite {
             let idx = Int32(i + 1)
             if let text = arg as? String {
                 _ = text.withCString { cstr in
-                    sqlite3_bind_text(s, idx, cstr, -1, SQLITE_TRANSIENT)
+                    sqlite3_bind_text(s, idx, cstr, -1, sqliteTransient)
                 }
             } else if let d = arg as? Double {
                 sqlite3_bind_double(s, idx, d)

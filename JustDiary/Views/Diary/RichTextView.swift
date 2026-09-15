@@ -234,7 +234,12 @@ struct FontToolbar: View {
         }
         .padding(.horizontal, 12)
         .background {
-            GlassCapsule(cornerRadius: 26, blur: 24)
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .stroke(Theme.outlineVariant().opacity(0.45), lineWidth: 0.5)
+                }
                 .shadow(color: Theme.shadowColor(), radius: 14, y: 4)
         }
         .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))

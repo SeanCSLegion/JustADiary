@@ -1,6 +1,7 @@
 import CoreLocation
 import Foundation
 import MapKit
+import os
 
 // Reuse a single CLLocationManager for reading authorization state instead of
 // allocating a throwaway instance on every access.
@@ -62,6 +63,9 @@ final class LocationService {
 
     func reverseGeocode(_ location: CLLocation) async -> CLPlacemark? {
         guard let request = MKReverseGeocodingRequest(location: location) else { return nil }
+        // Pin the geocoder to the in-app language so the produced address text
+        // does not silently follow the device locale.
+        request.preferredLocale = AppLanguage.locale
         do {
             let mapItems = try await request.mapItems
             return mapItems.first?.diaryPlacemark

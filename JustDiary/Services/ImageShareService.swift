@@ -1,12 +1,12 @@
 import UIKit
 
-struct ShareBlock {
+nonisolated struct ShareBlock {
     var time: Int64
     var loc: String
     var parts: [ContentPart]
 }
 
-enum ShareRenderer {
+nonisolated enum ShareRenderer {
     static let width = 720.0
     static let blockLeft = 108.0
     static let side = 48.0
@@ -16,7 +16,7 @@ enum ShareRenderer {
     static let footerH = 34.0
     static let contentWidth = width - blockLeft - side
 
-    struct Palette {
+    nonisolated struct Palette {
         var text: UIColor
         var sub: UIColor
         var faint: UIColor
@@ -435,7 +435,7 @@ enum ShareRenderer {
     }
 }
 
-extension ShareRenderer.Palette {
+nonisolated extension ShareRenderer.Palette {
     func surface2(_ palette: ShareRenderer.Palette) -> UIColor {
         palette.bgMid
     }
@@ -445,7 +445,7 @@ extension ShareRenderer.Palette {
     }
 }
 
-private extension Character {
+nonisolated private extension Character {
     var isCJK: Bool {
         guard let scalar = unicodeScalars.first else { return false }
         return (0x4E00...0x9FFF).contains(scalar.value) || (0x3400...0x4DBF).contains(scalar.value)

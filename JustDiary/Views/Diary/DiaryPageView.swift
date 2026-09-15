@@ -223,7 +223,6 @@ struct DiaryPageView: View {
                         .padding(.vertical, 3)
                         .background {
                             Capsule().fill(Theme.primary())
-                                .glassEffect(.regular.tint(Theme.primary()), in: Capsule())
                         }
                         .shadow(color: Theme.glowColor(), radius: 6, y: 1)
                 }
@@ -254,7 +253,7 @@ struct DiaryPageView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .diaryGlassCard(cornerRadius: 18)
+        .diaryCard(cornerRadius: 18)
         .padding(.bottom, 2)
     }
 
@@ -305,7 +304,7 @@ struct DiaryPageView: View {
             })
         }
         .padding(12)
-        .diaryGlassCard(cornerRadius: 18)
+        .diaryCard(cornerRadius: 18)
         .onLongPressGesture(minimumDuration: 0.4) {
             vm.enterSelect(block.id)
         }
@@ -338,7 +337,6 @@ struct DiaryPageView: View {
                     .padding(.vertical, 5)
                     .background {
                         Capsule().fill(Theme.primaryContainer())
-                            .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
                     }
                 if vm.settings.autoLoc, vm.editingIndex == nil || vm.canEditToday {
                     Button {
@@ -361,7 +359,6 @@ struct DiaryPageView: View {
                         .padding(.vertical, 5)
                         .background {
                             Capsule().fill(Theme.primaryContainer())
-                                .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
                         }
                     }
                     .buttonStyle(.plain)
@@ -385,6 +382,6 @@ struct DiaryPageView: View {
                 .frame(minHeight: 160)
         }
         .padding(10)
-        .diaryGlassCard(cornerRadius: 20, interactive: true)
+        .diaryCard(cornerRadius: 20, interactive: true)
     }
 }

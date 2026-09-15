@@ -130,7 +130,7 @@ final class LanguageThemeUITests: XCTestCase {
         XCTAssertTrue(enHeader.waitForExistence(timeout: 8),
                       "settings header should become 'Settings' without restart")
         XCTAssertTrue(app.buttons["Diary"].waitForExistence(timeout: 4), "home tab in English")
-        XCTAssertTrue(app.buttons["Map"].waitForExistence(timeout: 4), "map tab in English")
+        XCTAssertTrue(app.buttons["Footprint"].waitForExistence(timeout: 4), "footprint tab in English")
         XCTAssertTrue(app.buttons["Search"].waitForExistence(timeout: 4), "search tab in English")
         let enState = appState()
         XCTAssertTrue(enState.contains("L:en"),

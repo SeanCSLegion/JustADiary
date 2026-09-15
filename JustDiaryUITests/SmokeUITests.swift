@@ -1,7 +1,7 @@
 import XCTest
 
 final class SmokeUITests: XCTestCase {
-    func testMapAndEditorSmoke() throws {
+    func testFootprintAndEditorSmoke() throws {
         let app = XCUIApplication()
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
@@ -15,11 +15,11 @@ final class SmokeUITests: XCTestCase {
         back.tap()
         sleep(2)
 
-        let mapTab = app.buttons["地图"]
-        XCTAssertTrue(mapTab.waitForExistence(timeout: 5), "map tab")
-        mapTab.tap()
+        let footprintTab = app.buttons["足迹"]
+        XCTAssertTrue(footprintTab.waitForExistence(timeout: 5), "footprint tab")
+        footprintTab.tap()
         sleep(4)
         let stats = app.staticTexts["省市"]
-        XCTAssertTrue(stats.waitForExistence(timeout: 8), "map stats")
+        XCTAssertTrue(stats.waitForExistence(timeout: 8), "footprint stats")
     }
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 #if DEBUG
-final class MorphProgressLog {
+nonisolated final class MorphProgressLog {
     static let shared = MorphProgressLog()
 
     private let lock = NSLock()

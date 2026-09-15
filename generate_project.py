@@ -48,143 +48,151 @@ def pbx(build_settings, name, base):
             lines.append(f'\t\t\t\t{k} = {v};')
     return "\n".join(lines)
 
+# Settings shared by both project-level configurations. Mirrors the Xcode 27
+# "Base_ProjectSettings" template so the project builds with the same analyzer
+# and warning baseline as a freshly created Xcode 27 app.
+project_common_settings = {
+    "ALWAYS_SEARCH_USER_PATHS": "NO",
+    "ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS": "YES",
+    "CLANG_ANALYZER_NONNULL": "YES",
+    "CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION": "YES_AGGRESSIVE",
+    # Must stay quoted: '+' is not legal in an unquoted OpenStep plist string.
+    "CLANG_CXX_LANGUAGE_STANDARD": '"gnu++20"',
+    "CLANG_ENABLE_MODULES": "YES",
+    "CLANG_ENABLE_OBJC_ARC": "YES",
+    "CLANG_ENABLE_OBJC_WEAK": "YES",
+    "CLANG_WARN__DUPLICATE_METHOD_MATCH": "YES",
+    "CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING": "YES",
+    "CLANG_WARN_BOOL_CONVERSION": "YES",
+    "CLANG_WARN_COMMA": "YES",
+    "CLANG_WARN_CONSTANT_CONVERSION": "YES",
+    "CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS": "YES",
+    "CLANG_WARN_DIRECT_OBJC_ISA_USAGE": "YES_ERROR",
+    "CLANG_WARN_DOCUMENTATION_COMMENTS": "YES",
+    "CLANG_WARN_EMPTY_BODY": "YES",
+    "CLANG_WARN_ENUM_CONVERSION": "YES",
+    "CLANG_WARN_INFINITE_RECURSION": "YES",
+    "CLANG_WARN_INT_CONVERSION": "YES",
+    "CLANG_WARN_NON_LITERAL_NULL_CONVERSION": "YES",
+    "CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF": "YES",
+    "CLANG_WARN_OBJC_LITERAL_CONVERSION": "YES",
+    "CLANG_WARN_OBJC_ROOT_CLASS": "YES_ERROR",
+    "CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER": "YES",
+    "CLANG_WARN_RANGE_LOOP_ANALYSIS": "YES",
+    "CLANG_WARN_STRICT_PROTOTYPES": "YES",
+    "CLANG_WARN_SUSPICIOUS_MOVE": "YES",
+    "CLANG_WARN_UNGUARDED_AVAILABILITY": "YES_AGGRESSIVE",
+    "CLANG_WARN_UNREACHABLE_CODE": "YES",
+    "COPY_PHASE_STRIP": "NO",
+    "ENABLE_STRICT_OBJC_MSGSEND": "YES",
+    "ENABLE_USER_SCRIPT_SANDBOXING": "YES",
+    "GCC_C_LANGUAGE_STANDARD": "gnu17",
+    "GCC_NO_COMMON_BLOCKS": "YES",
+    "GCC_WARN_64_TO_32_BIT_CONVERSION": "YES",
+    "GCC_WARN_ABOUT_RETURN_TYPE": "YES_ERROR",
+    "GCC_WARN_UNDECLARED_SELECTOR": "YES",
+    "GCC_WARN_UNINITIALIZED_AUTOS": "YES_AGGRESSIVE",
+    "GCC_WARN_UNUSED_FUNCTION": "YES",
+    "GCC_WARN_UNUSED_VARIABLE": "YES",
+    # The project ships a String Catalog rather than .strings/.stringsdict.
+    "LOCALIZATION_PREFERS_STRING_CATALOGS": "YES",
+    "MTL_FAST_MATH": "YES",
+    "SDKROOT": "iphoneos",
+}
+
+# Swift 6.4 / Xcode 27 concurrency defaults used by new app targets. MainActor
+# default isolation makes every unannotated declaration main-actor isolated, so
+# the few genuinely-off-main routines must be marked `nonisolated` explicitly.
+swift_concurrency_settings = {
+    "SWIFT_APPROACHABLE_CONCURRENCY": "YES",
+    "SWIFT_DEFAULT_ACTOR_ISOLATION": "MainActor",
+    "SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY": "YES",
+}
+
 project_settings = {
     "Debug": {
-        "ALWAYS_SEARCH_USER_PATHS": "NO",
-        "CLANG_ANALYZER_NONNULL": "YES",
-        "CLANG_ENABLE_MODULES": "YES",
-        "CLANG_ENABLE_OBJC_ARC": "YES",
-        "CLANG_WARN_BOOL_CONVERSION": "YES",
-        "CLANG_WARN_CONSTANT_CONVERSION": "YES",
-        "CLANG_WARN_EMPTY_BODY": "YES",
-        "CLANG_WARN_ENUM_CONVERSION": "YES",
-        "CLANG_WARN_INFINITE_RECURSION": "YES",
-        "CLANG_WARN_INT_CONVERSION": "YES",
-        "CLANG_WARN_UNREACHABLE_CODE": "YES",
-        "COPY_PHASE_STRIP": "NO",
+        **project_common_settings,
         "DEBUG_INFORMATION_FORMAT": "dwarf",
-        "ENABLE_STRICT_OBJC_MSGSEND": "YES",
         "ENABLE_TESTABILITY": "YES",
-        "GCC_C_LANGUAGE_STANDARD": "gnu17",
         "GCC_DYNAMIC_NO_PIC": "NO",
-        "GCC_NO_COMMON_BLOCKS": "YES",
         "GCC_OPTIMIZATION_LEVEL": "0",
         "GCC_PREPROCESSOR_DEFINITIONS": ["DEBUG=1", "$(inherited)"],
-        "IPHONEOS_DEPLOYMENT_TARGET": "26.0",
+        "IPHONEOS_DEPLOYMENT_TARGET": "27.0",
         "MTL_ENABLE_DEBUG_INFO": "INCLUDE_SOURCE",
-        "MTL_FAST_MATH": "YES",
         "ONLY_ACTIVE_ARCH": "YES",
-        "SDKROOT": "iphoneos",
         "SWIFT_ACTIVE_COMPILATION_CONDITIONS": ["DEBUG", "$(inherited)"],
         "SWIFT_OPTIMIZATION_LEVEL": "-Onone",
     },
     "Release": {
-        "ALWAYS_SEARCH_USER_PATHS": "NO",
-        "CLANG_ANALYZER_NONNULL": "YES",
-        "CLANG_ENABLE_MODULES": "YES",
-        "CLANG_ENABLE_OBJC_ARC": "YES",
-        "CLANG_WARN_BOOL_CONVERSION": "YES",
-        "CLANG_WARN_CONSTANT_CONVERSION": "YES",
-        "CLANG_WARN_EMPTY_BODY": "YES",
-        "CLANG_WARN_ENUM_CONVERSION": "YES",
-        "CLANG_WARN_INFINITE_RECURSION": "YES",
-        "CLANG_WARN_INT_CONVERSION": "YES",
-        "CLANG_WARN_UNREACHABLE_CODE": "YES",
-        "COPY_PHASE_STRIP": "NO",
+        **project_common_settings,
         "DEBUG_INFORMATION_FORMAT": "dwarf-with-dsym",
         "ENABLE_NS_ASSERTIONS": "NO",
-        "ENABLE_STRICT_OBJC_MSGSEND": "YES",
-        "GCC_C_LANGUAGE_STANDARD": "gnu17",
-        "GCC_NO_COMMON_BLOCKS": "YES",
-        "IPHONEOS_DEPLOYMENT_TARGET": "26.0",
+        "IPHONEOS_DEPLOYMENT_TARGET": "27.0",
         "MTL_ENABLE_DEBUG_INFO": "NO",
-        "MTL_FAST_MATH": "YES",
-        "SDKROOT": "iphoneos",
         "SWIFT_COMPILATION_MODE": "wholemodule",
         "SWIFT_OPTIMIZATION_LEVEL": "-O",
         "VALIDATE_PRODUCT": "YES",
     },
 }
 
-app_settings = {
-    "Debug": {
-        "ASSETCATALOG_COMPILER_APPICON_NAME": '"JustDiary"',
-        "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
-        "CODE_SIGN_ENTITLEMENTS": "JustDiary/JustDiary.entitlements",
-        "CODE_SIGN_STYLE": "Automatic",
-        "CURRENT_PROJECT_VERSION": "1",
-        "ENABLE_PREVIEWS": "YES",
-        "GENERATE_INFOPLIST_FILE": "YES",
-        "INFOPLIST_FILE": "JustDiary/Info.plist",
-        "INFOPLIST_KEY_CFBundleDisplayName": "\"一页时光\"",
-        "INFOPLIST_KEY_LSApplicationCategoryType": "\"public.app-category.lifestyle\"",
-        "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
-        "INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents": "YES",
-        "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
-        "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/Frameworks"],
-        "MARKETING_VERSION": "1.0",
-        "PRODUCT_BUNDLE_IDENTIFIER": "com.cov.justdiary",
-        "PRODUCT_NAME": '"$(TARGET_NAME)"',
-        "SUPPORTED_PLATFORMS": "\"iphoneos iphonesimulator\"",
-        "SWIFT_EMIT_LOC_STRINGS": "YES",
-        "SWIFT_VERSION": "5.0",
-        "TARGETED_DEVICE_FAMILY": "1",
-    },
-    "Release": {
-        "ASSETCATALOG_COMPILER_APPICON_NAME": '"JustDiary"',
-        "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
-        "CODE_SIGN_ENTITLEMENTS": "JustDiary/JustDiary.entitlements",
-        "CODE_SIGN_STYLE": "Automatic",
-        "CURRENT_PROJECT_VERSION": "1",
-        "ENABLE_PREVIEWS": "YES",
-        "GENERATE_INFOPLIST_FILE": "YES",
-        "INFOPLIST_FILE": "JustDiary/Info.plist",
-        "INFOPLIST_KEY_CFBundleDisplayName": "\"一页时光\"",
-        "INFOPLIST_KEY_LSApplicationCategoryType": "\"public.app-category.lifestyle\"",
-        "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
-        "INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents": "YES",
-        "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
-        "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/Frameworks"],
-        "MARKETING_VERSION": "1.0",
-        "PRODUCT_BUNDLE_IDENTIFIER": "com.cov.justdiary",
-        "PRODUCT_NAME": '"$(TARGET_NAME)"',
-        "SUPPORTED_PLATFORMS": "\"iphoneos iphonesimulator\"",
-        "SWIFT_EMIT_LOC_STRINGS": "YES",
-        "SWIFT_VERSION": "5.0",
-        "TARGETED_DEVICE_FAMILY": "1",
-    },
+# iPhone + iPad. Device family 2 is what makes the app eligible to ship as a
+# "Designed for iPad" app that runs natively on Apple-silicon Macs.
+_device_family = '"1,2"'
+_oriented_phone = ('"UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft '
+                  'UIInterfaceOrientationLandscapeRight"')
+_oriented_pad = ('"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown '
+                'UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"')
+
+app_common_settings = {
+    "ASSETCATALOG_COMPILER_APPICON_NAME": '"JustDiary"',
+    "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
+    "CODE_SIGN_ENTITLEMENTS": "JustDiary/JustDiary.entitlements",
+    "CODE_SIGN_STYLE": "Automatic",
+    "CURRENT_PROJECT_VERSION": "1",
+    "ENABLE_PREVIEWS": "YES",
+    "GENERATE_INFOPLIST_FILE": "YES",
+    "INFOPLIST_FILE": "JustDiary/Info.plist",
+    "INFOPLIST_KEY_CFBundleDisplayName": "\"一页时光\"",
+    "INFOPLIST_KEY_LSApplicationCategoryType": "\"public.app-category.lifestyle\"",
+    # Xcode 27 migrated this out of Info.plist into a build setting. Without it,
+    # requesting location authorization terminates the app on a real device.
+    "INFOPLIST_KEY_NSLocationWhenInUseUsageDescription": "\"用于在写日记时自动记录所在位置\"",
+    "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
+    "INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents": "YES",
+    "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
+    "INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad": _oriented_pad,
+    "INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone": _oriented_phone,
+    "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/Frameworks"],
+    "MARKETING_VERSION": "1.0",
+    "PRODUCT_BUNDLE_IDENTIFIER": "com.cov.justdiary",
+    "PRODUCT_NAME": '"$(TARGET_NAME)"',
+    "SUPPORTED_PLATFORMS": "\"iphoneos iphonesimulator\"",
+    "SWIFT_EMIT_LOC_STRINGS": "YES",
+    "SWIFT_VERSION": "5.0",
+    "TARGETED_DEVICE_FAMILY": _device_family,
+    **swift_concurrency_settings,
 }
 
-uitest_settings = {
-    "Debug": {
-        "CODE_SIGN_STYLE": "Automatic",
-        "CURRENT_PROJECT_VERSION": "1",
-        "GENERATE_INFOPLIST_FILE": "YES",
-        "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks"],
-        "MARKETING_VERSION": "1.0",
-        "PRODUCT_BUNDLE_IDENTIFIER": "com.cov.justdiary.uitests",
-        "PRODUCT_NAME": '"$(TARGET_NAME)"',
-        "SUPPORTED_PLATFORMS": "\"iphoneos iphonesimulator\"",
-        "SWIFT_EMIT_LOC_STRINGS": "NO",
-        "SWIFT_VERSION": "5.0",
-        "TARGETED_DEVICE_FAMILY": "1",
-        "TEST_TARGET_NAME": "JustDiary",
-    },
-    "Release": {
-        "CODE_SIGN_STYLE": "Automatic",
-        "CURRENT_PROJECT_VERSION": "1",
-        "GENERATE_INFOPLIST_FILE": "YES",
-        "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks"],
-        "MARKETING_VERSION": "1.0",
-        "PRODUCT_BUNDLE_IDENTIFIER": "com.cov.justdiary.uitests",
-        "PRODUCT_NAME": '"$(TARGET_NAME)"',
-        "SUPPORTED_PLATFORMS": "\"iphoneos iphonesimulator\"",
-        "SWIFT_EMIT_LOC_STRINGS": "NO",
-        "SWIFT_VERSION": "5.0",
-        "TARGETED_DEVICE_FAMILY": "1",
-        "TEST_TARGET_NAME": "JustDiary",
-    },
+app_settings = {"Debug": app_common_settings, "Release": app_common_settings}
+
+uitest_common_settings = {
+    "CODE_SIGN_STYLE": "Automatic",
+    "CURRENT_PROJECT_VERSION": "1",
+    "GENERATE_INFOPLIST_FILE": "YES",
+    "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks"],
+    "MARKETING_VERSION": "1.0",
+    "PRODUCT_BUNDLE_IDENTIFIER": "com.cov.justdiary.uitests",
+    "PRODUCT_NAME": '"$(TARGET_NAME)"',
+    "SUPPORTED_PLATFORMS": "\"iphoneos iphonesimulator\"",
+    "SWIFT_EMIT_LOC_STRINGS": "NO",
+    "SWIFT_VERSION": "5.0",
+    "TARGETED_DEVICE_FAMILY": _device_family,
+    "TEST_TARGET_NAME": "JustDiary",
+    "SWIFT_APPROACHABLE_CONCURRENCY": "YES",
+    "SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY": "YES",
 }
+
+uitest_settings = {"Debug": uitest_common_settings, "Release": uitest_common_settings}
 
 def settings_block(cfg_id, name, settings):
     body = pbx(settings, name, "XCBuildConfiguration")
@@ -331,14 +339,14 @@ content = f"""// !$*UTF8*$!
 			isa = PBXProject;
 			attributes = {{
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2600;
-				LastUpgradeCheck = 2600;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {{
 					{APP_TARGET} = {{
-						CreatedOnToolsVersion = 26.0;
+						CreatedOnToolsVersion = 27.0;
 					}};
 					{UITEST_TARGET} = {{
-						CreatedOnToolsVersion = 26.0;
+						CreatedOnToolsVersion = 27.0;
 						TestTargetID = {APP_TARGET};
 					}};
 				}};

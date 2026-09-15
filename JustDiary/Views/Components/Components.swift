@@ -20,10 +20,19 @@ enum Screen {
         return DispatchQueue.main.sync { currentSize }
     }
 
+    /// Size of the scene the app is actually presenting in.
+    ///
+    /// This must not be a hard-coded device size: from iOS 27 the app is fully
+    /// resizable (iPad windowing, iPhone Mirroring, and "Designed for iPad" on
+    /// Mac), so a fixed fallback would silently lay out for the wrong size. The
+    /// key window's bounds track resizing; the scene's screen is the next best
+    /// source, and the final fallback only applies before any scene exists.
     private static var currentSize: CGSize {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }.first?.screen.bounds.size
-            ?? CGSize(width: 393, height: 852)
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        guard let scene else { return CGSize(width: 390, height: 844) }
+        if let window = scene.keyWindow { return window.bounds.size }
+        return scene.screen.bounds.size
     }
 
     static var height: CGFloat { size.height }
@@ -84,29 +93,26 @@ func tintedGlass(_ tint: Color?, interactive: Bool = false) -> Glass {
     return interactive ? g.interactive() : g
 }
 
-struct GlassCapsule: View {
-    var cornerRadius: CGFloat = 28
-    var blur: CGFloat = 26
-    var opacity: Double = 1
-    var tint: Color? = nil
-    var interactive = false
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(Color(.secondarySystemGroupedBackground))
-            .glassEffect(tintedGlass(tint, interactive: interactive),
-                         in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .opacity(opacity)
-    }
-}
-
 extension View {
-    func diaryGlassCard(tint: Color? = nil, cornerRadius: CGFloat = 20, interactive: Bool = false) -> some View {
+    /// Content-area card surface.
+    ///
+    /// WWDC26 session 8120 advises against Liquid Glass in the content area:
+    /// there is nothing behind it to refract, and a glass card reads as "a card
+    /// sitting on glass". Liquid Glass is reserved here for the control layer
+    /// that floats above content (chips, icon buttons, the search field, the
+    /// share/primary buttons). Content cards therefore use the system grouped
+    /// background with a hairline border and a soft shadow.
+    func diaryCard(cornerRadius: CGFloat = 20, interactive: Bool = false) -> some View {
         background {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Color(.secondarySystemGroupedBackground))
-                .glassEffect(tintedGlass(tint, interactive: interactive),
-                             in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(Theme.outlineVariant().opacity(0.45), lineWidth: 0.5)
+                }
+                .shadow(color: Theme.shadowColor().opacity(interactive ? 0.22 : 0.14),
+                        radius: interactive ? 12 : 8,
+                        y: interactive ? 4 : 2)
         }
     }
 }
@@ -360,10 +366,7 @@ struct GlassCountBadge: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background {
-            Capsule()
-                .fill(Theme.primaryContainer())
-                .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
-                .shadow(color: Theme.glowColor(), radius: 6, y: 2)
+            Capsule().fill(Theme.primaryContainer())
         }
     }
 }
@@ -446,19 +449,20 @@ struct AppAlertItem: Identifiable {
 }
 
 extension View {
+    /// Presents `AppAlertItem` through the current item-based `alert` API, which
+    /// renders buttons in the system order with the platform's Liquid Glass
+    /// presentation. The previous implementation routed through `Alert`, which
+    /// SwiftUI deprecated in iOS 15.
     func appAlert(item: Binding<AppAlertItem?>) -> some View {
-        alert(item: item) { item in
-            if let secondary = item.secondaryLabel {
-                return Alert(title: Text(item.title), message: Text(item.message),
-                             primaryButton: .default(Text(secondary)) {
-                    item.primaryAction?()
-                },
-                             secondaryButton: .cancel(Text(item.cancelLabel)))
+        alert(item.wrappedValue?.title ?? "", item: item) { current in
+            if let secondary = current.secondaryLabel {
+                Button(secondary) { current.primaryAction?() }
+                Button(current.cancelLabel, role: .cancel) {}
+            } else {
+                Button(current.cancelLabel) { current.primaryAction?() }
             }
-            return Alert(title: Text(item.title), message: Text(item.message),
-                         dismissButton: .default(Text(item.cancelLabel)) {
-                item.primaryAction?()
-            })
+        } message: { current in
+            Text(current.message)
         }
     }
 }
@@ -512,7 +516,7 @@ struct GlassSearchField<Content: View>: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 46)
-        .diaryGlassCard(cornerRadius: cornerRadius, interactive: true)
+        .diaryCard(cornerRadius: cornerRadius, interactive: true)
     }
 }
 
@@ -536,9 +540,7 @@ struct GlassIconBadge: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Theme.glassDim())
-                .glassEffect(tintedGlass(nil),
-                             in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .fill(Theme.primaryContainer())
                 .frame(width: size, height: size)
                 .overlay {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)

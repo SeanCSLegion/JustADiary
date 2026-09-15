@@ -1,6 +1,6 @@
 import Foundation
 
-enum DateUtil {
+nonisolated enum DateUtil {
     static let calendar: Calendar = {
         var cal = Calendar(identifier: .gregorian)
         cal.locale = Locale.current

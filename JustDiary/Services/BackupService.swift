@@ -1,7 +1,8 @@
 import Foundation
 import SQLite3
+import os
 
-struct BackupManifest: Codable {
+nonisolated struct BackupManifest: Codable {
     var formatVersion: Int
     var appVersion: String
     var exportedAt: Int64
@@ -13,7 +14,7 @@ struct BackupManifest: Codable {
     var settingsJson: String
 }
 
-struct BackupImageRef: Codable {
+nonisolated struct BackupImageRef: Codable {
     var src: String
     var file: String
 }
@@ -27,7 +28,7 @@ struct BackupStats {
     var settingsRestored: Bool
 }
 
-enum BackupService {
+nonisolated enum BackupService {
     static func exportBackup(includeSettings: Bool) async throws -> URL {
         try await Task.detached(priority: .userInitiated) {
             let repo = DiaryRepository.shared

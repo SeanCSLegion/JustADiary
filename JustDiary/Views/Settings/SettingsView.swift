@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @State private var vm = SettingsViewModel()
@@ -83,7 +84,7 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 32)
                     .padding(.vertical, 26)
-                    .diaryGlassCard(cornerRadius: 18)
+                    .diaryCard(cornerRadius: 18)
                 }
                 .transition(.opacity)
             }
@@ -103,7 +104,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             content()
         }
-        .diaryGlassCard(cornerRadius: 22)
+        .diaryCard(cornerRadius: 22)
     }
 
     private func sectionTitle(_ text: String) -> some View {

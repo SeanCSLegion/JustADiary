@@ -1,6 +1,6 @@
 import Foundation
 
-struct DiaryRecord {
+nonisolated struct DiaryRecord {
     var id: Int64
     var dayKey: String
     var summary: String
@@ -9,7 +9,7 @@ struct DiaryRecord {
     var updatedUtc: Int64
 }
 
-struct EditBlock {
+nonisolated struct EditBlock {
     var id: Int64
     var diaryId: Int64
     var startTimeUtc: Int64
@@ -29,7 +29,7 @@ struct EditBlock {
     var updatedUtc: Int64
 }
 
-struct LocRegion {
+nonisolated struct LocRegion {
     var country: String
     var countryCode: String
     var region1: String
@@ -38,19 +38,19 @@ struct LocRegion {
     var locQuality: String
 }
 
-struct LocFilter {
+nonisolated struct LocFilter {
     var country: String
     var region1: String
     var noLoc: Bool
 }
 
-struct LocOption: Hashable {
+nonisolated struct LocOption: Hashable {
     var country: String
     var region1: String
     var count: Int
 }
 
-struct MapPointRow {
+nonisolated struct FootprintRow {
     var id: Int64
     var dayKey: String
     var startTimeUtc: Int64
@@ -67,7 +67,7 @@ struct MapPointRow {
     var summary: String
 }
 
-struct SearchResultItem {
+nonisolated struct SearchResultItem {
     var id: Int64
     var dayKey: String
     var summary: String
@@ -75,13 +75,13 @@ struct SearchResultItem {
     var updatedUtc: Int64
 }
 
-struct SearchPageResult {
+nonisolated struct SearchPageResult {
     var items: [SearchResultItem]
     var hasMore: Bool
     var total: Int
 }
 
-enum LocPrecision {
+nonisolated enum LocPrecision {
     static let none = "none"
     static let province = "province"
     static let city = "city"
@@ -92,7 +92,7 @@ enum LocPrecision {
     static let all: [String] = [exact, street, district, city, province]
 }
 
-enum LocQuality {
+nonisolated enum LocQuality {
     static let none = "none"
     static let coarse = "coarse"
     static let precise = "precise"
