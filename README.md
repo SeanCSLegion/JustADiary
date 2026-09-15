@@ -14,6 +14,8 @@
 
 - 采用 iOS 26 引入、iOS 27 继续沿用的 **Liquid Glass** 设计语言，但**只在控件层使用**：`buttonStyle(.glass)` / `.glassProminent` 的按钮、芯片、搜索框与悬浮按钮
   - 按 WWDC26 session 8120 的建议，**内容区不使用 Liquid Glass**（下方没有可折射的内容，玻璃卡片会读作「浮在玻璃上的卡片」）。内容卡片统一走 `diaryCard(cornerRadius:)`：系统分组背景色 + 细描边 + 柔和阴影
+- 跟随系统显示设置：**动态字体**（`diaryFont(_:weight:)` 把显式字号按 `UIFontMetrics` 缩放，日历 Canvas 文字单独缩放）、
+  **减弱动态效果**（morph 退化为快速交叉淡入）、**增强对比度**（卡片描边加深）、浅色/深色
 - 本地化使用 **String Catalog**（`Localizable.xcstrings`），通过 `String(localized:locale:)` 支持应用内语言即时切换
 - 主题色板迁移至 **Asset Catalog** 动态色（明暗自动切换），品牌色/混合色仍由 `Theme` 计算
 - 自定义组件：`GlassChip`、`GlassActionChip`、`GlassCountBadge`、`PressableGlassIcon`、`diaryCard`（内容卡片修饰符）、`GlassEmptyState`、`AppAlertItem`
@@ -56,6 +58,19 @@ xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform
 xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -parallel-testing-enabled NO test
 ```
 
+## 开发辅助
+
+- `tools/seed_sample_diary.py`：向模拟器写入一套可复现的示例日记（跨 3 年、4 个国家、
+  5 类内容块），用于开发与截图验证：
+
+```bash
+python3 tools/seed_sample_diary.py "iPhone 18 Pro"
+```
+
+  脚本会同时按 App 的 `FtsSegment` 规则重建 FTS 索引，否则中文搜索查不到数据。
+- 动画调试：启动参数 `-slow-morph`（或环境变量 `SLOW_MORPH=1`）把 morph 放慢到 3 秒；
+  `-morph-log` 会把逐帧进度写进 `Documents/morph.log`。
+
 ## 资源再生成
 
 - `generate_colorsets.py`：生成主题动态色 Asset Catalog 色板
@@ -64,4 +79,5 @@ xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform
 ## 版本说明
 
 - iOS 27 / Xcode 27（Swift 6.4）适配方案见 `docs/iOS27-upgrade-plan.md`
+- 首页动画性能与系统显示设置适配见 `docs/animation-and-accessibility.md`
 - 升级调研（含 Apple 官方文档引用）见 `docs/research/`

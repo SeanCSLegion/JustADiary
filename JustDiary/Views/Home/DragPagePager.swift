@@ -15,8 +15,13 @@ struct DragPagePager<Key: Hashable, Page: View>: View {
         let idx = keys.firstIndex(of: current) ?? 0
         let prevKey = idx > 0 ? keys[idx - 1] : nil
         let nextKey = idx < keys.count - 1 ? keys[idx + 1] : nil
-        ZStack {
-            if let prevKey {
+        // A disabled pager cannot scroll, so its neighbouring pages only exist
+        // to be dragged into view. Building them costs a full page render each
+        // (three year pages = 36 month canvases), so skip them unless the
+        // current offset actually reveals them.
+        let showsNeighbours = !disabled || offset != 0
+        return ZStack {
+            if let prevKey, showsNeighbours {
                 page(prevKey)
                     .frame(width: axis == .horizontal ? pageSize : nil,
                            height: axis == .vertical ? pageSize : nil)
@@ -28,7 +33,7 @@ struct DragPagePager<Key: Hashable, Page: View>: View {
                        height: axis == .vertical ? pageSize : nil)
                 .offset(x: axis == .horizontal ? offset : 0,
                         y: axis == .vertical ? offset : 0)
-            if let nextKey {
+            if let nextKey, showsNeighbours {
                 page(nextKey)
                     .frame(width: axis == .horizontal ? pageSize : nil,
                            height: axis == .vertical ? pageSize : nil)

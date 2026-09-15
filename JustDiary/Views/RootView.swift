@@ -27,6 +27,7 @@ enum AppTab: Hashable, CaseIterable {
 
 struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var appState = AppState()
 
     private var activeTab: Binding<AppTab> {
@@ -67,6 +68,9 @@ struct RootView: View {
         .tabBarMinimizeBehavior(.onScrollDown)
         .tint(Theme.primary())
         .preferredColorScheme(AppConfigService.colorScheme)
+        // Publish the system text-size scale so the explicit design sizes can
+        // follow 设置 › 显示与亮度 › 文字大小.
+        .environment(\.diaryTypeScale, DynamicTypeScale.value(for: dynamicTypeSize))
         .environment(\.locale, AppLanguage.locale)
         // Rebuild the whole tree whenever the language or any settings-driven UI
         // tick changes. This guarantees all L10n strings, the color scheme and the
@@ -78,7 +82,7 @@ struct RootView: View {
             // the latest app state, independent of whether the tab tree rebuilt.
             if ProcessInfo.processInfo.arguments.contains("-ui-test-state") {
                 Text(appStateProbeText())
-                    .font(.system(size: 1))
+                    .diaryFont(1)
                     .frame(width: 1, height: 1)
                     .opacity(0.02)
                     .allowsHitTesting(false)

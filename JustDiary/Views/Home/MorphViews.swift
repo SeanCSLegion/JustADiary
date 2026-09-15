@@ -14,7 +14,14 @@ struct YearMonthMorphView: View, Animatable {
 
     var animatableData: Double {
         get { progress }
-        set { progress = newValue }
+        set {
+            progress = newValue
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-morph-log") {
+                MorphProgressLog.shared.append(newValue, tag: "ym")
+            }
+            #endif
+        }
     }
 
     var body: some View {
@@ -95,7 +102,7 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
             progress = newValue
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-morph-log") {
-                MorphProgressLog.shared.append(newValue)
+                MorphProgressLog.shared.append(newValue, tag: "mw")
             }
             #endif
         }

@@ -103,12 +103,29 @@ extension View {
     /// share/primary buttons). Content cards therefore use the system grouped
     /// background with a hairline border and a soft shadow.
     func diaryCard(cornerRadius: CGFloat = 20, interactive: Bool = false) -> some View {
-        background {
+        modifier(DiaryCard(cornerRadius: cornerRadius, interactive: interactive))
+    }
+}
+
+private struct DiaryCard: ViewModifier {
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var cornerRadius: CGFloat
+    var interactive: Bool
+
+    func body(content: Content) -> some View {
+        let increased = contrast == .increased
+        return content.background {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Color(.secondarySystemGroupedBackground))
                 .overlay {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Theme.outlineVariant().opacity(0.45), lineWidth: 0.5)
+                        .stroke(Theme.onSurface().opacity(increased ? 0.55 : 0.0), lineWidth: 1)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .stroke(Theme.outlineVariant().opacity(increased ? 0.9 : 0.45),
+                                        lineWidth: increased ? 1.5 : 0.5)
+                        }
                 }
                 .shadow(color: Theme.shadowColor().opacity(interactive ? 0.22 : 0.14),
                         radius: interactive ? 12 : 8,
@@ -131,7 +148,7 @@ struct PageHeader<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             Text(title)
-                .font(.system(size: 24, weight: .medium))
+                .diaryFont(24, weight: .medium)
                 .foregroundStyle(Theme.onSurface())
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -160,10 +177,10 @@ struct GlassPrimaryButton: View {
             HStack(spacing: 6) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(.system(size: compact ? 12 : 13, weight: .semibold))
+                        .diaryFont(compact ? 12 : 13, weight: .semibold)
                 }
                 Text(title)
-                    .font(.system(size: compact ? 13 : 14, weight: .medium))
+                    .diaryFont(compact ? 13 : 14, weight: .medium)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
@@ -203,10 +220,10 @@ struct GlassSecondaryButton: View {
             HStack(spacing: 6) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(.system(size: 13, weight: .semibold))
+                        .diaryFont(13, weight: .semibold)
                 }
                 Text(title)
-                    .font(.system(size: 14, weight: .medium))
+                    .diaryFont(14, weight: .medium)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
@@ -238,7 +255,7 @@ struct GlassIconButton: View {
             action()
         } label: {
             Image(systemName: systemName)
-                .font(.system(size: size > 36 ? 16 : 14, weight: .semibold))
+                .diaryFont(size > 36 ? 16 : 14, weight: .semibold)
                 .foregroundStyle(tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(Theme.onSurfaceVariant()))
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Circle())
@@ -262,7 +279,7 @@ struct PressableGlassIcon: View {
             action()
         } label: {
             Image(systemName: systemName)
-                .font(.system(size: 16, weight: .medium))
+                .diaryFont(16, weight: .medium)
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(active ? AnyShapeStyle(Theme.primary()) : AnyShapeStyle(Theme.onSurface()))
                 .frame(minWidth: 44, minHeight: 44)
@@ -285,7 +302,7 @@ struct GlassSheetHeader: View {
     var body: some View {
         HStack {
             Text(title)
-                .font(.system(size: 17, weight: .medium))
+                .diaryFont(17, weight: .medium)
                 .foregroundStyle(Theme.onSurface())
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -308,7 +325,7 @@ struct GlassChip: View {
             action()
         } label: {
             Text(label)
-                .font(.system(size: 13))
+                .diaryFont(13)
                 .foregroundStyle(active ? Theme.primary() : Theme.onSurface())
                 .lineLimit(1)
                 .minimumScaleFactor(0.9)
@@ -332,7 +349,7 @@ struct InfoCapsule: View {
             action?()
         } label: {
             Text(text)
-                .font(.system(size: 13, weight: .medium))
+                .diaryFont(13, weight: .medium)
                 .foregroundStyle(Theme.onSurface())
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -355,10 +372,10 @@ struct GlassCountBadge: View {
         HStack(spacing: 5) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.system(size: 10, weight: .semibold))
+                    .diaryFont(10, weight: .semibold)
             }
             Text(text)
-                .font(.system(size: 12, weight: .medium))
+                .diaryFont(12, weight: .medium)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
@@ -385,10 +402,10 @@ struct GlassActionChip: View {
             HStack(spacing: 4) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.system(size: 11, weight: .medium))
+                        .diaryFont(11, weight: .medium)
                 }
                 Text(label)
-                    .font(.system(size: 13))
+                    .diaryFont(13)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
@@ -414,10 +431,10 @@ struct GlassEmptyState: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: systemImage)
-                .font(.system(size: 26))
+                .diaryFont(26)
                 .foregroundStyle(Theme.onSurfaceVariant().opacity(0.5))
             Text(text)
-                .font(.system(size: 14))
+                .diaryFont(14)
                 .foregroundStyle(Theme.onSurfaceVariant())
             if let actionTitle, let action {
                 GlassPrimaryButton(title: actionTitle, compact: true, action: action)
@@ -494,10 +511,10 @@ struct GlassSearchField<Content: View>: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 15))
+                .diaryFont(15)
                 .foregroundStyle(Theme.onSurfaceVariant())
             TextField(placeholder, text: $text)
-                .font(.system(size: 15))
+                .diaryFont(15)
                 .tint(Theme.primary())
                 .applyFocus(focus)
                 .submitLabel(.search)
@@ -507,7 +524,7 @@ struct GlassSearchField<Content: View>: View {
                     text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15))
+                        .diaryFont(15)
                         .foregroundStyle(Theme.onSurfaceVariant())
                 }
                 .buttonStyle(.plain)
@@ -547,7 +564,7 @@ struct GlassIconBadge: View {
                         .stroke(Theme.glassBorder(), lineWidth: 1)
                 }
             Image(systemName: systemName)
-                .font(.system(size: 16))
+                .diaryFont(16)
                 .foregroundStyle(Theme.onSurface())
         }
     }
@@ -556,6 +573,7 @@ struct GlassIconBadge: View {
 // MARK: - Flow light overlay
 
 struct FlowLightOverlay: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var paused = false
 
     var body: some View {
@@ -563,7 +581,7 @@ struct FlowLightOverlay: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(Theme.flowMaskColor())
-                TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: paused)) { context in
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: paused || reduceMotion)) { context in
                     let t = context.date.timeIntervalSinceReferenceDate
                     let cycle = (t.truncatingRemainder(dividingBy: 4.0)) / 4.0
                     let pos = cycle * geo.size.width * 2

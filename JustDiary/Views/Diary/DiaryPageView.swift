@@ -213,11 +213,11 @@ struct DiaryPageView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(L10n.formatDayKey(vm.actualDayKey))
-                    .font(.system(size: 20, weight: .medium))
+                    .diaryFont(20, weight: .medium)
                     .foregroundStyle(Theme.onSurface())
                 if vm.canEditToday {
                     Text(L10n.str("index_card_today"))
-                        .font(.system(size: 10, weight: .medium))
+                        .diaryFont(10, weight: .medium)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
@@ -231,22 +231,22 @@ struct DiaryPageView: View {
                 if let first = vm.blocks.first {
                     HStack(spacing: 8) {
                         Text(L10n.timeOf(first.startTimeUtc))
-                            .font(.system(size: 13))
+                            .diaryFont(13)
                             .foregroundStyle(Theme.onSurfaceVariant())
                         Text(L10n.fmt("read_hero_segments", vm.blocks.count))
-                            .font(.system(size: 13))
+                            .diaryFont(13)
                             .foregroundStyle(Theme.onSurfaceVariant())
                     }
                     if !first.locText.isEmpty {
                         Label(first.locText, systemImage: "location.fill")
-                            .font(.system(size: 13))
+                            .diaryFont(13)
                             .foregroundStyle(Theme.onSurfaceVariant())
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }
                 } else {
                     Text(L10n.str("read_day_empty"))
-                        .font(.system(size: 13))
+                        .diaryFont(13)
                         .foregroundStyle(Theme.onSurfaceVariant())
                 }
             }
@@ -266,17 +266,17 @@ struct DiaryPageView: View {
             HStack(alignment: .top, spacing: 8) {
                 if vm.selectMode {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 16))
+                        .diaryFont(16)
                         .foregroundStyle(isSelected ? Theme.primary() : Theme.onSurfaceVariant())
                         .padding(.top, 1)
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(L10n.timeOf(block.startTimeUtc))
-                        .font(.system(size: 13, weight: .bold))
+                        .diaryFont(13, weight: .bold)
                         .foregroundStyle(Theme.primary())
                     if !block.locText.isEmpty {
                         Label(block.locText, systemImage: "location.fill")
-                            .font(.system(size: 12))
+                            .diaryFont(12)
                             .foregroundStyle(Theme.onSurfaceVariant())
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
@@ -331,7 +331,7 @@ struct DiaryPageView: View {
         VStack(alignment: .leading, spacing: 4) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(L10n.timeOf(vm.startUtc))
-                    .font(.system(size: 13, weight: .bold))
+                    .diaryFont(13, weight: .bold)
                     .foregroundStyle(Theme.primary())
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -349,9 +349,9 @@ struct DiaryPageView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "location.fill")
-                                .font(.system(size: 10))
+                                .diaryFont(10)
                             Text(vm.locationLabel)
-                                .font(.system(size: 12))
+                                .diaryFont(12)
                                 .lineLimit(1)
                         }
                         .foregroundStyle(Theme.primary())

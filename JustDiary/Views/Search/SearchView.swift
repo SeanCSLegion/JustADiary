@@ -106,10 +106,10 @@ struct SearchView: View {
         } label: {
             HStack(spacing: 4) {
                 Text(item.label)
-                    .font(.system(size: 12, weight: .medium))
+                    .diaryFont(12, weight: .medium)
                     .lineLimit(1)
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .diaryFont(9, weight: .semibold)
             }
             .foregroundStyle(Theme.primary())
             .padding(.horizontal, 10)
@@ -143,7 +143,7 @@ struct SearchView: View {
                     searchFocused = false
                 } label: {
                     Text(L10n.str("search_cancel"))
-                        .font(.system(size: 14, weight: .medium))
+                        .diaryFont(14, weight: .medium)
                         .foregroundStyle(Theme.primary())
                 }
                 .buttonStyle(.plain)
@@ -156,7 +156,7 @@ struct SearchView: View {
     private var filterPanel: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(L10n.str("search_filter_time"))
-                .font(.system(size: 11))
+                .diaryFont(11)
                 .foregroundStyle(Theme.onSurfaceVariant())
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -168,7 +168,7 @@ struct SearchView: View {
                 }
             }
             Text(L10n.str("search_filter_loc"))
-                .font(.system(size: 11))
+                .diaryFont(11)
                 .foregroundStyle(Theme.onSurfaceVariant())
                 .padding(.top, 4)
             ScrollView(.horizontal, showsIndicators: false) {
@@ -261,7 +261,7 @@ struct SearchView: View {
                     .controlSize(.large)
                     .tint(Theme.primary())
                 Text(vm.searching ? L10n.str("search_loading") : L10n.str("search_preparing"))
-                    .font(.system(size: 15, weight: .medium))
+                    .diaryFont(15, weight: .medium)
                     .foregroundStyle(Theme.onSurface())
             }
             .padding(.top, 60)
@@ -289,9 +289,9 @@ struct SearchView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Image(systemName: "calendar")
-                        .font(.system(size: 11))
+                        .diaryFont(11)
                     Text(L10n.formatDayKey(item.dayKey))
-                        .font(.system(size: 12, weight: .medium))
+                        .diaryFont(12, weight: .medium)
                 }
                 .foregroundStyle(Theme.primary())
                 .padding(.horizontal, 8)
@@ -300,16 +300,16 @@ struct SearchView: View {
                     Capsule().fill(Theme.primaryContainer())
                 }
                 HighlightedText(snippet: item.snippet, summary: item.summary, keyword: vm.combinedKeyword)
-                    .font(.system(size: 13))
+                    .diaryFont(13)
                     .foregroundStyle(Theme.onSurface())
                     .lineLimit(2)
             }
             Spacer()
             Text(L10n.timeOf(item.updatedUtc))
-                .font(.system(size: 11))
+                .diaryFont(11)
                 .foregroundStyle(Theme.onSurfaceVariant())
             Image(systemName: "chevron.right")
-                .font(.system(size: 12))
+                .diaryFont(12)
                 .foregroundStyle(Theme.onSurfaceVariant())
         }
         .padding(14)
@@ -330,7 +330,7 @@ struct SearchView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.str("search_time_start"))
-                    .font(.system(size: 12))
+                    .diaryFont(12)
                     .foregroundStyle(Theme.onSurfaceVariant())
                 DatePicker("", selection: Binding(
                     get: { vm.customFrom ?? DateUtil.monthFirst(Date()) },
@@ -341,7 +341,7 @@ struct SearchView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.str("search_time_end"))
-                    .font(.system(size: 12))
+                    .diaryFont(12)
                     .foregroundStyle(Theme.onSurfaceVariant())
                 DatePicker("", selection: Binding(
                     get: { vm.customTo ?? Date() },
@@ -377,10 +377,10 @@ struct SearchView: View {
             }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14))
+                    .diaryFont(14)
                     .foregroundStyle(Theme.onSurfaceVariant())
                 TextField(L10n.str("search_loc_search"), text: $vm.locSearch)
-                    .font(.system(size: 14))
+                    .diaryFont(14)
                     .tint(Theme.primary())
                     .focused($locSearchFocused)
                     .submitLabel(.search)
@@ -392,7 +392,7 @@ struct SearchView: View {
             .frame(height: 42)
             .diaryCard(cornerRadius: 18, interactive: true)
             Text(L10n.str("search_loc_sort_hint"))
-                .font(.system(size: 11))
+                .diaryFont(11)
                 .foregroundStyle(Theme.onSurfaceVariant())
                 .frame(maxWidth: .infinity, alignment: .leading)
             ScrollView(showsIndicators: false) {
@@ -407,7 +407,7 @@ struct SearchView: View {
                     }
                     if vm.filteredOptions.isEmpty && !vm.locLoading {
                         Text(L10n.str("search_loc_empty"))
-                            .font(.system(size: 13))
+                            .diaryFont(13)
                             .foregroundStyle(Theme.onSurfaceVariant())
                             .padding(.top, 40)
                     }
@@ -429,17 +429,17 @@ struct SearchView: View {
         } label: {
             HStack {
                 Text(label)
-                    .font(.system(size: 14))
+                    .diaryFont(14)
                     .foregroundStyle(active ? Theme.primary() : Theme.onSurface())
                 Spacer()
                 if let count {
                     Text("\(count)")
-                        .font(.system(size: 12))
+                        .diaryFont(12)
                         .foregroundStyle(Theme.onSurfaceVariant())
                 }
                 if active {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .semibold))
+                        .diaryFont(13, weight: .semibold)
                         .foregroundStyle(Theme.primary())
                 }
             }

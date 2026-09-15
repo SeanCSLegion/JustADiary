@@ -79,7 +79,7 @@ struct SettingsView: View {
                             .controlSize(.large)
                             .tint(Theme.primary())
                         Text(busyText)
-                            .font(.system(size: 13, weight: .medium))
+                            .diaryFont(13, weight: .medium)
                             .foregroundStyle(Theme.onSurface())
                     }
                     .padding(.horizontal, 32)
@@ -109,7 +109,7 @@ struct SettingsView: View {
 
     private func sectionTitle(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 12, weight: .medium))
+            .diaryFont(12, weight: .medium)
             .foregroundStyle(Theme.onSurfaceVariant())
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
@@ -126,21 +126,21 @@ struct SettingsView: View {
                 GlassIconBadge(systemName: icon)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 14))
+                        .diaryFont(14)
                         .foregroundStyle(Theme.onSurface())
                     if let sub {
                         Text(sub)
-                            .font(.system(size: 11))
+                            .diaryFont(11)
                             .foregroundStyle(Theme.onSurfaceVariant())
                             .lineLimit(2)
                     }
                 }
                 Spacer()
                 Text(value)
-                    .font(.system(size: 13))
+                    .diaryFont(13)
                     .foregroundStyle(Theme.onSurfaceVariant())
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 13))
+                    .diaryFont(13)
                     .foregroundStyle(Theme.onSurfaceVariant())
             }
             .padding(.horizontal, 12)
@@ -155,11 +155,11 @@ struct SettingsView: View {
             GlassIconBadge(systemName: icon)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 14))
+                    .diaryFont(14)
                     .foregroundStyle(Theme.onSurface())
                 if let sub {
                     Text(sub)
-                        .font(.system(size: 11))
+                        .diaryFont(11)
                         .foregroundStyle(Theme.onSurfaceVariant())
                         .lineLimit(2)
                 }
@@ -345,7 +345,7 @@ struct SettingsView: View {
                 .pickerStyle(.wheel)
                 .frame(width: 90)
                 Text(":")
-                    .font(.system(size: 20, weight: .medium))
+                    .diaryFont(20, weight: .medium)
                     .foregroundStyle(Theme.onSurface())
                 Picker("", selection: minute) {
                     ForEach(0..<60, id: \.self) { m in

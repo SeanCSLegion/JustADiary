@@ -12,7 +12,7 @@ struct WeekdayHeaderView: View {
             ForEach(0..<7, id: \.self) { i in
                 let isWeekend = weekStart == "sunday" ? (i == 0 || i == 6) : (i >= 5)
                 Text(names[i])
-                    .font(.system(size: size))
+                    .diaryFont(size)
                     .foregroundStyle(isWeekend ? Theme.onSurfaceVariant().opacity(0.6) : Theme.onSurfaceVariant())
                     .frame(width: cellW)
             }
@@ -27,6 +27,11 @@ enum DayDraw {
 
     private static let lock = NSLock()
     private static var textCache: [TextKey: GraphicsContext.ResolvedText] = [:]
+    /// High-water mark for the resolved-text cache. The animated font size mints
+    /// a key per half point, so a morph can legitimately add a few thousand
+    /// entries; the limit only exists to stop unbounded growth over a long
+    /// session.
+    private static let maxEntries = 24_000
 
     private struct TextKey: Hashable {
         var text: String
@@ -141,8 +146,18 @@ enum DayDraw {
             .font(.system(size: quantizedSize, weight: weight == 1 ? .semibold : .medium))
             .foregroundStyle(colorStyle))
         lock.lock()
-        if textCache.count > 4000 {
-            textCache.removeAll()
+        if textCache.count > Self.maxEntries {
+            // Evicting everything here was destroying ~4k entries in the middle
+            // of a morph: the animated font size mints a new key per half point,
+            // so the cache crossed the limit while the animation was running and
+            // every visible string then had to be re-resolved on the next frame,
+            // which showed up as a dropped frame.
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-morph-log") {
+                MorphProgressLog.shared.append("textcache-evict-\(textCache.count)")
+            }
+            #endif
+            textCache.removeAll(keepingCapacity: true)
         }
         textCache[key] = resolved
         lock.unlock()
@@ -152,6 +167,7 @@ enum DayDraw {
 
 struct MonthCanvas: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.diaryTypeScale) private var typeScale
 
     var weeks: [WeekDays]
     var anchorMonth: Date
@@ -162,8 +178,19 @@ struct MonthCanvas: View {
     var onTapDay: ((Date) -> Void)? = nil
     var onAdjacentDaySelected: ((Date) -> Void)? = nil
 
+    /// Canvas text cannot follow Dynamic Type automatically, so the design font
+    /// sizes are scaled here.
+    private var drawnMetrics: DayMetrics {
+        var m = metrics
+        let f = DynamicTypeScale.calendarFactor(for: typeScale)
+        m.dayFont *= f
+        m.lunarFont *= f
+        return m
+    }
+
     var body: some View {
-        Canvas { context, _ in
+        let metrics = drawnMetrics
+        return Canvas { context, _ in
             let todayKey = DateUtil.dayKeyOf(Date())
             let selectedKey = DateUtil.dayKeyOf(selectedDate)
             for (i, week) in weeks.enumerated() {
@@ -220,6 +247,7 @@ struct MonthCanvas: View {
 
 struct WeekRowCanvas: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.diaryTypeScale) private var typeScale
 
     var week: WeekDays
     var metrics: DayMetrics
@@ -231,8 +259,17 @@ struct WeekRowCanvas: View {
     var adjacentAlpha: Double = 1
     var onTapDay: ((Date) -> Void)? = nil
 
+    private var drawnMetrics: DayMetrics {
+        var m = metrics
+        let f = DynamicTypeScale.calendarFactor(for: typeScale)
+        m.dayFont *= f
+        m.lunarFont *= f
+        return m
+    }
+
     var body: some View {
-        Canvas { context, size in
+        let metrics = drawnMetrics
+        return Canvas { context, size in
             let todayKey = DateUtil.dayKeyOf(Date())
             let selectedKey = DateUtil.dayKeyOf(selectedDate)
             if showDivider, metrics.dividerAlpha > 0.01 {
@@ -262,7 +299,7 @@ struct MonthBigTitle: View {
 
     var body: some View {
         Text(L10n.monthFull(month))
-            .font(.system(size: 32, weight: .bold))
+            .diaryFont(32, weight: .bold)
             .foregroundStyle(Theme.onSurface())
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
@@ -279,7 +316,7 @@ struct MiniMonthLabel: View {
         let thisMonth = DateUtil.calendar.component(.month, from: Date())
         let isCurrent = year == thisYear && month == thisMonth
         Text(L10n.monthName(month))
-            .font(.system(size: 15, weight: isCurrent ? .bold : .semibold))
+            .diaryFont(15, weight: isCurrent ? .bold : .semibold)
             .foregroundStyle(isCurrent ? Theme.primary() : Theme.onSurface())
     }
 }
@@ -299,13 +336,13 @@ struct YearPageView: View {
             VStack(spacing: 0) {
                 HStack(alignment: .center, spacing: 8) {
                     Text(L10n.fmt("date_year", year))
-                        .font(.system(size: 32, weight: .bold))
+                        .diaryFont(32, weight: .bold)
                         .foregroundStyle(Theme.primary())
                     Spacer()
                     if AppLanguage.isZh {
                         let ref = DateUtil.calendar.date(from: DateComponents(year: year, month: 6, day: 1)) ?? Date()
                         Text(Lunar.yearZodiacLabel(ref))
-                            .font(.system(size: 12))
+                            .diaryFont(12)
                             .foregroundStyle(Theme.onSurfaceVariant().opacity(0.7))
                     }
                 }
@@ -367,5 +404,12 @@ struct YearPageView: View {
         }
         .frame(width: grid.width + CalendarLayout.miniPad * 2,
                height: grid.height + CalendarLayout.miniPad * 2 + CalendarLayout.miniTitleH)
+        // The mini months are only a tap gesture, so without this they are
+        // invisible to VoiceOver; exposing them also lets UI tests address a
+        // specific month deterministically instead of tapping coordinates.
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(L10n.monthFull(monthDate))
+        .accessibilityIdentifier("year.month.\(month)")
     }
 }

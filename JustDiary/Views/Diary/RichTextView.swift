@@ -158,7 +158,7 @@ struct FontToolbar: View {
             onTap?()
         } label: {
             Image(systemName: systemName)
-                .font(.system(size: 15, weight: .medium))
+                .diaryFont(15, weight: .medium)
                 .foregroundStyle(active ? .white : Theme.onSurface())
                 .frame(minWidth: 34, minHeight: 40)
                 .contentShape(Capsule())

@@ -7,6 +7,8 @@ struct HomeView: View {
         self.openEditor = openEditor
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @State private var vm = HomeViewModel()
     @State private var mode: CalendarMode = .month
     @State private var zoom: Double = 0
@@ -35,7 +37,7 @@ struct HomeView: View {
         .overlay(alignment: .bottom) {
             if showFutureToast {
                 Text(L10n.str("index_future_toast"))
-                    .font(.system(size: 13))
+                    .diaryFont(13)
                     .foregroundStyle(Theme.onSurface())
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -79,9 +81,9 @@ struct HomeView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
+                        .diaryFont(16, weight: .semibold)
                     Text(titleText)
-                        .font(.system(size: 18, weight: .medium))
+                        .diaryFont(18, weight: .medium)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                         .contentTransition(.opacity)
@@ -94,6 +96,7 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("home.header.back")
             .opacity(mode == .year ? 0 : 1)
             .allowsHitTesting(mode != .year)
             .animation(.diaryStandard, value: mode)
@@ -116,6 +119,25 @@ struct HomeView: View {
 
     private var morphing: Bool { ymMorph != nil || mwMorphMonth != nil }
 
+    /// With 减弱动态效果 enabled the calendar still switches, but the geometry
+    /// travels only briefly instead of sweeping across the screen.
+    private var zoomAnimation: Animation {
+        reduceMotion ? CalendarLayout.reducedMorphAnimation : CalendarLayout.morphAnimation
+    }
+
+    private var slideAnimation: Animation {
+        reduceMotion ? CalendarLayout.reducedMorphAnimation : CalendarLayout.morphSlideAnimation
+    }
+
+    /// DEBUG-only marker for the `-morph-log` frame-timing harness.
+    private func morphLog(_ marker: String) {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-morph-log") {
+            MorphProgressLog.shared.append(marker)
+        }
+        #endif
+    }
+
     private func openMonthFromYear(_ month: Int) {
         guard ymMorph == nil else { return }
         Haptics.tap()
@@ -132,9 +154,11 @@ struct HomeView: View {
             mode = .month
             zoom = 1
         }
-        withAnimation(CalendarLayout.morphAnimation) {
+        morphLog("ym-open-start")
+        withAnimation(zoomAnimation) {
             zoom = 0
         } completion: {
+            morphLog("ym-open-end")
             ymMorph = nil
         }
     }
@@ -150,14 +174,11 @@ struct HomeView: View {
             mode = .week
             expand = 0
         }
-        withAnimation(CalendarLayout.morphSlideAnimation) {
+        morphLog("mw-open-start")
+        withAnimation(slideAnimation) {
             expand = 1
         } completion: {
-            #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-morph-log") {
-                MorphProgressLog.shared.append("completion-open")
-            }
-            #endif
+            morphLog("mw-open-end")
             mwMorphMonth = nil
         }
         Task { await vm.reloadDayBlocks() }
@@ -175,14 +196,11 @@ struct HomeView: View {
                 mode = .month
                 expand = 1
             }
-            withAnimation(CalendarLayout.morphSlideAnimation) {
+            morphLog("mw-back-start")
+            withAnimation(slideAnimation) {
                 expand = 0
             } completion: {
-                #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("-morph-log") {
-                    MorphProgressLog.shared.append("completion-back")
-                }
-                #endif
+                morphLog("mw-back-end")
                 mwMorphMonth = nil
             }
         case .month:
@@ -194,9 +212,11 @@ struct HomeView: View {
                 mode = .year
                 zoom = 0
             }
-            withAnimation(CalendarLayout.morphAnimation) {
+            morphLog("ym-back-start")
+            withAnimation(zoomAnimation) {
                 zoom = 1
             } completion: {
+                morphLog("ym-back-end")
                 ymMorph = nil
             }
         case .year:
@@ -255,16 +275,24 @@ struct HomeView: View {
     private func calendarArea(size: CGSize) -> some View {
         let w = size.width
         let h = max(320, size.height - 64)
+        // While a morph runs, all three base layers sit at opacity 0 — but an
+        // opacity-0 view is still built and still re-evaluated on every
+        // animation frame. Each layer wraps a DragPagePager that eagerly builds
+        // three pages, so the hidden year layer alone costs 3 x 12 = 36 month
+        // canvases per frame. Skip them entirely while morphing; the morph view
+        // is the only thing that needs to be on screen.
         return ZStack(alignment: .top) {
-            yearLayer(w: w, h: h)
-                .opacity(mode == .year && ymMorph == nil ? 1 : 0)
-                .allowsHitTesting(mode == .year && ymMorph == nil)
-            monthLayer(w: w, h: h)
-                .opacity(mode == .month && !morphing ? 1 : 0)
-                .allowsHitTesting(mode == .month && !morphing)
-            weekLayer(w: w, h: h)
-                .opacity(mode == .week && mwMorphMonth == nil ? 1 : 0)
-                .allowsHitTesting(mode == .week && mwMorphMonth == nil)
+            if !morphing {
+                yearLayer(w: w, h: h)
+                    .opacity(mode == .year ? 1 : 0)
+                    .allowsHitTesting(mode == .year)
+                monthLayer(w: w, h: h)
+                    .opacity(mode == .month ? 1 : 0)
+                    .allowsHitTesting(mode == .month)
+                weekLayer(w: w, h: h)
+                    .opacity(mode == .week ? 1 : 0)
+                    .allowsHitTesting(mode == .week)
+            }
             if let m = ymMorph {
                 YearMonthMorphView(progress: zoom,
                                    year: m.year,
@@ -378,14 +406,14 @@ struct HomeView: View {
             Divider()
             HStack(spacing: 12) {
                 Text(L10n.weekHeaderTitle(selectedDate))
-                    .font(.system(size: 15, weight: .semibold))
+                    .diaryFont(15, weight: .semibold)
                     .foregroundStyle(Theme.onSurface())
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Spacer()
                 if showsLunar {
                     Text(Lunar.fullLabel(selectedDate))
-                        .font(.system(size: 12))
+                        .diaryFont(12)
                         .foregroundStyle(Theme.onSurfaceVariant().opacity(0.8))
                         .lineLimit(1)
                 }

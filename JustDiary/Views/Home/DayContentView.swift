@@ -47,10 +47,10 @@ struct DayContentView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: isFuture ? "moon.stars" : "square.and.pencil")
-                .font(.system(size: 26))
+                .diaryFont(26)
                 .foregroundStyle(Theme.onSurfaceVariant().opacity(0.5))
             Text(isFuture ? L10n.str("index_future_empty") : L10n.str("index_day_empty"))
-                .font(.system(size: 14))
+                .diaryFont(14)
                 .foregroundStyle(Theme.onSurfaceVariant())
             if !isFuture, dayKey == DateUtil.dayKeyOf(Date()) {
                 GlassPrimaryButton(title: L10n.str("index_write")) {
@@ -82,7 +82,7 @@ struct DiaryBlockCard: View {
                             .multilineTextAlignment(.leading)
                     }
                 }
-                .font(.system(size: 12))
+                .diaryFont(12)
                 .foregroundStyle(Theme.onSurfaceVariant())
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())

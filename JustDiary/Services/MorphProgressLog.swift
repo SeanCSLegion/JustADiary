@@ -9,8 +9,8 @@ nonisolated final class MorphProgressLog {
     private let start = ProcessInfo.processInfo.systemUptime
     private var flushCounter = 0
 
-    func append(_ progress: Double) {
-        append(String(format: "%.5f", progress))
+    func append(_ progress: Double, tag: String = "") {
+        append("\(tag) \(String(format: "%.5f", progress))")
     }
 
     func append(_ value: String) {

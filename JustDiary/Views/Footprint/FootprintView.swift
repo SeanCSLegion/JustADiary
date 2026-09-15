@@ -9,7 +9,7 @@ struct FootprintView: View {
         VStack(spacing: 0) {
             PageHeader(title: L10n.str("footprint_title")) {
                 Text(L10n.fmt("footprint_summary", vm.locatedCount, vm.unlocated))
-                    .font(.system(size: 14))
+                    .diaryFont(14)
                     .foregroundStyle(Theme.onSurfaceVariant())
                     .lineLimit(1)
             }
@@ -82,10 +82,10 @@ struct FootprintView: View {
     private func statCell(_ label: String, _ value: String) -> some View {
         VStack(spacing: 3) {
             Text(value)
-                .font(.system(size: 18, weight: .semibold))
+                .diaryFont(18, weight: .semibold)
                 .foregroundStyle(Theme.onSurface())
             Text(label)
-                .font(.system(size: 11))
+                .diaryFont(11)
                 .foregroundStyle(Theme.onSurfaceVariant())
         }
         .frame(maxWidth: .infinity)
@@ -96,7 +96,7 @@ struct FootprintView: View {
     private var trendCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(L10n.str("footprint_trend_title"))
-                .font(.system(size: 13, weight: .medium))
+                .diaryFont(13, weight: .medium)
                 .foregroundStyle(Theme.onSurfaceVariant())
 
             Chart(vm.yearly) { stat in
@@ -126,7 +126,7 @@ struct FootprintView: View {
     private var listCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(L10n.str("footprint_list_title"))
-                .font(.system(size: 13, weight: .medium))
+                .diaryFont(13, weight: .medium)
                 .foregroundStyle(Theme.onSurfaceVariant())
                 .padding(.bottom, 8)
 
@@ -156,7 +156,7 @@ struct FootprintView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.str("search_time_start"))
-                    .font(.system(size: 12))
+                    .diaryFont(12)
                     .foregroundStyle(Theme.onSurfaceVariant())
                 DatePicker("", selection: Binding(
                     get: { vm.customFrom ?? DateUtil.monthFirst(Date()) },
@@ -167,7 +167,7 @@ struct FootprintView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.str("search_time_end"))
-                    .font(.system(size: 12))
+                    .diaryFont(12)
                     .foregroundStyle(Theme.onSurfaceVariant())
                 DatePicker("", selection: Binding(
                     get: { vm.customTo ?? Date() },
@@ -241,21 +241,21 @@ private struct FootprintNodeRow: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: iconName)
-                        .font(.system(size: 12, weight: .medium))
+                        .diaryFont(12, weight: .medium)
                         .foregroundStyle(node.isLeaf ? Theme.onSurfaceVariant() : Theme.primary())
                         .frame(width: 16)
                     Text(node.name)
-                        .font(.system(size: 14))
+                        .diaryFont(14)
                         .foregroundStyle(Theme.onSurface())
                         .lineLimit(1)
                     Spacer(minLength: 8)
                     Text("\(node.count)")
-                        .font(.system(size: 12, weight: .medium))
+                        .diaryFont(12, weight: .medium)
                         .foregroundStyle(Theme.onSurfaceVariant())
                         .monospacedDigit()
                     if !node.isLeaf {
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
+                            .diaryFont(10, weight: .semibold)
                             .foregroundStyle(Theme.onSurfaceVariant())
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     }

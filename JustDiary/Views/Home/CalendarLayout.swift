@@ -57,7 +57,14 @@ enum CalendarLayout {
         #endif
         return 0.6
     }()
-    static var morphAnimation: Animation { .easeInOut(duration: morphDuration) }
+    // 年↔月缩放切换。此前用 easeInOut：它从零速度起步，前 1/4 时间只走完约
+    // 13% 进度，所以「开头一段几乎不动」，观感上就比月↔周切换慢半拍。
+    // 现在与月↔周共用同一条起步带速度、尾部减速的曲线，两者节奏一致。
+    static var morphAnimation: Animation { morphSlideAnimation }
+
+    /// Used when 设置 › 辅助功能 › 减弱动态效果 is on: the same state change, but
+    /// the travel is collapsed into a quick cross-fade rather than a sweep.
+    static var reducedMorphAnimation: Animation { .linear(duration: 0.18) }
 
     // 月↔周滑动切换：无回弹的速度连续曲线——起步带速度、减速集中在尾部、
     // 精确停在终点（无弹簧过冲/回弹），日期行与内容区共用同一曲线
