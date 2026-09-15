@@ -11,13 +11,22 @@ final class PlaceholderTextView: UITextView {
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
         placeholderLabel.textColor = Theme.onSurfaceVariantUIColor()
-        placeholderLabel.font = UIFont.systemFont(ofSize: 15)
         placeholderLabel.numberOfLines = 0
         addSubview(placeholderLabel)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Placeholder text is drawn by a plain `UILabel`, so it has to be scaled by
+    /// hand — otherwise the hint stays at the design size while the text the
+    /// user types next to it grows.
+    func applyTypeSize(_ typeSize: DynamicTypeSize) {
+        let font = UIFont.diary(EditorDesignSize.body, typeSize: typeSize)
+        self.font = font
+        placeholderLabel.font = font
+        setNeedsLayout()
     }
 
     override var intrinsicContentSize: CGSize {
@@ -29,10 +38,13 @@ final class PlaceholderTextView: UITextView {
     override func layoutSubviews() {
         super.layoutSubviews()
         let inset = textContainerInset
+        // The placeholder must be able to grow: a fixed 22pt height clipped the
+        // hint once the user raised the system text size.
+        let height = placeholderLabel.font.lineHeight
         placeholderLabel.frame = CGRect(x: inset.left + 5,
                                         y: inset.top,
-                                        width: bounds.width - inset.left - inset.right - 10,
-                                        height: 22)
+                                        width: max(0, bounds.width - inset.left - inset.right - 10),
+                                        height: ceil(height))
     }
 
     override var text: String! {
@@ -52,6 +64,8 @@ struct RichTextView: UIViewRepresentable {
     var loadToken: Int = 0
     var loadParts: [ContentPart] = []
 
+    @Environment(\.diaryDynamicTypeSize) private var typeSize
+
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
@@ -63,13 +77,15 @@ struct RichTextView: UIViewRepresentable {
         tv.textContainerInset = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
         tv.textContainer.lineFragmentPadding = 0
         tv.delegate = context.coordinator
-        tv.font = UIFont.systemFont(ofSize: 15)
         tv.textColor = Theme.onSurfaceUIColor()
         tv.tintColor = Theme.primaryUIColor()
         tv.keyboardDismissMode = .interactive
         tv.alwaysBounceVertical = false
         tv.showsVerticalScrollIndicator = false
         tv.placeholder = placeholder
+        controller.dynamicTypeSize = typeSize
+        context.coordinator.appliedTypeSize = typeSize
+        tv.applyTypeSize(typeSize)
         controller.textView = tv
         controller.onFormatChange = {
             context.coordinator.notifyFormatChange()
@@ -85,6 +101,11 @@ struct RichTextView: UIViewRepresentable {
 
     func updateUIView(_ uiView: PlaceholderTextView, context: Context) {
         uiView.placeholder = placeholder
+        if context.coordinator.appliedTypeSize != typeSize {
+            context.coordinator.appliedTypeSize = typeSize
+            uiView.applyTypeSize(typeSize)
+            controller.reapplyTypeSize(typeSize)
+        }
         let width = uiView.bounds.width
         if width > 40 {
             let inset = uiView.textContainerInset
@@ -111,6 +132,7 @@ struct RichTextView: UIViewRepresentable {
         let parent: RichTextView
         weak var tv: PlaceholderTextView?
         var lastToken = 0
+        var appliedTypeSize: DynamicTypeSize = .large
 
         init(_ parent: RichTextView) {
             self.parent = parent
@@ -234,15 +256,16 @@ struct FontToolbar: View {
         }
         .padding(.horizontal, 12)
         .background {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        .stroke(Theme.outlineVariant().opacity(0.45), lineWidth: 0.5)
-                }
+            // The formatting bar floats above the editor's content, which is
+            // precisely the navigation/control layer Liquid Glass is for. It
+            // used to be an opaque grouped-background rect, so it read as one
+            // more content card rather than as a control.
+            RoundedRectangle(cornerRadius: Radius.panel, style: .continuous)
+                .fill(.clear)
+                .glassEffect(.regular.interactive(true),
+                             in: RoundedRectangle(cornerRadius: Radius.panel, style: .continuous))
                 .shadow(color: Theme.shadowColor(), radius: 14, y: 4)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         // Establishing a dependency on the @Observable formatTick makes SwiftUI
         // re-evaluate body (and thus the button active states) whenever the
         // controller mutation/tick changes — no explicit @State refetch needed.

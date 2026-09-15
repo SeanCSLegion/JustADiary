@@ -12,7 +12,7 @@ struct WeekdayHeaderView: View {
             ForEach(0..<7, id: \.self) { i in
                 let isWeekend = weekStart == "sunday" ? (i == 0 || i == 6) : (i >= 5)
                 Text(names[i])
-                    .diaryFont(size)
+                    .diaryCalendarFont(size)
                     .foregroundStyle(isWeekend ? Theme.onSurfaceVariant().opacity(0.6) : Theme.onSurfaceVariant())
                     .frame(width: cellW)
             }
@@ -126,7 +126,7 @@ enum DayDraw {
             let w = min(20, m.cellW * 0.5)
             let uy = numY + m.dayFont / 2 + 2
             let underline = Path(roundedRect: CGRect(x: cx - w / 2, y: uy, width: w, height: 2),
-                                 cornerRadius: 1)
+                                 cornerRadius: Radius.hairline)
             let color: Color = isSelected ? Theme.onPrimary() : Theme.primary()
             context.fill(underline, with: .color(color.opacity(cellAlpha)))
         }
@@ -167,7 +167,7 @@ enum DayDraw {
 
 struct MonthCanvas: View {
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.diaryTypeScale) private var typeScale
+    @Environment(\.diaryDynamicTypeSize) private var typeSize
 
     var weeks: [WeekDays]
     var anchorMonth: Date
@@ -182,7 +182,7 @@ struct MonthCanvas: View {
     /// sizes are scaled here.
     private var drawnMetrics: DayMetrics {
         var m = metrics
-        let f = DynamicTypeScale.calendarFactor(for: typeScale)
+        let f = DynamicTypeMetrics.calendarMultiplier(for: typeSize)
         m.dayFont *= f
         m.lunarFont *= f
         return m
@@ -247,7 +247,7 @@ struct MonthCanvas: View {
 
 struct WeekRowCanvas: View {
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.diaryTypeScale) private var typeScale
+    @Environment(\.diaryDynamicTypeSize) private var typeSize
 
     var week: WeekDays
     var metrics: DayMetrics
@@ -261,7 +261,7 @@ struct WeekRowCanvas: View {
 
     private var drawnMetrics: DayMetrics {
         var m = metrics
-        let f = DynamicTypeScale.calendarFactor(for: typeScale)
+        let f = DynamicTypeMetrics.calendarMultiplier(for: typeSize)
         m.dayFont *= f
         m.lunarFont *= f
         return m
@@ -299,7 +299,9 @@ struct MonthBigTitle: View {
 
     var body: some View {
         Text(L10n.monthFull(month))
-            .diaryFont(32, weight: .bold)
+            .diaryFont(TypeSize.display, weight: .bold)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
             .foregroundStyle(Theme.onSurface())
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
@@ -316,7 +318,9 @@ struct MiniMonthLabel: View {
         let thisMonth = DateUtil.calendar.component(.month, from: Date())
         let isCurrent = year == thisYear && month == thisMonth
         Text(L10n.monthName(month))
-            .diaryFont(15, weight: isCurrent ? .bold : .semibold)
+            .diaryFont(TypeSize.rowTitle, weight: isCurrent ? .bold : .semibold)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
             .foregroundStyle(isCurrent ? Theme.primary() : Theme.onSurface())
     }
 }
@@ -336,13 +340,15 @@ struct YearPageView: View {
             VStack(spacing: 0) {
                 HStack(alignment: .center, spacing: 8) {
                     Text(L10n.fmt("date_year", year))
-                        .diaryFont(32, weight: .bold)
+                        .diaryFont(TypeSize.display, weight: .bold)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                         .foregroundStyle(Theme.primary())
                     Spacer()
                     if AppLanguage.isZh {
                         let ref = DateUtil.calendar.date(from: DateComponents(year: year, month: 6, day: 1)) ?? Date()
                         Text(Lunar.yearZodiacLabel(ref))
-                            .diaryFont(12)
+                            .diaryFont(TypeSize.caption)
                             .foregroundStyle(Theme.onSurfaceVariant().opacity(0.7))
                     }
                 }

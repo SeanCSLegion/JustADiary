@@ -17,6 +17,8 @@ struct ReadTextView: UIViewRepresentable {
     var onTapText: (() -> Void)? = nil
     var textContainerInset: UIEdgeInsets = .zero
 
+    @Environment(\.diaryDynamicTypeSize) private var typeSize
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> FittedTextView {
@@ -38,9 +40,11 @@ struct ReadTextView: UIViewRepresentable {
 
     func updateUIView(_ uiView: FittedTextView, context: Context) {
         context.coordinator.parent = self
-        if context.coordinator.lastParts == parts, context.coordinator.lastKeyword == keyword {
+        let sizeChanged = context.coordinator.typeSize != typeSize
+        if !sizeChanged, context.coordinator.lastParts == parts, context.coordinator.lastKeyword == keyword {
             return
         }
+        context.coordinator.typeSize = typeSize
         context.coordinator.lastParts = parts
         context.coordinator.lastKeyword = keyword
         context.coordinator.rebuild()
@@ -55,6 +59,7 @@ struct ReadTextView: UIViewRepresentable {
         var imageCallbacks: [(String, CGFloat)] = []
         var lastParts: [ContentPart]?
         var lastKeyword: String?
+        var typeSize: DynamicTypeSize = .large
 
         init(_ parent: ReadTextView) {
             self.parent = parent
@@ -62,7 +67,9 @@ struct ReadTextView: UIViewRepresentable {
 
         func rebuild() {
             guard let tv = textView else { return }
-            let attributed = NSMutableAttributedString(attributedString: PartsCodec.attributedString(from: parent.parts))
+            let attributed = NSMutableAttributedString(
+                attributedString: PartsCodec.attributedString(from: parent.parts, typeSize: typeSize)
+            )
             todoRanges = []
             todoCallbacks = []
             imageRanges = []
@@ -109,10 +116,20 @@ struct ReadTextView: UIViewRepresentable {
             for seg in segments {
                 let len = (seg.text as NSString).length
                 let range = NSRange(location: cursor, length: len)
-                if seg.hit {
+                if seg.hit, range.length > 0, range.location < attributed.length {
                     attributed.addAttribute(.backgroundColor, value: Theme.primaryContainerUIColor(), range: range)
                     attributed.addAttribute(.foregroundColor, value: Theme.primaryUIColor(), range: range)
-                    attributed.addAttribute(.font, value: UIFont.systemFont(ofSize: 15, weight: .medium), range: range)
+                    // This used to hard-code a 15pt medium font, which both
+                    // ignored the text-size setting and reset a highlighted
+                    // heading to body size. Resolve the run's own design size
+                    // instead and keep it on the Dynamic Type curve.
+                    let current = attributed.attributes(at: range.location, effectiveRange: nil)
+                    let design = EditorFont.designSize(of: current, typeSize: typeSize) ?? EditorDesignSize.body
+                    let bold = (current[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true
+                    for (key, value) in EditorFont.attributes(design, weight: bold ? .bold : .medium,
+                                                              typeSize: typeSize) {
+                        attributed.addAttribute(key, value: value, range: range)
+                    }
                 }
                 cursor += len
             }

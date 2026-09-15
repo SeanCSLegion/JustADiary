@@ -180,6 +180,23 @@
         }
       }
     },
+    "date_range" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ – %2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ – %2$@"
+          }
+        }
+      }
+    },
     "date_year" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1353,6 +1370,23 @@
         }
       }
     },
+    "index_tomorrow" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tomorrow"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "明天"
+          }
+        }
+      }
+    },
     "index_week_head" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1365,7 +1399,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$ld年%2$@%3$ld日 – %4$@"
+            "value" : "%1$ld年%2$@%3$ld日 %4$@"
           }
         }
       }
@@ -1400,6 +1434,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "写日记"
+          }
+        }
+      }
+    },
+    "index_yesterday" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yesterday"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "昨天"
           }
         }
       }

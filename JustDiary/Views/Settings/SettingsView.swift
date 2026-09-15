@@ -13,7 +13,7 @@ struct SettingsView: View {
                 reminderCard
                 dataCard
                 aboutCard
-                Color.clear.frame(height: 120)
+                TabBarClearance()
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
@@ -56,7 +56,6 @@ struct SettingsView: View {
                             isPresented: $vm.showDayStartPicker,
                             onApply: { vm.applyDayStart() })
                 .presentationDetents([.height(320)])
-                .presentationBackground(.ultraThinMaterial)
         }
         .sheet(isPresented: $vm.showRemindPicker) {
             hourPickerSheet(title: L10n.str("settings_remind_time"),
@@ -67,7 +66,6 @@ struct SettingsView: View {
                             isPresented: $vm.showRemindPicker,
                             onApply: { vm.applyRemindTime() })
                 .presentationDetents([.height(320)])
-                .presentationBackground(.ultraThinMaterial)
         }
         .overlay {
             if let busyText = vm.busyText {
@@ -79,12 +77,12 @@ struct SettingsView: View {
                             .controlSize(.large)
                             .tint(Theme.primary())
                         Text(busyText)
-                            .diaryFont(13, weight: .medium)
+                            .diaryFont(TypeSize.meta, weight: .medium)
                             .foregroundStyle(Theme.onSurface())
                     }
                     .padding(.horizontal, 32)
                     .padding(.vertical, 26)
-                    .diaryCard(cornerRadius: 18)
+                    .diaryCard(cornerRadius: Radius.card)
                 }
                 .transition(.opacity)
             }
@@ -104,12 +102,12 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             content()
         }
-        .diaryCard(cornerRadius: 22)
+        .diaryCard(cornerRadius: Radius.card)
     }
 
     private func sectionTitle(_ text: String) -> some View {
         Text(text)
-            .diaryFont(12, weight: .medium)
+            .diaryFont(TypeSize.sectionTitle, weight: .medium)
             .foregroundStyle(Theme.onSurfaceVariant())
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
@@ -126,21 +124,26 @@ struct SettingsView: View {
                 GlassIconBadge(systemName: icon)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .diaryFont(14)
+                        .diaryFont(TypeSize.rowTitle)
                         .foregroundStyle(Theme.onSurface())
                     if let sub {
                         Text(sub)
-                            .diaryFont(11)
+                            .diaryFont(TypeSize.rowSub)
                             .foregroundStyle(Theme.onSurfaceVariant())
                             .lineLimit(2)
                     }
                 }
-                Spacer()
+                Spacer(minLength: 8)
+                // Without these the trailing value pushed the chevron off the
+                // row once the user raised the system text size.
                 Text(value)
-                    .diaryFont(13)
+                    .diaryFont(TypeSize.rowValue)
                     .foregroundStyle(Theme.onSurfaceVariant())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .multilineTextAlignment(.trailing)
                 Image(systemName: "chevron.right")
-                    .diaryFont(13)
+                    .diaryFont(TypeSize.rowValue)
                     .foregroundStyle(Theme.onSurfaceVariant())
             }
             .padding(.horizontal, 12)
@@ -155,16 +158,16 @@ struct SettingsView: View {
             GlassIconBadge(systemName: icon)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .diaryFont(14)
+                    .diaryFont(TypeSize.rowTitle)
                     .foregroundStyle(Theme.onSurface())
                 if let sub {
                     Text(sub)
-                        .diaryFont(11)
+                        .diaryFont(TypeSize.rowSub)
                         .foregroundStyle(Theme.onSurfaceVariant())
                         .lineLimit(2)
                 }
             }
-            Spacer()
+            Spacer(minLength: 8)
             Toggle("", isOn: isOn)
                 .labelsHidden()
                 .tint(Theme.primary())
@@ -193,7 +196,7 @@ struct SettingsView: View {
                 Button(L10n.str("settings_lang_zh")) { vm.setLanguage("zh") }
                 Button(L10n.str("settings_lang_en")) { vm.setLanguage("en") }
             }
-            RowDivider(horizontalPadding: 12)
+            RowDivider(horizontalPadding: RowDivider.textInset)
             valueRow(icon: "paintpalette", title: L10n.str("settings_theme"),
                      sub: L10n.str("settings_theme_sub"),
                      value: themeLabel) {
@@ -233,7 +236,7 @@ struct SettingsView: View {
                      value: L10n.dayStartLabel(vm.settings.dayStartHour)) {
                 vm.showDayStartPicker = true
             }
-            RowDivider(horizontalPadding: 12)
+            RowDivider(horizontalPadding: RowDivider.textInset)
             valueRow(icon: "calendar", title: L10n.str("settings_week_start"),
                      sub: L10n.str("settings_week_start_sub"),
                      value: vm.settings.weekStart == "sunday" ? L10n.str("settings_week_sunday") : L10n.str("settings_week_monday")) {
@@ -243,25 +246,25 @@ struct SettingsView: View {
                 Button(L10n.str("settings_week_monday")) { vm.setWeekStart("monday") }
                 Button(L10n.str("settings_week_sunday")) { vm.setWeekStart("sunday") }
             }
-            RowDivider(horizontalPadding: 12)
+            RowDivider(horizontalPadding: RowDivider.textInset)
             switchRow(icon: "clock", title: L10n.str("settings_auto_time"),
                       sub: L10n.str("settings_auto_time_sub"),
                       isOn: Binding(get: { vm.settings.autoTime },
                                     set: { vm.setAutoTime($0) })) { _ in }
-            RowDivider(horizontalPadding: 12)
+            RowDivider(horizontalPadding: RowDivider.textInset)
             switchRow(icon: "location", title: L10n.str("settings_auto_loc"),
                       sub: L10n.str("settings_auto_loc_sub"),
                       isOn: Binding(get: { vm.settings.autoLoc },
                                     set: { vm.setAutoLoc($0) })) { _ in }
             if vm.settings.autoLoc {
-                RowDivider(horizontalPadding: 12)
+                RowDivider(horizontalPadding: RowDivider.textInset)
                 valueRow(icon: "location.circle", title: L10n.str("settings_loc_permission"),
                          sub: L10n.str("settings_loc_permission_sub"),
                          value: vm.locStatusText) {
                     vm.handleLocPermission()
                 }
             }
-            RowDivider(horizontalPadding: 12)
+            RowDivider(horizontalPadding: RowDivider.textInset)
             switchRow(icon: "pencil", title: L10n.str("settings_history_edit"),
                       sub: L10n.str("settings_history_edit_sub"),
                       isOn: Binding(get: { vm.settings.allowHistoryEdit },
@@ -279,15 +282,15 @@ struct SettingsView: View {
                       isOn: Binding(get: { vm.settings.remindEnabled },
                                     set: { vm.setRemindEnabled($0) })) { _ in }
             if vm.settings.remindEnabled {
-                RowDivider(horizontalPadding: 12)
+                RowDivider(horizontalPadding: RowDivider.textInset)
                 valueRow(icon: "clock.badge", title: L10n.str("settings_remind_time"),
                          sub: L10n.str("settings_remind_time_sub"),
-                         value: DateUtil.hourMinuteLabel(vm.settings.remindHour, minute: vm.settings.remindMinute)) {
+                         value: L10n.timeLabel(hour: vm.settings.remindHour, minute: vm.settings.remindMinute)) {
                     vm.showRemindPicker = true
                 }
             }
             if vm.settings.remindEnabled && vm.notifStatusText == L10n.str("settings_notif_off") {
-                RowDivider(horizontalPadding: 12)
+                RowDivider(horizontalPadding: RowDivider.textInset)
                 valueRow(icon: "bell.badge", title: L10n.str("settings_notif_permission"),
                          sub: L10n.str("settings_notif_permission_sub"),
                          value: vm.notifStatusText) {
@@ -310,7 +313,7 @@ struct SettingsView: View {
                 Button(L10n.str("settings_export_data_only")) { vm.runExport(includeSettings: false) }
                 Button(L10n.str("settings_export_data_settings")) { vm.runExport(includeSettings: true) }
             }
-            RowDivider(horizontalPadding: 12)
+            RowDivider(horizontalPadding: RowDivider.textInset)
             valueRow(icon: "square.and.arrow.down", title: L10n.str("settings_import"),
                      sub: L10n.str("settings_import_sub"), value: "") {
                 vm.showImportPicker = true
@@ -345,7 +348,7 @@ struct SettingsView: View {
                 .pickerStyle(.wheel)
                 .frame(width: 90)
                 Text(":")
-                    .diaryFont(20, weight: .medium)
+                    .diaryFont(TypeSize.cardTitle, weight: .medium)
                     .foregroundStyle(Theme.onSurface())
                 Picker("", selection: minute) {
                     ForEach(0..<60, id: \.self) { m in

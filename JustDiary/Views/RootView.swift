@@ -68,9 +68,11 @@ struct RootView: View {
         .tabBarMinimizeBehavior(.onScrollDown)
         .tint(Theme.primary())
         .preferredColorScheme(AppConfigService.colorScheme)
-        // Publish the system text-size scale so the explicit design sizes can
-        // follow 设置 › 显示与亮度 › 文字大小.
-        .environment(\.diaryTypeScale, DynamicTypeScale.value(for: dynamicTypeSize))
+        // Publish the system text-size category so the explicit design sizes can
+        // follow 设置 › 显示与亮度 › 文字大小. The category (not a pre-multiplied
+        // factor) is what lets `DynamicTypeMetrics` scale each role on Apple's
+        // own curve for its text style.
+        .environment(\.diaryDynamicTypeSize, dynamicTypeSize)
         .environment(\.locale, AppLanguage.locale)
         // Rebuild the whole tree whenever the language or any settings-driven UI
         // tick changes. This guarantees all L10n strings, the color scheme and the
@@ -94,7 +96,14 @@ struct RootView: View {
             set: { appState.presentEditor = $0 }), onDismiss: {
             DiaryRepository.shared.bumpDiaryVersion()
         }) {
+            // The cover inherits the environment from the view it is attached
+            // to, but the `.environment(\.diaryDynamicTypeSize, …)` above is
+            // applied further in, so the editor was reading the default
+            // category and none of its text followed 设置 › 文字大小. Inject it
+            // explicitly here as well.
             DiaryPageView(dayKey: appState.editorDayKey)
+                .environment(\.diaryDynamicTypeSize, dynamicTypeSize)
+                .environment(\.locale, AppLanguage.locale)
         }
         .task {
             await DiaryRepository.shared.prepare()

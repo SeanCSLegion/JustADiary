@@ -15,13 +15,11 @@ struct SearchView: View {
             .sheet(isPresented: $vm.showTimeSheet) {
                 timeSheet
                     .presentationDetents([.medium])
-                    .presentationBackground(.ultraThinMaterial)
-            }
+                }
             .sheet(isPresented: $vm.showLocSheet) {
                 locSheet
                     .presentationDetents([.large])
-                    .presentationBackground(.ultraThinMaterial)
-            }
+                }
     }
 
     private var content: some View {
@@ -86,8 +84,8 @@ struct SearchView: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 4)
-        .frame(height: 44)
-        .diaryCard(cornerRadius: 18)
+        .frame(minHeight: 44)
+        .diaryCard(cornerRadius: Radius.card)
     }
 
     private func filterCapsule(_ item: SearchFilterItem) -> some View {
@@ -106,7 +104,7 @@ struct SearchView: View {
         } label: {
             HStack(spacing: 4) {
                 Text(item.label)
-                    .diaryFont(12, weight: .medium)
+                    .diaryFont(TypeSize.badge, weight: .medium)
                     .lineLimit(1)
                 Image(systemName: "xmark")
                     .diaryFont(9, weight: .semibold)
@@ -143,7 +141,7 @@ struct SearchView: View {
                     searchFocused = false
                 } label: {
                     Text(L10n.str("search_cancel"))
-                        .diaryFont(14, weight: .medium)
+                        .diaryFont(TypeSize.chip, weight: .medium)
                         .foregroundStyle(Theme.primary())
                 }
                 .buttonStyle(.plain)
@@ -156,7 +154,7 @@ struct SearchView: View {
     private var filterPanel: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(L10n.str("search_filter_time"))
-                .diaryFont(11)
+                .diaryFont(TypeSize.caption)
                 .foregroundStyle(Theme.onSurfaceVariant())
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -168,7 +166,7 @@ struct SearchView: View {
                 }
             }
             Text(L10n.str("search_filter_loc"))
-                .diaryFont(11)
+                .diaryFont(TypeSize.caption)
                 .foregroundStyle(Theme.onSurfaceVariant())
                 .padding(.top, 4)
             ScrollView(.horizontal, showsIndicators: false) {
@@ -181,7 +179,7 @@ struct SearchView: View {
             }
         }
         .padding(10)
-        .diaryCard(cornerRadius: 22)
+        .diaryCard(cornerRadius: Radius.card)
     }
 
     private func timeChip(_ label: String, kind: TimeRangeKind) -> some View {
@@ -229,7 +227,7 @@ struct SearchView: View {
                     emptyState
                         .padding(.top, 60)
                 }
-                Color.clear.frame(height: 120)
+                TabBarClearance()
             }
             .padding(.horizontal, 16)
             .padding(.top, 10)
@@ -261,7 +259,7 @@ struct SearchView: View {
                     .controlSize(.large)
                     .tint(Theme.primary())
                 Text(vm.searching ? L10n.str("search_loading") : L10n.str("search_preparing"))
-                    .diaryFont(15, weight: .medium)
+                    .diaryFont(TypeSize.rowTitle, weight: .medium)
                     .foregroundStyle(Theme.onSurface())
             }
             .padding(.top, 60)
@@ -291,7 +289,7 @@ struct SearchView: View {
                     Image(systemName: "calendar")
                         .diaryFont(11)
                     Text(L10n.formatDayKey(item.dayKey))
-                        .diaryFont(12, weight: .medium)
+                        .diaryFont(TypeSize.badge, weight: .medium)
                 }
                 .foregroundStyle(Theme.primary())
                 .padding(.horizontal, 8)
@@ -300,20 +298,20 @@ struct SearchView: View {
                     Capsule().fill(Theme.primaryContainer())
                 }
                 HighlightedText(snippet: item.snippet, summary: item.summary, keyword: vm.combinedKeyword)
-                    .diaryFont(13)
+                    .diaryFont(TypeSize.meta)
                     .foregroundStyle(Theme.onSurface())
                     .lineLimit(2)
             }
             Spacer()
             Text(L10n.timeOf(item.updatedUtc))
-                .diaryFont(11)
+                .diaryFont(TypeSize.caption)
                 .foregroundStyle(Theme.onSurfaceVariant())
             Image(systemName: "chevron.right")
                 .diaryFont(12)
                 .foregroundStyle(Theme.onSurfaceVariant())
         }
         .padding(14)
-        .diaryCard(cornerRadius: 20)
+        .diaryCard(cornerRadius: Radius.card)
     }
 
     // MARK: - Sheets
@@ -330,7 +328,7 @@ struct SearchView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.str("search_time_start"))
-                    .diaryFont(12)
+                    .diaryFont(TypeSize.caption)
                     .foregroundStyle(Theme.onSurfaceVariant())
                 DatePicker("", selection: Binding(
                     get: { vm.customFrom ?? DateUtil.monthFirst(Date()) },
@@ -341,7 +339,7 @@ struct SearchView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.str("search_time_end"))
-                    .diaryFont(12)
+                    .diaryFont(TypeSize.caption)
                     .foregroundStyle(Theme.onSurfaceVariant())
                 DatePicker("", selection: Binding(
                     get: { vm.customTo ?? Date() },
@@ -380,7 +378,7 @@ struct SearchView: View {
                     .diaryFont(14)
                     .foregroundStyle(Theme.onSurfaceVariant())
                 TextField(L10n.str("search_loc_search"), text: $vm.locSearch)
-                    .diaryFont(14)
+                    .diaryFont(TypeSize.rowTitle)
                     .tint(Theme.primary())
                     .focused($locSearchFocused)
                     .submitLabel(.search)
@@ -389,10 +387,10 @@ struct SearchView: View {
                     }
             }
             .padding(.horizontal, 12)
-            .frame(height: 42)
-            .diaryCard(cornerRadius: 18, interactive: true)
+            .frame(minHeight: 44)
+            .diaryCard(cornerRadius: Radius.field, interactive: true)
             Text(L10n.str("search_loc_sort_hint"))
-                .diaryFont(11)
+                .diaryFont(TypeSize.caption)
                 .foregroundStyle(Theme.onSurfaceVariant())
                 .frame(maxWidth: .infinity, alignment: .leading)
             ScrollView(showsIndicators: false) {
@@ -407,7 +405,7 @@ struct SearchView: View {
                     }
                     if vm.filteredOptions.isEmpty && !vm.locLoading {
                         Text(L10n.str("search_loc_empty"))
-                            .diaryFont(13)
+                            .diaryFont(TypeSize.meta)
                             .foregroundStyle(Theme.onSurfaceVariant())
                             .padding(.top, 40)
                     }
@@ -429,12 +427,13 @@ struct SearchView: View {
         } label: {
             HStack {
                 Text(label)
-                    .diaryFont(14)
+                    .diaryFont(TypeSize.rowTitle)
                     .foregroundStyle(active ? Theme.primary() : Theme.onSurface())
+                    .lineLimit(1)
                 Spacer()
                 if let count {
                     Text("\(count)")
-                        .diaryFont(12)
+                        .diaryFont(TypeSize.badge)
                         .foregroundStyle(Theme.onSurfaceVariant())
                 }
                 if active {
@@ -444,9 +443,9 @@ struct SearchView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .frame(height: 46)
+            .frame(minHeight: 46)
             .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.badge, style: .continuous)
                     .fill(active ? Theme.glowColor() : .clear)
             }
         }
@@ -458,6 +457,8 @@ struct HighlightedText: View {
     var snippet: String
     var summary: String
     var keyword: String
+
+    @Environment(\.diaryDynamicTypeSize) private var typeSize
 
     var body: some View {
         let segments: [SearchUtil.Seg]
@@ -474,7 +475,11 @@ struct HighlightedText: View {
             if seg.hit {
                 s.foregroundColor = Theme.primary()
                 s.backgroundColor = Theme.primaryContainer()
-                s.font = .systemFont(ofSize: 13, weight: .medium)
+                // A literal 13pt ignored the text-size setting, so a
+                // highlighted word stayed small while the rest of the snippet
+                // grew around it.
+                s.font = .system(size: DynamicTypeMetrics.scaled(TypeSize.meta, for: typeSize),
+                                 weight: .medium)
             }
             attributed += s
         }

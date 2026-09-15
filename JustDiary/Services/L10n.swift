@@ -113,6 +113,31 @@ nonisolated enum L10n {
         return f
     }
 
+    /// Clock-time formatter that follows both the app language and the system
+    /// 24-hour setting.
+    ///
+    /// This used to be a literal `dateFormat = "HH:mm"`, which hard-codes a
+    /// 24-hour clock: an English user saw "Started at 21:00" on a card while
+    /// the day-start row on the settings screen said "4:00 AM". The hour cycle
+    /// now comes from the *device* locale (`j` is the skeleton symbol for "the
+    /// locale's preferred hour cycle", which honours 设置 › 通用 › 日期与时间 ›
+    /// 24 小时制) while AM/PM symbols still come from the app language.
+    private static func timeFormatter() -> DateFormatter {
+        let id = "time|\(AppLanguage.current)"
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached = formatters[id] { return cached }
+        let appLocale = Locale(identifier: AppLanguage.current)
+        let deviceFormat = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current) ?? "h"
+        let uses24Hour = deviceFormat.contains("H") || deviceFormat.contains("k")
+        let f = DateFormatter()
+        f.locale = appLocale
+        f.dateFormat = DateFormatter.dateFormat(fromTemplate: uses24Hour ? "Hmm" : "hmm",
+                                                options: 0, locale: appLocale)
+        formatters[id] = f
+        return f
+    }
+
     static func weekdayShort(_ weekdayIndex: Int) -> String {
         let symbols = calendar().veryShortWeekdaySymbols
         guard symbols.indices.contains(weekdayIndex) else { return "" }
@@ -153,7 +178,10 @@ nonisolated enum L10n {
     }
 
     static func dateRange(_ from: Date, _ to: Date) -> String {
-        "\(dateOnly(from)) ~ \(dateOnly(to))"
+        // Was string-concatenated with a "~" separator while the week header
+        // used an en dash for a different job; ranges now share one localized
+        // en-dash pattern.
+        fmt("date_range", dateOnly(from), dateOnly(to))
     }
 
     static func monthFull(_ date: Date) -> String {
@@ -175,7 +203,31 @@ nonisolated enum L10n {
     }
 
     static func timeOf(_ utcMs: Int64) -> String {
-        formatter("HH:mm").string(from: Date(timeIntervalSince1970: Double(utcMs) / 1000))
+        timeFormatter().string(from: Date(timeIntervalSince1970: Double(utcMs) / 1000))
+    }
+
+    /// Clock time for a bare hour/minute pair (reminder time, day-start time).
+    static func timeLabel(hour: Int, minute: Int) -> String {
+        var comps = DateComponents()
+        comps.year = 2000
+        comps.month = 1
+        comps.day = 1
+        comps.hour = hour
+        comps.minute = minute
+        let date = DateUtil.calendar.date(from: comps) ?? Date()
+        return timeFormatter().string(from: date)
+    }
+
+    /// Capsule label for the selected day: 今天 / 昨天 / 明天 / N天前 / N天后.
+    static func relativeDayLabel(from date: Date, to today: Date) -> String {
+        let diff = DateUtil.relativeDays(from: date, to: today)
+        switch diff {
+        case 0: return str("index_today")
+        case -1: return str("index_yesterday")
+        case 1: return str("index_tomorrow")
+        case ..<0: return fmt("index_days_ago", -diff)
+        default: return fmt("index_days_later", diff)
+        }
     }
 
     static func startLine(_ timeMs: Int64, locText: String) -> String {

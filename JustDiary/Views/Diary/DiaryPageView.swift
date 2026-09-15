@@ -101,7 +101,11 @@ struct DiaryPageView: View {
                             editorCard
                                 .id("editor-card")
                         }
-                        Color.clear.frame(height: vm.keyboardHeight > 0 ? vm.keyboardHeight + 160 : 140)
+                        if vm.keyboardHeight > 0 {
+                            Color.clear.frame(height: vm.keyboardHeight + 160)
+                        } else {
+                            TabBarClearance(base: 140)
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
@@ -193,7 +197,6 @@ struct DiaryPageView: View {
     private var readSearchBar: some View {
         GlassSearchField(text: $vm.searchText,
                          placeholder: L10n.str("read_search_placeholder"),
-                         cornerRadius: 18,
                          trailing: {
             if vm.hits.count > 0 {
                 GlassCountBadge(text: "\(min(vm.hitIndex + 1, vm.hits.count))/\(vm.hits.count)")
@@ -213,11 +216,11 @@ struct DiaryPageView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(L10n.formatDayKey(vm.actualDayKey))
-                    .diaryFont(20, weight: .medium)
+                    .diaryFont(TypeSize.cardTitle, weight: .medium)
                     .foregroundStyle(Theme.onSurface())
                 if vm.canEditToday {
                     Text(L10n.str("index_card_today"))
-                        .diaryFont(10, weight: .medium)
+                        .diaryFont(TypeSize.caption, weight: .medium)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
@@ -231,29 +234,29 @@ struct DiaryPageView: View {
                 if let first = vm.blocks.first {
                     HStack(spacing: 8) {
                         Text(L10n.timeOf(first.startTimeUtc))
-                            .diaryFont(13)
+                            .diaryFont(TypeSize.meta)
                             .foregroundStyle(Theme.onSurfaceVariant())
                         Text(L10n.fmt("read_hero_segments", vm.blocks.count))
-                            .diaryFont(13)
+                            .diaryFont(TypeSize.meta)
                             .foregroundStyle(Theme.onSurfaceVariant())
                     }
                     if !first.locText.isEmpty {
                         Label(first.locText, systemImage: "location.fill")
-                            .diaryFont(13)
+                            .diaryFont(TypeSize.meta)
                             .foregroundStyle(Theme.onSurfaceVariant())
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }
                 } else {
                     Text(L10n.str("read_day_empty"))
-                        .diaryFont(13)
+                        .diaryFont(TypeSize.meta)
                         .foregroundStyle(Theme.onSurfaceVariant())
                 }
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .diaryCard(cornerRadius: 18)
+        .diaryCard(cornerRadius: Radius.card)
         .padding(.bottom, 2)
     }
 
@@ -272,11 +275,11 @@ struct DiaryPageView: View {
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(L10n.timeOf(block.startTimeUtc))
-                        .diaryFont(13, weight: .bold)
+                        .diaryFont(TypeSize.meta, weight: .bold)
                         .foregroundStyle(Theme.primary())
                     if !block.locText.isEmpty {
                         Label(block.locText, systemImage: "location.fill")
-                            .diaryFont(12)
+                            .diaryFont(TypeSize.caption)
                             .foregroundStyle(Theme.onSurfaceVariant())
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
@@ -303,8 +306,8 @@ struct DiaryPageView: View {
                 handleBlockTap(block, index: index, parts: parts)
             })
         }
-        .padding(12)
-        .diaryCard(cornerRadius: 18)
+        .padding(Spacing.card)
+        .diaryCard(cornerRadius: Radius.card)
         .onLongPressGesture(minimumDuration: 0.4) {
             vm.enterSelect(block.id)
         }
@@ -331,7 +334,7 @@ struct DiaryPageView: View {
         VStack(alignment: .leading, spacing: 4) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(L10n.timeOf(vm.startUtc))
-                    .diaryFont(13, weight: .bold)
+                    .diaryFont(TypeSize.meta, weight: .bold)
                     .foregroundStyle(Theme.primary())
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -349,9 +352,9 @@ struct DiaryPageView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "location.fill")
-                                .diaryFont(10)
+                                .diaryFont(TypeSize.caption)
                             Text(vm.locationLabel)
-                                .diaryFont(12)
+                                .diaryFont(TypeSize.meta)
                                 .lineLimit(1)
                         }
                         .foregroundStyle(Theme.primary())
@@ -382,6 +385,6 @@ struct DiaryPageView: View {
                 .frame(minHeight: 160)
         }
         .padding(10)
-        .diaryCard(cornerRadius: 20, interactive: true)
+        .diaryCard(cornerRadius: Radius.card, interactive: true)
     }
 }

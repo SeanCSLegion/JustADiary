@@ -37,12 +37,17 @@ struct HomeView: View {
         .overlay(alignment: .bottom) {
             if showFutureToast {
                 Text(L10n.str("index_future_toast"))
-                    .diaryFont(13)
+                    .diaryFont(TypeSize.meta)
                     .foregroundStyle(Theme.onSurface())
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .background {
-                        Capsule().fill(Color(.secondarySystemGroupedBackground))
+                        // A transient surface floating above the calendar: the
+                        // control layer, so it is glass rather than an opaque
+                        // capsule.
+                        Capsule()
+                            .fill(.clear)
+                            .glassEffect(.regular, in: Capsule())
                     }
                     .shadow(color: Theme.shadowColor(), radius: 12, y: 4)
                     .padding(.bottom, 24)
@@ -83,16 +88,19 @@ struct HomeView: View {
                     Image(systemName: "chevron.left")
                         .diaryFont(16, weight: .semibold)
                     Text(titleText)
-                        .diaryFont(18, weight: .medium)
+                        .diaryFont(TypeSize.headerTitle, weight: .medium)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                        .minimumScaleFactor(0.7)
+                        .allowsTightening(true)
                         .contentTransition(.opacity)
                 }
                 .foregroundStyle(Theme.onSurface())
                 .padding(.horizontal, 14)
-                .frame(height: 44)
+                .frame(minHeight: Spacing.hitTarget)
                 .background {
-                    Capsule().fill(Color(.secondarySystemGroupedBackground))
+                    Capsule()
+                        .fill(.clear)
+                        .glassEffect(.regular.interactive(true), in: Capsule())
                 }
             }
             .buttonStyle(.plain)
@@ -105,14 +113,13 @@ struct HomeView: View {
 
             InfoCapsule(text: relativeDayLabel(), action: todayTapped)
         }
-        .frame(height: 52)
+        // `height` clipped the capsule once the title grew with the user's
+        // text size; `minHeight` is unchanged at the default category.
+        .frame(minHeight: 52)
     }
 
     private func relativeDayLabel() -> String {
-        let diff = DateUtil.relativeDays(from: selectedDate, to: Date())
-        if diff == 0 { return L10n.str("index_today") }
-        if diff < 0 { return L10n.fmt("index_days_ago", -diff) }
-        return L10n.fmt("index_days_later", diff)
+        L10n.relativeDayLabel(from: selectedDate, to: Date())
     }
 
     // MARK: - Transitions
@@ -406,14 +413,17 @@ struct HomeView: View {
             Divider()
             HStack(spacing: 12) {
                 Text(L10n.weekHeaderTitle(selectedDate))
-                    .diaryFont(15, weight: .semibold)
+                    .diaryFont(TypeSize.rowTitle, weight: .semibold)
                     .foregroundStyle(Theme.onSurface())
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    // The full date is the point of this row; shrinking it
+                    // keeps it readable where truncation would not.
+                    .minimumScaleFactor(0.6)
+                    .allowsTightening(true)
                 Spacer()
                 if showsLunar {
                     Text(Lunar.fullLabel(selectedDate))
-                        .diaryFont(12)
+                        .diaryFont(TypeSize.caption)
                         .foregroundStyle(Theme.onSurfaceVariant().opacity(0.8))
                         .lineLimit(1)
                 }

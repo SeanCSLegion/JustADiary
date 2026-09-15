@@ -14,11 +14,16 @@
 
 - 采用 iOS 26 引入、iOS 27 继续沿用的 **Liquid Glass** 设计语言，但**只在控件层使用**：`buttonStyle(.glass)` / `.glassProminent` 的按钮、芯片、搜索框与悬浮按钮
   - 按 WWDC26 session 8120 的建议，**内容区不使用 Liquid Glass**（下方没有可折射的内容，玻璃卡片会读作「浮在玻璃上的卡片」）。内容卡片统一走 `diaryCard(cornerRadius:)`：系统分组背景色 + 细描边 + 柔和阴影
-- 跟随系统显示设置：**动态字体**（`diaryFont(_:weight:)` 把显式字号按 `UIFontMetrics` 缩放，日历 Canvas 文字单独缩放）、
+  - 搜索框、编辑器格式栏、首页日期/返回胶囊、toast 都在控件层，走 `.glassEffect`；sheet 不覆盖 `presentationBackground`，用系统默认的新版玻璃外观
+- 统一的设计令牌见 `Views/Components/DesignSystem.swift`：`Radius`（圆角，嵌套面用 `Radius.concentric(outer:inset:)`）、`Spacing`、`TypeSize`（字阶）
+- 跟随系统显示设置：**动态字体**（每个设计字号按最接近的 Apple 文本样式经 `UIFontMetrics` 解析，并设上限以保证字阶不倒挂；日历 Canvas 文字单独半速缩放）、
   **减弱动态效果**（morph 退化为快速交叉淡入）、**增强对比度**（卡片描边加深）、浅色/深色
+- 日期/时间格式按语义槽位统一（年 / 月 / 日+星期 / 区间 / 时刻），时刻跟随系统的 12/24 小时制设置
 - 本地化使用 **String Catalog**（`Localizable.xcstrings`），通过 `String(localized:locale:)` 支持应用内语言即时切换
 - 主题色板迁移至 **Asset Catalog** 动态色（明暗自动切换），品牌色/混合色仍由 `Theme` 计算
-- 自定义组件：`GlassChip`、`GlassActionChip`、`GlassCountBadge`、`PressableGlassIcon`、`diaryCard`（内容卡片修饰符）、`GlassEmptyState`、`AppAlertItem`
+- 自定义组件：`GlassChip`、`GlassActionChip`、`GlassCountBadge`、`PressableGlassIcon`、`diaryCard`（内容卡片修饰符）、`GlassEmptyState`、`TabBarClearance`、`AppAlertItem`
+
+> 界面规范（设计令牌、动态字体与上限、编辑器往返不变量、日期格式、玻璃边界、溢出处理）见 `docs/design-system.md`。
 
 ## 架构
 
@@ -52,7 +57,7 @@ python3 generate_project.py
 xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform=iOS Simulator,name=iPhone 18 Pro' build
 ```
 
-- 运行 UI 测试（覆盖导入、morph 动画、足迹页、编辑器冒烟、设置行可点击）：
+- 运行 UI 测试（覆盖导入、morph 动画、足迹页、编辑器冒烟与**字号往返**、设置行可点击）：
 
 ```bash
 xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -parallel-testing-enabled NO test
@@ -79,5 +84,6 @@ python3 tools/seed_sample_diary.py "iPhone 18 Pro"
 ## 版本说明
 
 - iOS 27 / Xcode 27（Swift 6.4）适配方案见 `docs/iOS27-upgrade-plan.md`
+- 界面规范（设计令牌 / 动态字体 / 日期格式 / Liquid Glass 边界）见 `docs/design-system.md`
 - 首页动画性能与系统显示设置适配见 `docs/animation-and-accessibility.md`
 - 升级调研（含 Apple 官方文档引用）见 `docs/research/`

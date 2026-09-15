@@ -102,7 +102,7 @@ extension View {
     /// that floats above content (chips, icon buttons, the search field, the
     /// share/primary buttons). Content cards therefore use the system grouped
     /// background with a hairline border and a soft shadow.
-    func diaryCard(cornerRadius: CGFloat = 20, interactive: Bool = false) -> some View {
+    func diaryCard(cornerRadius: CGFloat = Radius.card, interactive: Bool = false) -> some View {
         modifier(DiaryCard(cornerRadius: cornerRadius, interactive: interactive))
     }
 }
@@ -148,14 +148,18 @@ struct PageHeader<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             Text(title)
-                .diaryFont(24, weight: .medium)
+                .diaryFont(TypeSize.pageTitle, weight: .medium)
                 .foregroundStyle(Theme.onSurface())
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            Spacer()
+                .allowsTightening(true)
+            Spacer(minLength: 8)
             trailing()
         }
-        .frame(height: 52)
+        // `height` clipped the header once the title grew with the user's text
+        // size; `minHeight` keeps the design at the default category and lets
+        // the row expand at accessibility sizes.
+        .frame(minHeight: 52)
     }
 }
 
@@ -180,7 +184,7 @@ struct GlassPrimaryButton: View {
                         .diaryFont(compact ? 12 : 13, weight: .semibold)
                 }
                 Text(title)
-                    .diaryFont(compact ? 13 : 14, weight: .medium)
+                    .diaryFont(compact ? TypeSize.chip : TypeSize.rowTitle, weight: .medium)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
@@ -193,8 +197,13 @@ struct GlassPrimaryButton: View {
         .buttonStyle(.plain)
         .background {
             if enabled {
+                // Previously this filled the capsule with the opaque brand
+                // colour *and* applied a tinted glass effect on top, which made
+                // the glass invisible (nothing shows through an opaque fill).
+                // The tint alone now carries the colour, so the button keeps the
+                // Liquid Glass highlight and refraction.
                 Capsule()
-                    .fill(Theme.primary())
+                    .fill(.clear)
                     .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
                     .shadow(color: Theme.glowColor(), radius: compact ? 8 : 10, y: compact ? 2 : 3)
             } else {
@@ -223,7 +232,7 @@ struct GlassSecondaryButton: View {
                         .diaryFont(13, weight: .semibold)
                 }
                 Text(title)
-                    .diaryFont(14, weight: .medium)
+                    .diaryFont(TypeSize.rowTitle, weight: .medium)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
@@ -235,9 +244,12 @@ struct GlassSecondaryButton: View {
         }
         .buttonStyle(.plain)
         .background {
+            // The `glassDim` fill underneath made this read as a flat grey pill
+            // rather than a glass control; the untinted glass effect already
+            // supplies the surface.
             Capsule()
-                .fill(Theme.glassDim())
-                .glassEffect(.regular, in: Capsule())
+                .fill(.clear)
+                .glassEffect(.regular.interactive(true), in: Capsule())
         }
     }
 }
@@ -302,7 +314,7 @@ struct GlassSheetHeader: View {
     var body: some View {
         HStack {
             Text(title)
-                .diaryFont(17, weight: .medium)
+                .diaryFont(TypeSize.sheetTitle, weight: .medium)
                 .foregroundStyle(Theme.onSurface())
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -325,7 +337,7 @@ struct GlassChip: View {
             action()
         } label: {
             Text(label)
-                .diaryFont(13)
+                .diaryFont(TypeSize.chip)
                 .foregroundStyle(active ? Theme.primary() : Theme.onSurface())
                 .lineLimit(1)
                 .minimumScaleFactor(0.9)
@@ -349,7 +361,7 @@ struct InfoCapsule: View {
             action?()
         } label: {
             Text(text)
-                .diaryFont(13, weight: .medium)
+                .diaryFont(TypeSize.chip, weight: .medium)
                 .foregroundStyle(Theme.onSurface())
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -375,7 +387,7 @@ struct GlassCountBadge: View {
                     .diaryFont(10, weight: .semibold)
             }
             Text(text)
-                .diaryFont(12, weight: .medium)
+                .diaryFont(TypeSize.badge, weight: .medium)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
@@ -405,7 +417,7 @@ struct GlassActionChip: View {
                         .diaryFont(11, weight: .medium)
                 }
                 Text(label)
-                    .diaryFont(13)
+                    .diaryFont(TypeSize.chip)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
@@ -434,8 +446,9 @@ struct GlassEmptyState: View {
                 .diaryFont(26)
                 .foregroundStyle(Theme.onSurfaceVariant().opacity(0.5))
             Text(text)
-                .diaryFont(14)
+                .diaryFont(TypeSize.rowTitle)
                 .foregroundStyle(Theme.onSurfaceVariant())
+                .multilineTextAlignment(.center)
             if let actionTitle, let action {
                 GlassPrimaryButton(title: actionTitle, compact: true, action: action)
             }
@@ -486,23 +499,28 @@ extension View {
 
 // MARK: - Search field
 
+/// Search input.
+///
+/// The field sits in the control layer (it floats above the results it filters),
+/// which is exactly where Liquid Glass belongs, so it is a glass capsule rather
+/// than a content card. It used to be a `diaryCard`, which meant an opaque
+/// grouped-background rectangle with a 28pt radius: at the default size that
+/// happens to look round, but once the field grew with the user's text size it
+/// stopped reading as a capsule at all.
 struct GlassSearchField<Content: View>: View {
     @Binding var text: String
     var placeholder: String
-    var cornerRadius: CGFloat = 28
     var focus: FocusState<Bool>.Binding? = nil
     var onSubmit: (() -> Void)? = nil
     @ViewBuilder var trailing: () -> Content
 
     init(text: Binding<String>,
          placeholder: String,
-         cornerRadius: CGFloat = 28,
          focus: FocusState<Bool>.Binding? = nil,
          onSubmit: (() -> Void)? = nil,
          @ViewBuilder trailing: @escaping () -> Content = { EmptyView() }) {
         self._text = text
         self.placeholder = placeholder
-        self.cornerRadius = cornerRadius
         self.focus = focus
         self.onSubmit = onSubmit
         self.trailing = trailing
@@ -511,10 +529,10 @@ struct GlassSearchField<Content: View>: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .diaryFont(15)
+                .diaryFont(TypeSize.rowTitle)
                 .foregroundStyle(Theme.onSurfaceVariant())
             TextField(placeholder, text: $text)
-                .diaryFont(15)
+                .diaryFont(TypeSize.rowTitle)
                 .tint(Theme.primary())
                 .applyFocus(focus)
                 .submitLabel(.search)
@@ -524,7 +542,7 @@ struct GlassSearchField<Content: View>: View {
                     text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .diaryFont(15)
+                        .diaryFont(TypeSize.rowTitle)
                         .foregroundStyle(Theme.onSurfaceVariant())
                 }
                 .buttonStyle(.plain)
@@ -532,14 +550,39 @@ struct GlassSearchField<Content: View>: View {
             trailing()
         }
         .padding(.horizontal, 14)
-        .frame(height: 46)
-        .diaryCard(cornerRadius: cornerRadius, interactive: true)
+        .frame(minHeight: 46)
+        .background {
+            Capsule()
+                .fill(.clear)
+                .glassEffect(.regular.interactive(true), in: Capsule())
+        }
     }
 }
 
 // MARK: - Rows
 
+/// Bottom clearance for the floating tab bar.
+///
+/// The bar itself grows with the text-size setting, so a fixed-height spacer
+/// leaves the last row sitting underneath it once the user enlarges the text.
+struct TabBarClearance: View {
+    var base: CGFloat = 120
+
+    @Environment(\.diaryDynamicTypeSize) private var typeSize
+
+    var body: some View {
+        Color.clear.frame(
+            height: base * DynamicTypeMetrics.multiplier(for: TypeSize.rowTitle, typeSize: typeSize)
+        )
+    }
+}
+
 struct RowDivider: View {
+    /// Inset that lines the divider up with the leading edge of a row's *text*
+    /// rather than with its icon, which is what Settings.app does — the rule
+    /// starts under the title, not under the icon.
+    static let textInset: CGFloat = Spacing.card + 38 + Spacing.rowIcon
+
     var horizontalPadding: CGFloat = 0
 
     var body: some View {
@@ -552,13 +595,22 @@ struct RowDivider: View {
 struct GlassIconBadge: View {
     var systemName: String
     var size: CGFloat = 38
-    var cornerRadius: CGFloat = 12
+    var cornerRadius: CGFloat = Radius.badge
+
+    @Environment(\.diaryDynamicTypeSize) private var typeSize
+
+    /// The badge grows with its glyph — a hard 38pt square clipped the icon once
+    /// the user raised the text size — but it must stay *square*: `minWidth` /
+    /// `minHeight` inside an `HStack` let the row stretch it into a tall pill.
+    private var side: CGFloat {
+        max(size, DynamicTypeMetrics.scaled(16, for: typeSize) + 12)
+    }
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Theme.primaryContainer())
-                .frame(width: size, height: size)
+                .frame(width: side, height: side)
                 .overlay {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(Theme.glassBorder(), lineWidth: 1)
@@ -567,6 +619,7 @@ struct GlassIconBadge: View {
                 .diaryFont(16)
                 .foregroundStyle(Theme.onSurface())
         }
+        .frame(width: side, height: side)
     }
 }
 
@@ -579,7 +632,7 @@ struct FlowLightOverlay: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                     .fill(Theme.flowMaskColor())
                 TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: paused || reduceMotion)) { context in
                     let t = context.date.timeIntervalSinceReferenceDate
@@ -601,7 +654,7 @@ struct FlowLightOverlay: View {
                 }
             }
             .allowsHitTesting(false)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
         .allowsHitTesting(false)
         .task {

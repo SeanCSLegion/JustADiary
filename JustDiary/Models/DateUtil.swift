@@ -70,10 +70,6 @@ nonisolated enum DateUtil {
         return (wd + 5) % 7
     }
 
-    static func hourMinuteLabel(_ hour: Int, minute: Int) -> String {
-        String(format: "%02d:%02d", hour, minute)
-    }
-
     static func relativeDays(from date: Date, to today: Date) -> Int {
         let a = calendar.startOfDay(for: date)
         let b = calendar.startOfDay(for: today)

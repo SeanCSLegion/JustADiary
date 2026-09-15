@@ -326,7 +326,7 @@ nonisolated enum ShareRenderer {
             c.setFillColor(bg.cgColor)
             let box = wrappedHeight(text, font: .systemFont(ofSize: 30), width: contentWidth - 22, lineHeight: 40, inkRatio: 0.87)
             let rect = CGRect(x: x + 22, y: y, width: contentWidth - 22, height: box)
-            let path = UIBezierPath(roundedRect: rect, cornerRadius: 16)
+            let path = UIBezierPath(roundedRect: rect, cornerRadius: Radius.concentric(outer: Radius.card, inset: 4))
             path.fill()
             c.restoreGState()
             drawWrapped(text, x: x + 22 + 22, y: y + 20, width: contentWidth - 22 - 22, font: .systemFont(ofSize: 30),
@@ -355,7 +355,7 @@ nonisolated enum ShareRenderer {
             let rect = CGRect(x: x, y: y, width: contentWidth, height: h)
             if let img {
                 c.saveGState()
-                let path = UIBezierPath(roundedRect: rect, cornerRadius: 20)
+                let path = UIBezierPath(roundedRect: rect, cornerRadius: Radius.card)
                 path.addClip()
                 img.draw(in: rect)
                 c.restoreGState()
@@ -386,7 +386,7 @@ nonisolated enum ShareRenderer {
                                       colors: [palette.accentA.cgColor, palette.accentB.cgColor] as CFArray,
                                       locations: [0, 1])!
             c.saveGState()
-            let path = UIBezierPath(roundedRect: rect, cornerRadius: 8)
+            let path = UIBezierPath(roundedRect: rect, cornerRadius: Radius.concentric(outer: Radius.badge, inset: 4))
             path.addClip()
             c.drawLinearGradient(gradient, start: rect.origin, end: CGPoint(x: rect.maxX, y: rect.maxY), options: [])
             c.restoreGState()
@@ -400,7 +400,7 @@ nonisolated enum ShareRenderer {
             UIColor.white.setStroke()
             check.stroke()
         } else {
-            let path = UIBezierPath(roundedRect: rect, cornerRadius: 8)
+            let path = UIBezierPath(roundedRect: rect, cornerRadius: Radius.concentric(outer: Radius.badge, inset: 4))
             path.lineWidth = 2
             path.stroke()
         }
@@ -411,7 +411,7 @@ nonisolated enum ShareRenderer {
                                   colors: [palette.surface2(palette).cgColor, palette.quoteBg(palette).cgColor] as CFArray,
                                   locations: [0, 1])!
         c.saveGState()
-        let path = UIBezierPath(roundedRect: rect, cornerRadius: 20)
+        let path = UIBezierPath(roundedRect: rect, cornerRadius: Radius.card)
         path.addClip()
         c.drawLinearGradient(gradient, start: rect.origin, end: CGPoint(x: rect.maxX, y: rect.maxY), options: [])
         c.restoreGState()

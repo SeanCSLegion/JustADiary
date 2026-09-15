@@ -9,7 +9,7 @@ struct FootprintView: View {
         VStack(spacing: 0) {
             PageHeader(title: L10n.str("footprint_title")) {
                 Text(L10n.fmt("footprint_summary", vm.locatedCount, vm.unlocated))
-                    .diaryFont(14)
+                    .diaryFont(TypeSize.chip)
                     .foregroundStyle(Theme.onSurfaceVariant())
                     .lineLimit(1)
             }
@@ -51,7 +51,6 @@ struct FootprintView: View {
         .sheet(isPresented: $showTimeFilter) {
             timeFilterSheet
                 .presentationDetents([.medium])
-                .presentationBackground(.ultraThinMaterial)
         }
     }
 
@@ -76,17 +75,23 @@ struct FootprintView: View {
             statCell(L10n.str("footprint_stat_days"), "\(vm.stats.days.count)")
         }
         .padding(.vertical, 14)
-        .diaryCard(cornerRadius: 16)
+        .diaryCard(cornerRadius: Radius.card)
     }
 
     private func statCell(_ label: String, _ value: String) -> some View {
         VStack(spacing: 3) {
             Text(value)
-                .diaryFont(18, weight: .semibold)
+                .diaryFont(TypeSize.statValue, weight: .semibold)
                 .foregroundStyle(Theme.onSurface())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            // Five cells share the row width, so both lines shrink rather than
+            // clip once the user raises the system text size.
             Text(label)
-                .diaryFont(11)
+                .diaryFont(TypeSize.caption)
                 .foregroundStyle(Theme.onSurfaceVariant())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity)
     }
@@ -96,7 +101,7 @@ struct FootprintView: View {
     private var trendCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(L10n.str("footprint_trend_title"))
-                .diaryFont(13, weight: .medium)
+                .diaryFont(TypeSize.sectionTitle, weight: .medium)
                 .foregroundStyle(Theme.onSurfaceVariant())
 
             Chart(vm.yearly) { stat in
@@ -105,7 +110,7 @@ struct FootprintView: View {
                     y: .value(L10n.str("footprint_trend_days"), stat.days)
                 )
                 .foregroundStyle(Theme.primary())
-                .cornerRadius(4)
+                .cornerRadius(Radius.bar)
             }
             .chartYAxis {
                 AxisMarks(position: .leading) { _ in
@@ -114,11 +119,15 @@ struct FootprintView: View {
                 }
             }
             .frame(height: 132)
+            // Axis labels are drawn by Charts from the environment font; without
+            // this they stayed at the system default while the rest of the card
+            // followed the user's text size.
+            .diaryFont(TypeSize.caption)
             .accessibilityLabel(L10n.str("footprint_trend_title"))
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .diaryCard(cornerRadius: 16)
+        .diaryCard(cornerRadius: Radius.card)
     }
 
     // MARK: - Footprint list
@@ -126,7 +135,7 @@ struct FootprintView: View {
     private var listCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(L10n.str("footprint_list_title"))
-                .diaryFont(13, weight: .medium)
+                .diaryFont(TypeSize.sectionTitle, weight: .medium)
                 .foregroundStyle(Theme.onSurfaceVariant())
                 .padding(.bottom, 8)
 
@@ -139,7 +148,7 @@ struct FootprintView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .diaryCard(cornerRadius: 16)
+        .diaryCard(cornerRadius: Radius.card)
     }
 
     // MARK: - Time filter sheet
@@ -156,7 +165,7 @@ struct FootprintView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.str("search_time_start"))
-                    .diaryFont(12)
+                    .diaryFont(TypeSize.caption)
                     .foregroundStyle(Theme.onSurfaceVariant())
                 DatePicker("", selection: Binding(
                     get: { vm.customFrom ?? DateUtil.monthFirst(Date()) },
@@ -167,7 +176,7 @@ struct FootprintView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.str("search_time_end"))
-                    .diaryFont(12)
+                    .diaryFont(TypeSize.caption)
                     .foregroundStyle(Theme.onSurfaceVariant())
                 DatePicker("", selection: Binding(
                     get: { vm.customTo ?? Date() },
@@ -245,17 +254,17 @@ private struct FootprintNodeRow: View {
                         .foregroundStyle(node.isLeaf ? Theme.onSurfaceVariant() : Theme.primary())
                         .frame(width: 16)
                     Text(node.name)
-                        .diaryFont(14)
+                        .diaryFont(TypeSize.rowTitle)
                         .foregroundStyle(Theme.onSurface())
                         .lineLimit(1)
                     Spacer(minLength: 8)
                     Text("\(node.count)")
-                        .diaryFont(12, weight: .medium)
+                        .diaryFont(TypeSize.badge, weight: .medium)
                         .foregroundStyle(Theme.onSurfaceVariant())
                         .monospacedDigit()
                     if !node.isLeaf {
                         Image(systemName: "chevron.right")
-                            .diaryFont(10, weight: .semibold)
+                            .diaryFont(TypeSize.caption, weight: .semibold)
                             .foregroundStyle(Theme.onSurfaceVariant())
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     }

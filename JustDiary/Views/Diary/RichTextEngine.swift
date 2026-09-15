@@ -2,6 +2,88 @@ import SwiftUI
 import UIKit
 import Observation
 
+// MARK: - Editor design sizes
+//
+// The editor's text storage is the thing `parts(from:)` reads back to decide
+// whether a line is an h1, an h2 or a paragraph, and `TextRun.size` is
+// persisted in the diary JSON. The storage must therefore keep the *design*
+// size, never the size that was actually drawn: once Dynamic Type is honoured,
+// a 15pt paragraph can be drawn at 26pt, and reading that back would classify
+// every paragraph as a heading and rewrite the saved entry.
+//
+// So a run carries two things: a `.font` at the resolved display size, and
+// `.diaryDesignSize`, the unscaled size that font was derived from.
+enum EditorDesignSize {
+    static let h1: CGFloat = 22
+    static let h2: CGFloat = 18
+    static let body: CGFloat = 15
+    static let quote: CGFloat = 13
+
+    /// Every size the editor authors, for exact recovery of a design size from
+    /// a drawn one. See `EditorFont.designSize(of:typeSize:)`.
+    static let authored: [CGFloat] = [h1, h2, body, quote]
+}
+
+extension NSAttributedString.Key {
+    /// The unscaled design size a run's `.font` was derived from. Internal to
+    /// the editor; never persisted (the design size is persisted separately as
+    /// `TextRun.size`).
+    static let diaryDesignSize = NSAttributedString.Key("com.cov.justdiary.designSize")
+}
+
+enum EditorFont {
+    /// Font actually drawn for a design size, in the user's text-size category.
+    static func font(_ designSize: CGFloat, weight: UIFont.Weight = .regular,
+                     italic: Bool = false, typeSize: DynamicTypeSize) -> UIFont {
+        var f = DynamicTypeMetrics.font(designSize, weight: weight, typeSize: typeSize)
+        if italic, let d = f.fontDescriptor.withSymbolicTraits(.traitItalic) {
+            // CJK glyphs (PingFang etc.) have no true italic outline, so merely
+            // toggling `.traitItalic` leaves Chinese text looking barely
+            // slanted. A mild oblique matrix makes it obvious while keeping
+            // other traits (bold) intact.
+            let skewed = d.addingAttributes([.matrix: NSValue(cgAffineTransform:
+                CGAffineTransform(a: 1, b: 0, c: 0.24, d: 1, tx: 0, ty: 0))])
+            f = UIFont(descriptor: skewed, size: f.pointSize)
+        }
+        return f
+    }
+
+    /// Attributes for a run at `designSize`.
+    static func attributes(_ designSize: CGFloat, weight: UIFont.Weight = .regular,
+                           italic: Bool = false,
+                           typeSize: DynamicTypeSize) -> [NSAttributedString.Key: Any] {
+        [
+            .font: font(designSize, weight: weight, italic: italic, typeSize: typeSize),
+            .diaryDesignSize: NSNumber(value: Double(designSize))
+        ]
+    }
+
+    /// Design size of a run.
+    ///
+    /// `.diaryDesignSize` is the authoritative source. It is missing for text
+    /// UIKit re-attributed behind our back — `typingAttributes` is re-synced
+    /// from the text at the caret for a fixed set of keys, so every character
+    /// typed after the first one loses the custom key — and that fallback has to
+    /// be *exact*: an approximation drifts the persisted `TextRun.size` upward
+    /// on every save until a paragraph crosses the h2 threshold and the entry is
+    /// rewritten as a heading.
+    ///
+    /// Sizes this editor itself draws are therefore matched exactly against the
+    /// forward mapping before falling back to division, which is only needed for
+    /// per-run sizes in imported documents.
+    static func designSize(of attributes: [NSAttributedString.Key: Any],
+                           typeSize: DynamicTypeSize = .large) -> CGFloat? {
+        if let n = attributes[.diaryDesignSize] as? NSNumber { return CGFloat(truncating: n) }
+        guard let point = (attributes[.font] as? UIFont)?.pointSize else { return nil }
+        guard typeSize != .large else { return point }
+        for design in EditorDesignSize.authored
+        where abs(DynamicTypeMetrics.scaled(design, for: typeSize) - point) < 0.01 {
+            return design
+        }
+        return point / DynamicTypeMetrics.multiplier(for: point, typeSize: typeSize)
+    }
+}
+
 @Observable
 final class RichEditorController {
     weak var textView: UITextView?
@@ -9,12 +91,16 @@ final class RichEditorController {
     var imageMaxWidth: CGFloat?
     private(set) var formatTick = 0
 
+    /// The user's text-size category, pushed in by `RichTextView`. The editor
+    /// cannot read the SwiftUI environment itself, but it must build fonts with
+    /// the same metrics the rest of the UI uses.
+    var dynamicTypeSize: DynamicTypeSize = .large
+
     func baseTypingAttributes() -> [NSAttributedString.Key: Any] {
-        [
-            .font: UIFont.systemFont(ofSize: 15),
-            .foregroundColor: Theme.onSurfaceUIColor(),
-            .paragraphStyle: NSMutableParagraphStyle()
-        ]
+        var attrs = EditorFont.attributes(EditorDesignSize.body, typeSize: dynamicTypeSize)
+        attrs[.foregroundColor] = Theme.onSurfaceUIColor()
+        attrs[.paragraphStyle] = NSMutableParagraphStyle()
+        return attrs
     }
 
     func refreshTypingAttributes() {
@@ -59,7 +145,8 @@ final class RichEditorController {
                 }
             }
         } else {
-            let font = (tv.typingAttributes[.font] as? UIFont) ?? UIFont.systemFont(ofSize: 15)
+            let font = (tv.typingAttributes[.font] as? UIFont)
+                ?? EditorFont.font(EditorDesignSize.body, typeSize: dynamicTypeSize)
             var sym = font.fontDescriptor.symbolicTraits
             if sym.contains(trait) {
                 sym.remove(trait)
@@ -135,12 +222,14 @@ final class RichEditorController {
             guard let font = value as? UIFont else { return }
             let traits = font.fontDescriptor.symbolicTraits
             let weight: UIFont.Weight = traits.contains(.traitBold) ? .bold : .regular
-            var base = UIFont.systemFont(ofSize: 15, weight: weight)
-            if traits.contains(.traitItalic), let d = base.fontDescriptor.withSymbolicTraits(.traitItalic) {
-                base = UIFont(descriptor: Self.applyItalicSlant(d, trait: .traitItalic, adding: true), size: 15)
-            }
+            let italic = traits.contains(.traitItalic)
+            let attrs = EditorFont.attributes(EditorDesignSize.body, weight: weight, italic: italic,
+                                              typeSize: dynamicTypeSize)
             attributed.removeAttribute(.font, range: r)
-            attributed.addAttribute(.font, value: base, range: r)
+            attributed.removeAttribute(.diaryDesignSize, range: r)
+            for (key, value) in attrs {
+                attributed.addAttribute(key, value: value, range: r)
+            }
         }
         attributed.enumerateAttribute(.backgroundColor, in: para) { value, r, _ in
             attributed.removeAttribute(.backgroundColor, range: r)
@@ -157,7 +246,7 @@ final class RichEditorController {
 
     func applyHeading(_ level: Int) {
         guard let tv = textView else { return }
-        let size: CGFloat = level == 1 ? 22 : (level == 2 ? 18 : 15)
+        let size: CGFloat = level == 1 ? EditorDesignSize.h1 : (level == 2 ? EditorDesignSize.h2 : EditorDesignSize.body)
         let range = tv.selectedRange
 
         if range.length > 0 {
@@ -182,12 +271,14 @@ final class RichEditorController {
                     guard let font = value as? UIFont else { return }
                     let traits = font.fontDescriptor.symbolicTraits
                     let weight: UIFont.Weight = traits.contains(.traitBold) ? .bold : .regular
-                    var f = UIFont.systemFont(ofSize: size, weight: weight)
-                    if traits.contains(.traitItalic), let d = f.fontDescriptor.withSymbolicTraits(.traitItalic) {
-                        f = UIFont(descriptor: Self.applyItalicSlant(d, trait: .traitItalic, adding: true), size: size)
-                    }
+                    let attrs = EditorFont.attributes(size, weight: weight,
+                                                      italic: traits.contains(.traitItalic),
+                                                      typeSize: dynamicTypeSize)
                     attributed.removeAttribute(.font, range: subRange)
-                    attributed.addAttribute(.font, value: f, range: subRange)
+                    attributed.removeAttribute(.diaryDesignSize, range: subRange)
+                    for (key, value) in attrs {
+                        attributed.addAttribute(key, value: value, range: subRange)
+                    }
                 }
                 if level > 0 {
                     attributed.enumerateAttribute(.paragraphStyle, in: range) { value, r, _ in
@@ -209,26 +300,37 @@ final class RichEditorController {
             } else {
                 notifyFormatChange()
             }
-            tv.typingAttributes[.font] = UIFont.systemFont(ofSize: size)
+            tv.typingAttributes[.font] = EditorFont.font(size, typeSize: dynamicTypeSize)
+            tv.typingAttributes[.diaryDesignSize] = NSNumber(value: Double(size))
         }
+    }
+
+    /// Heading state is decided on the *design* size, not the drawn size: once
+    /// Dynamic Type is honoured a paragraph and an h2 can be drawn at the same
+    /// point size, so comparing what is on screen would mis-report headings.
+    private func designSize(at location: Int) -> CGFloat {
+        guard let tv = textView else { return EditorDesignSize.body }
+        if tv.textStorage.length > 0, location < tv.textStorage.length,
+           let value = EditorFont.designSize(of: tv.textStorage.attributes(at: location, effectiveRange: nil)) {
+            return value
+        }
+        return EditorFont.designSize(of: tv.typingAttributes) ?? EditorDesignSize.body
     }
 
     func currentHeadingLevel() -> Int {
         guard let tv = textView else { return 0 }
         // Empty caret: what gets typed next governs the toggle state (UIKit keeps
         // typingAttributes in sync with the attributes at the insertion point).
+        let size: CGFloat
         if tv.selectedRange.length == 0 {
-            let size = (tv.typingAttributes[.font] as? UIFont)?.pointSize ?? 15
-            if size >= 22 { return 1 }
-            if size >= 18 { return 2 }
-            return 0
+            size = EditorFont.designSize(of: tv.typingAttributes, typeSize: dynamicTypeSize) ?? EditorDesignSize.body
+        } else {
+            let location = min(tv.selectedRange.location, max(0, tv.textStorage.length - 1))
+            guard tv.textStorage.length > 0, location < tv.textStorage.length else { return 0 }
+            size = designSize(at: location)
         }
-        let location = min(tv.selectedRange.location, max(0, tv.textStorage.length - 1))
-        guard tv.textStorage.length > 0, location < tv.textStorage.length else { return 0 }
-        let f = tv.textStorage.attribute(.font, at: location, effectiveRange: nil) as? UIFont
-        let s = f?.pointSize ?? 15
-        if s >= 22 { return 1 }
-        if s >= 18 { return 2 }
+        if size >= EditorDesignSize.h1 { return 1 }
+        if size >= EditorDesignSize.h2 { return 2 }
         return 0
     }
 
@@ -346,13 +448,14 @@ final class RichEditorController {
                     attributed.replaceCharacters(in: NSRange(location: insertLocation, length: 1), with: "")
                 }
             } else {
-                let attachment = MarkerAttachment.attachment(kind: kind)
+                let attachment = MarkerAttachment.attachment(kind: kind, typeSize: dynamicTypeSize)
                 attributed.insert(NSAttributedString(attachment: attachment), at: insertLocation)
             }
         }
 
         // Reset typing attributes to a plain block line.
-        tv.typingAttributes[.font] = UIFont.systemFont(ofSize: 15)
+        tv.typingAttributes[.font] = EditorFont.font(EditorDesignSize.body, typeSize: dynamicTypeSize)
+        tv.typingAttributes[.diaryDesignSize] = NSNumber(value: Double(EditorDesignSize.body))
         tv.typingAttributes[.backgroundColor] = UIColor.clear
         if let style = tv.typingAttributes[.paragraphStyle] as? NSMutableParagraphStyle {
             style.alignment = .left
@@ -403,12 +506,15 @@ final class RichEditorController {
                 guard let font = value as? UIFont else { return }
                 let traits = font.fontDescriptor.symbolicTraits
                 let weight: UIFont.Weight = traits.contains(.traitBold) ? .bold : .regular
-                var f = UIFont.systemFont(ofSize: isQuote ? 15 : 13, weight: weight)
-                if traits.contains(.traitItalic), let d = f.fontDescriptor.withSymbolicTraits(.traitItalic) {
-                    f = UIFont(descriptor: Self.applyItalicSlant(d, trait: .traitItalic, adding: true), size: isQuote ? 15 : 13)
-                }
+                let design = isQuote ? EditorDesignSize.body : EditorDesignSize.quote
+                let attrs = EditorFont.attributes(design, weight: weight,
+                                                  italic: traits.contains(.traitItalic),
+                                                  typeSize: dynamicTypeSize)
                 attributed.removeAttribute(.font, range: r)
-                attributed.addAttribute(.font, value: f, range: r)
+                attributed.removeAttribute(.diaryDesignSize, range: r)
+                for (key, value) in attrs {
+                    attributed.addAttribute(key, value: value, range: r)
+                }
             }
             attributed.addAttribute(.backgroundColor, value: bg, range: para2)
         }
@@ -428,7 +534,9 @@ final class RichEditorController {
             tv.typingAttributes[.paragraphStyle] = style
         }
         tv.typingAttributes[.backgroundColor] = isQuote ? UIColor.clear : Theme.quoteBgUIColor()
-        tv.typingAttributes[.font] = UIFont.systemFont(ofSize: isQuote ? 15 : 13)
+        let quoted = isQuote ? EditorDesignSize.body : EditorDesignSize.quote
+        tv.typingAttributes[.font] = EditorFont.font(quoted, typeSize: dynamicTypeSize)
+        tv.typingAttributes[.diaryDesignSize] = NSNumber(value: Double(quoted))
     }
 
     func isQuoteActive() -> Bool {
@@ -528,7 +636,7 @@ final class RichEditorController {
         let ratio = image.size.height / max(1, image.size.width)
         let displayH = max(40, maxW * ratio)
         let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: maxW, h: displayH))
-        attachment.image = DiaryImageStore.rounded(image, size: CGSize(width: maxW, height: displayH), radius: 20)
+        attachment.image = DiaryImageStore.rounded(image, size: CGSize(width: maxW, height: displayH), radius: Radius.image)
         attachment.bounds = CGRect(x: 0, y: 0, width: maxW, height: displayH)
         let attributed = NSMutableAttributedString(attachment: attachment)
         attributed.append(NSAttributedString(string: "\n", attributes: baseTypingAttributes()))
@@ -540,14 +648,34 @@ final class RichEditorController {
 
     func currentParts() -> [ContentPart] {
         guard let tv = textView else { return [] }
-        return PartsCodec.parts(from: tv.textStorage)
+        return PartsCodec.parts(from: tv.textStorage, typeSize: dynamicTypeSize)
     }
 
     func load(parts: [ContentPart]) {
         guard let tv = textView else { return }
-        tv.textStorage.setAttributedString(PartsCodec.attributedString(from: parts, imageMaxWidth: imageMaxWidth))
+        tv.textStorage.setAttributedString(
+            PartsCodec.attributedString(from: parts, imageMaxWidth: imageMaxWidth, typeSize: dynamicTypeSize)
+        )
         tv.typingAttributes = baseTypingAttributes()
         tv.selectedRange = NSRange(location: 0, length: 0)
+        notifyFormatChange()
+    }
+
+    /// Re-renders the current content for a new text-size category, keeping the
+    /// caret where it was. Called when 设置 › 文字大小 changes while an entry is
+    /// open; the stored design sizes are unaffected, only the drawn fonts.
+    func reapplyTypeSize(_ newSize: DynamicTypeSize) {
+        guard let tv = textView, newSize != dynamicTypeSize else { return }
+        // Parse with the *old* category so the design sizes come back exactly,
+        // then rebuild at the new one.
+        let parts = PartsCodec.parts(from: tv.textStorage, typeSize: dynamicTypeSize)
+        let caret = tv.selectedRange
+        dynamicTypeSize = newSize
+        tv.textStorage.setAttributedString(
+            PartsCodec.attributedString(from: parts, imageMaxWidth: imageMaxWidth, typeSize: newSize)
+        )
+        tv.typingAttributes = baseTypingAttributes()
+        tv.selectedRange = NSRange(location: min(caret.location, tv.textStorage.length), length: 0)
         notifyFormatChange()
     }
 
@@ -603,7 +731,12 @@ final class PayloadAttachment: NSTextAttachment {
 }
 
 enum MarkerAttachment {
-    static func attachment(kind: String, done: Bool = false) -> PayloadAttachment {
+    /// List bullets and todo checkboxes are drawn as text attachments, so they
+    /// have to be scaled by hand: a fixed 13pt glyph stayed small next to text
+    /// the user had enlarged. The bounds scale with it so the marker keeps its
+    /// proportion to the line.
+    static func attachment(kind: String, done: Bool = false,
+                           typeSize: DynamicTypeSize = .large) -> PayloadAttachment {
         let attachment = PayloadAttachment(payload: AttachmentPayload(kind: kind, done: done))
         let symbol: String
         switch kind {
@@ -612,37 +745,41 @@ enum MarkerAttachment {
         default:
             symbol = "circle.fill"
         }
-        let config = UIImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        let scale = DynamicTypeMetrics.multiplier(for: EditorDesignSize.body, typeSize: typeSize)
+        let config = UIImage.SymbolConfiguration(pointSize: 13 * scale, weight: .regular)
         let image = UIImage(systemName: symbol, withConfiguration: config)?
             .withTintColor(done ? Theme.primaryUIColor() : Theme.onSurfaceVariantUIColor(),
                            renderingMode: .alwaysTemplate)
         attachment.image = image
-        attachment.bounds = CGRect(x: 0, y: -2, width: 15, height: 15)
+        attachment.bounds = CGRect(x: 0, y: -2, width: 15 * scale, height: 15 * scale)
         return attachment
     }
 }
 
 enum PartsCodec {
-    static func attributedString(from parts: [ContentPart], imageMaxWidth: CGFloat? = nil) -> NSAttributedString {
+    static func attributedString(from parts: [ContentPart], imageMaxWidth: CGFloat? = nil,
+                                 typeSize: DynamicTypeSize = .large) -> NSAttributedString {
         let result = NSMutableAttributedString()
         for part in parts {
             switch part.type {
             case ContentPartType.h1:
-                appendLine(part, to: result, size: 22)
+                appendLine(part, to: result, size: EditorDesignSize.h1, typeSize: typeSize)
             case ContentPartType.h2:
-                appendLine(part, to: result, size: 18)
+                appendLine(part, to: result, size: EditorDesignSize.h2, typeSize: typeSize)
             case ContentPartType.quote:
-                appendLine(part, to: result, size: 13, background: Theme.quoteBgUIColor())
+                appendLine(part, to: result, size: EditorDesignSize.quote,
+                           background: Theme.quoteBgUIColor(), typeSize: typeSize)
             case ContentPartType.list:
                 for item in part.items ?? [] {
-                    appendMarkerLine(kind: "bullet", done: false, text: item, to: result, size: 15)
+                    appendMarkerLine(kind: "bullet", done: false, text: item, to: result,
+                                     size: EditorDesignSize.body, typeSize: typeSize)
                 }
             case ContentPartType.todo:
                 let items = part.items ?? []
                 let done = part.done ?? Array(repeating: false, count: items.count)
                 for (i, item) in items.enumerated() {
                     appendMarkerLine(kind: "todo", done: done.indices.contains(i) && done[i],
-                                     text: item, to: result, size: 15)
+                                     text: item, to: result, size: EditorDesignSize.body, typeSize: typeSize)
                 }
             case ContentPartType.image:
                 if let src = part.src {
@@ -654,7 +791,7 @@ enum PartsCodec {
                     let h = storedH * w / storedW
                     if let image = DiaryImageStore.shared.image(for: src, maxPixel: max(storedW, storedH) * 3) {
                         let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: storedW, h: storedH))
-                        attachment.image = DiaryImageStore.rounded(image, size: CGSize(width: w, height: h), radius: 20)
+                        attachment.image = DiaryImageStore.rounded(image, size: CGSize(width: w, height: h), radius: Radius.image)
                         attachment.bounds = CGRect(x: 0, y: 0, width: w, height: h)
                         let att = NSMutableAttributedString(attachment: attachment)
                         result.append(att)
@@ -662,74 +799,69 @@ enum PartsCodec {
                     }
                 }
             default:
-                appendLine(part, to: result, size: 15)
+                appendLine(part, to: result, size: EditorDesignSize.body, typeSize: typeSize)
             }
         }
         return result
     }
 
     private static func appendMarkerLine(kind: String, done: Bool, text: String,
-                                         to result: NSMutableAttributedString, size: CGFloat) {
+                                         to result: NSMutableAttributedString, size: CGFloat,
+                                         typeSize: DynamicTypeSize) {
         let style = NSMutableParagraphStyle()
         style.lineSpacing = 2
-        var attrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: size),
-            .foregroundColor: Theme.onSurfaceUIColor(),
-            .paragraphStyle: style
-        ]
+        var attrs = EditorFont.attributes(size, typeSize: typeSize)
+        attrs[.foregroundColor] = Theme.onSurfaceUIColor()
+        attrs[.paragraphStyle] = style
         if kind == "todo", done {
             attrs[.strikethroughStyle] = 1
             attrs[.foregroundColor] = Theme.onSurfaceUIColor().withAlphaComponent(0.45)
         }
-        result.append(NSAttributedString(attachment: MarkerAttachment.attachment(kind: kind, done: done)))
+        result.append(NSAttributedString(attachment: MarkerAttachment.attachment(kind: kind, done: done,
+                                                                              typeSize: typeSize)))
         result.append(NSAttributedString(string: text, attributes: attrs))
-        result.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: size)]))
+        result.append(NSAttributedString(string: "\n", attributes: EditorFont.attributes(size, typeSize: typeSize)))
     }
 
     private static func appendLine(_ part: ContentPart, to result: NSMutableAttributedString, size: CGFloat,
-                                   background: UIColor? = nil) {
+                                   background: UIColor? = nil, typeSize: DynamicTypeSize) {
         let runs = part.runs ?? []
         if runs.isEmpty, let text = part.text {
             appendLine([TextRun(text: text)], to: result, size: size, background: background,
-                       center: part.align == "center")
+                       center: part.align == "center", typeSize: typeSize)
         } else {
-            appendLine(runs, to: result, size: size, background: background, center: part.align == "center")
+            appendLine(runs, to: result, size: size, background: background,
+                       center: part.align == "center", typeSize: typeSize)
         }
     }
 
     private static func appendLine(_ runs: [TextRun], to result: NSMutableAttributedString, size: CGFloat,
-                                   background: UIColor? = nil, center: Bool = false) {
+                                   background: UIColor? = nil, center: Bool = false,
+                                   typeSize: DynamicTypeSize) {
         let line = NSMutableAttributedString()
         let style = NSMutableParagraphStyle()
         style.alignment = center ? .center : .left
-        style.lineSpacing = size == 13 ? 7 : 2
+        style.lineSpacing = size == EditorDesignSize.quote ? 7 : 2
         for run in runs {
-            let bold = run.bold == true
-            var font = UIFont.systemFont(ofSize: size, weight: bold ? .bold : .regular)
-            var attrs: [NSAttributedString.Key: Any] = [
-                .font: font,
-                .foregroundColor: Theme.onSurfaceUIColor(),
-                .paragraphStyle: style
-            ]
-            if run.italic == true {
-                if let desc = font.fontDescriptor.withSymbolicTraits(.traitItalic) {
-                    font = UIFont(descriptor: desc, size: size)
-                    attrs[.font] = font
-                }
-            }
+            // An imported run may carry its own design size; it is resolved the
+            // same way as the block default so the two cannot drift apart.
+            let design = run.size.flatMap { $0 > 0 ? CGFloat($0) : nil } ?? size
+            var attrs = EditorFont.attributes(design,
+                                              weight: run.bold == true ? .bold : .regular,
+                                              italic: run.italic == true,
+                                              typeSize: typeSize)
+            attrs[.foregroundColor] = Theme.onSurfaceUIColor()
+            attrs[.paragraphStyle] = style
             if run.strike == true { attrs[.strikethroughStyle] = 1 }
             if run.underline == true { attrs[.underlineStyle] = 1 }
-            if let runSize = run.size, runSize > 0, runSize != size {
-                attrs[.font] = UIFont.systemFont(ofSize: runSize, weight: bold ? .bold : .regular)
-            }
             if let bg = background { attrs[.backgroundColor] = bg }
             line.append(NSAttributedString(string: run.text, attributes: attrs))
         }
         result.append(line)
-        result.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: size)]))
+        result.append(NSAttributedString(string: "\n", attributes: EditorFont.attributes(size, typeSize: typeSize)))
     }
 
-    static func parts(from storage: NSAttributedString) -> [ContentPart] {
+    static func parts(from storage: NSAttributedString, typeSize: DynamicTypeSize = .large) -> [ContentPart] {
         var parts: [ContentPart] = []
         let text = storage.string as NSString
         var lineStart = 0
@@ -794,23 +926,27 @@ enum PartsCodec {
                 let font = attrs[.font] as? UIFont
                 let strike = (attrs[.strikethroughStyle] as? Int ?? 0) != 0
                 let underline = (attrs[.underlineStyle] as? Int ?? 0) != 0
+                // Persist the *design* size, never the drawn one: the drawn size
+                // grows with the user's text-size setting, and writing it back
+                // would turn a paragraph into a heading on the next load.
+                let design = EditorFont.designSize(of: attrs, typeSize: typeSize)
                 runs.append(TextRun(text: sub,
                                     bold: font?.fontDescriptor.symbolicTraits.contains(.traitBold) == true,
                                     italic: font?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true,
                                     strike: strike,
                                     underline: underline,
-                                    size: font.map { Double($0.pointSize) }))
+                                    size: design.map { Double(($0 * 1000).rounded() / 1000) }))
                 cursor = effectiveEnd
             }
             if runs.isEmpty { continue }
             if let first = runs.first {
-                let size = first.size ?? 15
+                let size = first.size ?? Double(EditorDesignSize.body)
                 let type: String
                 if isQuote {
                     type = ContentPartType.quote
-                } else if size >= 22 {
+                } else if size >= Double(EditorDesignSize.h1) {
                     type = ContentPartType.h1
-                } else if size >= 18 {
+                } else if size >= Double(EditorDesignSize.h2) {
                     type = ContentPartType.h2
                 } else {
                     type = ContentPartType.paragraph

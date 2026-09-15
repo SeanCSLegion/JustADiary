@@ -27,7 +27,7 @@ struct DiaryImageView: View {
                         .resizable()
                         .scaledToFit()
                         .frame(width: w, height: fitH)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.image, style: .continuous))
                         .contentShape(Rectangle())
                         .onTapGesture {
                             Haptics.tap()

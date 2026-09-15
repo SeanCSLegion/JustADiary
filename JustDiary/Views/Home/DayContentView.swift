@@ -50,7 +50,7 @@ struct DayContentView: View {
                 .diaryFont(26)
                 .foregroundStyle(Theme.onSurfaceVariant().opacity(0.5))
             Text(isFuture ? L10n.str("index_future_empty") : L10n.str("index_day_empty"))
-                .diaryFont(14)
+                .diaryFont(TypeSize.rowTitle)
                 .foregroundStyle(Theme.onSurfaceVariant())
             if !isFuture, dayKey == DateUtil.dayKeyOf(Date()) {
                 GlassPrimaryButton(title: L10n.str("index_write")) {
@@ -82,7 +82,7 @@ struct DiaryBlockCard: View {
                             .multilineTextAlignment(.leading)
                     }
                 }
-                .diaryFont(12)
+                .diaryFont(TypeSize.caption)
                 .foregroundStyle(Theme.onSurfaceVariant())
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -98,7 +98,7 @@ struct DiaryBlockCard: View {
                 onOpenDiary()
             })
         }
-        .padding(12)
-        .diaryCard(cornerRadius: 18)
+        .padding(Spacing.card)
+        .diaryCard(cornerRadius: Radius.card)
     }
 }
