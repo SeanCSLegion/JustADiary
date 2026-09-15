@@ -40,10 +40,6 @@ nonisolated enum DateUtil {
         calendar.date(byAdding: .day, value: days, to: date) ?? date
     }
 
-    static func addMonths(_ date: Date, _ months: Int) -> Date {
-        calendar.date(byAdding: .month, value: months, to: date) ?? date
-    }
-
     static func startOfDay(_ date: Date) -> Date {
         calendar.startOfDay(for: date)
     }
@@ -56,10 +52,6 @@ nonisolated enum DateUtil {
     static func weekFirst(_ date: Date) -> Date {
         let lead = weekdayIndex(date, weekStart: SettingsStore.load().weekStart)
         return calendar.date(byAdding: .day, value: -lead, to: startOfDay(date)) ?? date
-    }
-
-    static func daysInMonth(_ date: Date) -> Int {
-        calendar.range(of: .day, in: .month, for: date)?.count ?? 30
     }
 
     static func weekdayIndex(_ date: Date, weekStart: String) -> Int {

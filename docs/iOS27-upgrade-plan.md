@@ -283,5 +283,10 @@ P1 目标版本/元数据  →  P2 构建设置+并发（可选）  →  P3 MapK
 
 ## 另外发现的两件事
 
-- `generate_xcstrings.py` **已失效**：它依赖的 `Resources/{en,zh-Hans}.lproj/Localizable.strings` 不存在了，现在 `Localizable.xcstrings` 是唯一真源。（已在 README 标注）
+- ~~`generate_xcstrings.py` 已失效~~：它依赖的 `Resources/{en,zh-Hans}.lproj/Localizable.strings` 不存在了，
+  现在 `Localizable.xcstrings` 是唯一真源。**该失效脚本已删除**（见 README「资源再生成」）。
 - 验证过程中 `iPhone 17` 模拟器设备从设备集里消失（同时 `iPhone 18 Pro` 被启动），最终验证改用 **iPhone 18 Pro** 完成。
+
+> 本文成文后的界面规范化改造（设计令牌、动态字体、日期格式统一、Liquid Glass 边界）
+> 见 `docs/design-system.md`：它沿用了 P5「内容区去玻璃」的结论，并把玻璃扩展到搜索框、
+> 编辑器格式栏与首页胶囊。编辑页尚未处理的问题集中记录在 `docs/editor-todo.md`。

@@ -153,5 +153,3 @@ nonisolated final class SQLite {
                        userInfo: [NSLocalizedDescriptionKey: "\(msg) in: \(sql)"])
     }
 }
-
-private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

@@ -162,3 +162,55 @@ Apple 的原始曲线在 AX5 会把 body 从 17pt 推到约 53pt，**并且让�
 - 底部为悬浮 tab bar 预留的间距改为 `TabBarClearance`，随字号放大——
   固定 120pt 在最大字号下会让最后一行压在 tab bar 下面。
 - `PlaceholderTextView` 的占位文字高度原本写死 22pt，改为按字体行高计算。
+
+---
+
+## 七、整理时发现、尚未补的界面缺口
+
+清理无用资源时顺带核实到两处「文案/能力已存在但没接上」的地方，记录在此：
+
+1. **日历的可调节无障碍动作没有标签**。`MonthCanvas` 用
+   `.accessibilityAdjustableAction` 支持上下切换日期，但没给这个动作命名；
+   String Catalog 里原本有 `a11y_next_day`（后一天）与 `a11y_prev_day`（前一天）
+   两条文案，**却没有任何代码引用**。它们已作为无用键删除，补上动作标签时按上面的
+   语义重新添加即可（`git show bee42a5:JustDiary/Resources/Localizable.xcstrings` 可取回）。
+2. **`month_jan`…`month_dec`、`week_monday`…`week_sunday` 共 19 条硬编码月/星期名**
+   也没有任何引用——月名与星期名现在由 `DateFormatter` 按语言生成（见第四节）。
+   这些键已作为无用资源删除，不要再往目录里加硬编码日期名。
+
+---
+
+## 八、清理结果：删了什么、为什么保留了什么
+
+2026-09-15 做了一次无用资源清理。**删除**的依据是「全仓库零引用」且删除不影响行为；
+**保留**的依据是「零引用但它是一个能力或钩子，删掉属于产品决策而非清理」。
+
+**已删除**
+
+| 类别 | 内容 |
+|---|---|
+| 失效脚本 | `generate_xcstrings.py`（依赖的 `.lproj/Localizable.strings` 已不存在） |
+| 过程脚本 | `validate_pbxproj.swift`（一次性调试用，零引用） |
+| 本地化键 | 39 条零引用键；保留 `""` / `":"` / `"%lld"` 三条 Xcode 从 `Picker("")`、`Text(":")`、`Text("\(h)")` 自动提取的占位条目 |
+| 死代码 | `Animation.diaryMorph/diarySpring`、`AppTab.icon/label`（及未用的 `CaseIterable`）、`tintedGlass`、`Spacing.screen/cardGap/chip`、`Log.map/search`、`Haptics.medium`、`SQLite` 里重复的 `SQLITE_TRANSIENT`、`DiaryRepository.isFtsSupported/getFirstBlock/updateBlockLocation`、`DateUtil.addMonths/daysInMonth`、`L10n.weekdayShort`、`SearchViewModel.setLocFilter`、`MorphPerfUITests.attach` |
+
+验证方式：删除前后各构建一次；`git show HEAD:…xcstrings` 与新文件比对，确认
+**只有删除、没有新增、没有值改动**；全套 UI 测试通过。
+
+**保留（零引用，但属于能力/钩子）**
+
+1. **`FlowLightOverlay`** 及其依赖 `Theme.flowLightColor/flowMaskColor/flowLight`
+   与 `flowLight.colorset`。它是卡片上的装饰性流光，任何地方都没有实例化；
+   但 `docs/animation-and-accessibility.md` 记录了它在「减弱动态效果」下的行为，
+   说明这是一个**做出来但没接上的设计组件**。接上还是删掉请当作产品决策，不要当垃圾清掉。
+2. **`DiaryImageStore.invalidate(src:)` / `invalidateAll()` / `ContentPartCache.invalidate()`**。
+   三个缓存清理入口都零调用。图片缓存以 `src` 为键，而 `src` 是
+   `images/img_<毫秒时间戳>.jpg`（见 `DiaryViewModel.insertImage`），**不是内容寻址**；
+   因此「覆盖导入」理论上可能让某个 src 对应到不同内容而读到旧图。
+   保留它们是因为它们是这个问题的现成修复点，删掉等于把钩子也删了。
+3. **只写不读的属性**：`EditBlock.diaryId`、`PreviewItem.ratio`、
+   `DayContentView.showFutureToast`（由 `HomeView` 传入但从未调用）。
+   要清理必须同时改动调用点，属于小重构，留待与相关功能一起处理。
+4. **`DiaryRepository.dbPathOverride` / `imagesDirOverride`**：被 `dbPath()` /
+   `imagesDir()` 读取，但仓库里没有任何地方赋值——像是给测试预留的注入口。
+   确认不打算用再删。

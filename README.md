@@ -78,12 +78,15 @@ python3 tools/seed_sample_diary.py "iPhone 18 Pro"
 
 ## 资源再生成
 
-- `generate_colorsets.py`：生成主题动态色 Asset Catalog 色板
-- ⚠️ `generate_xcstrings.py` 已失效：它依赖的 `Resources/{en,zh-Hans}.lproj/Localizable.strings` 已不存在。现在 `Localizable.xcstrings` 是唯一真源，请直接编辑该文件。
+- `generate_colorsets.py`：生成主题动态色 Asset Catalog 色板（当前输出与已提交的色板逐字节一致）
+- `Localizable.xcstrings` 是本地化的**唯一真源**，请直接编辑该文件。
+  （曾有的 `generate_xcstrings.py` 依赖已不存在的 `.lproj/Localizable.strings`，属于失效脚本，已删除；
+  需要时从 git 历史取回。）
 
 ## 版本说明
 
 - iOS 27 / Xcode 27（Swift 6.4）适配方案见 `docs/iOS27-upgrade-plan.md`
 - 界面规范（设计令牌 / 动态字体 / 日期格式 / Liquid Glass 边界）见 `docs/design-system.md`
+- **编辑页待办**（已核实、尚未处理的问题）见 `docs/editor-todo.md`
 - 首页动画性能与系统显示设置适配见 `docs/animation-and-accessibility.md`
 - 升级调研（含 Apple 官方文档引用）见 `docs/research/`

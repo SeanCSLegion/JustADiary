@@ -6,8 +6,6 @@ import UIKit
 extension Animation {
     static let diaryQuick = Animation.easeOut(duration: 0.22)
     static let diaryStandard = Animation.easeInOut(duration: 0.3)
-    static let diaryMorph = Animation.easeInOut(duration: 0.4)
-    static let diarySpring = Animation.spring(response: 0.35, dampingFraction: 0.8)
 }
 
 // MARK: - Screen metrics
@@ -84,13 +82,6 @@ extension View {
     func diaryBackground() -> some View {
         modifier(DiaryBackground())
     }
-}
-
-// MARK: - Glass primitives
-
-func tintedGlass(_ tint: Color?, interactive: Bool = false) -> Glass {
-    let g = tint.map { Glass.regular.tint($0) } ?? .regular
-    return interactive ? g.interactive() : g
 }
 
 extension View {
@@ -197,13 +188,15 @@ struct GlassPrimaryButton: View {
         .buttonStyle(.plain)
         .background {
             if enabled {
-                // Previously this filled the capsule with the opaque brand
-                // colour *and* applied a tinted glass effect on top, which made
-                // the glass invisible (nothing shows through an opaque fill).
-                // The tint alone now carries the colour, so the button keeps the
-                // Liquid Glass highlight and refraction.
+                // The opaque brand fill is deliberate, not a defeated glass
+                // effect: a *prominent* control is allowed to be opaque, and
+                // Apple's own tinted prominent glass reads the same way. The
+                // glass layer on top contributes the specular highlight and edge
+                // treatment, and the fill guarantees contrast for the primary
+                // call to action. (Removing the fill in favour of tint-only made
+                // the CTA noticeably weaker, which is a bad trade.)
                 Capsule()
-                    .fill(.clear)
+                    .fill(Theme.primary())
                     .glassEffect(.regular.tint(Theme.primary()).interactive(true), in: Capsule())
                     .shadow(color: Theme.glowColor(), radius: compact ? 8 : 10, y: compact ? 2 : 3)
             } else {
@@ -244,11 +237,14 @@ struct GlassSecondaryButton: View {
         }
         .buttonStyle(.plain)
         .background {
-            // The `glassDim` fill underneath made this read as a flat grey pill
-            // rather than a glass control; the untinted glass effect already
-            // supplies the surface.
+            // `glassDim` is a *translucent* white (45% in light, dark tint in
+            // dark mode), so filling with it before applying the glass does not
+            // hide the glass — it lifts the surface away from a bright
+            // background and keeps the secondary action legible. Removing it in
+            // favour of untinted glass made the button read as a barely-visible
+            // outline, so it is back.
             Capsule()
-                .fill(.clear)
+                .fill(Theme.glassDim())
                 .glassEffect(.regular.interactive(true), in: Capsule())
         }
     }

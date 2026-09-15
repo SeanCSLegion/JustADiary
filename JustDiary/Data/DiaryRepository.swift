@@ -25,8 +25,6 @@ nonisolated final class DiaryRepository {
            OR b.region2 <> '' OR b.region3 <> '' OR b.latitude != 0 OR b.longitude != 0))
     """
 
-    var isFtsSupported: Bool { ftsSupported }
-
     static var dbPathOverride: String?
     static var imagesDirOverride: URL?
 
@@ -292,14 +290,6 @@ nonisolated final class DiaryRepository {
         }
     }
 
-    func getFirstBlock(diaryId: Int64) async -> EditBlock? {
-        await runOnQueue { [self] in
-            guard let db else { return nil }
-            guard let row = db.queryFirst("SELECT * FROM edit_block WHERE diary_id = ? ORDER BY start_time_utc ASC LIMIT 1;", [diaryId]) else { return nil }
-            return Self.blockFromRow(row)
-        }
-    }
-
     func getBlocks(diaryId: Int64) async -> [EditBlock] {
         await runOnQueue { [self] in
             db?.query("SELECT * FROM edit_block WHERE diary_id = ? ORDER BY start_time_utc ASC;", [diaryId])
@@ -461,42 +451,6 @@ nonisolated final class DiaryRepository {
                 if diaryId > 0 { try touchDiaryTx(diaryId: diaryId, updatedUtc: now) }
             }
             cleanupImages(from: oldJson, to: newJson)
-        }
-    }
-
-    func updateBlockLocation(blockId: Int64, locText: String, locPrecision: String, region: LocRegion) async throws {
-        try await runOnQueue { [self] in
-            guard let db else { throw DBError.notReady }
-            let row = db.queryFirst("SELECT * FROM edit_block WHERE id = ?;", [blockId])
-            guard let row else { return }
-            var updates: [String] = []
-            var args: [Any?] = []
-            let currentLoc = (row["loc_text"] as? String) ?? ""
-            let currentPrecision = (row["loc_precision"] as? String) ?? "none"
-            let finalLoc = !locText.isEmpty ? locText : currentLoc
-            let finalPrecision = locPrecision != LocPrecision.none ? locPrecision : currentPrecision
-            if finalLoc != currentLoc { updates.append("loc_text = ?"); args.append(finalLoc) }
-            if finalPrecision != currentPrecision { updates.append("loc_precision = ?"); args.append(finalPrecision) }
-            func setCol(_ name: String, _ value: String) {
-                if value != ((row[name] as? String) ?? "") {
-                    updates.append("\(name) = ?")
-                    args.append(value)
-                }
-            }
-            setCol("country", region.country)
-            setCol("country_code", region.countryCode)
-            setCol("region1", region.region1)
-            setCol("region2", region.region2)
-            setCol("region3", region.region3)
-            if region.locQuality != "none" {
-                setCol("loc_quality", region.locQuality)
-            }
-            guard !updates.isEmpty else { return }
-            let now = Int64(Date().timeIntervalSince1970 * 1000)
-            updates.append("updated_utc = ?")
-            args.append(now)
-            args.append(blockId)
-            try db.execute("UPDATE edit_block SET \(updates.joined(separator: ", ")) WHERE id = ?;", args)
         }
     }
 

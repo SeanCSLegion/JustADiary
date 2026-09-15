@@ -138,12 +138,6 @@ nonisolated enum L10n {
         return f
     }
 
-    static func weekdayShort(_ weekdayIndex: Int) -> String {
-        let symbols = calendar().veryShortWeekdaySymbols
-        guard symbols.indices.contains(weekdayIndex) else { return "" }
-        return symbols[weekdayIndex]
-    }
-
     static func weekdayName(_ weekdayIndex: Int) -> String {
         let symbols = calendar().shortWeekdaySymbols
         guard symbols.indices.contains(weekdayIndex) else { return "" }

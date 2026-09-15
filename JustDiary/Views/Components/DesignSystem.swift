@@ -38,16 +38,9 @@ enum Radius {
 // Only the values that were already repeated across screens; this is not an
 // attempt to re-space the app, just to stop the same layout from drifting.
 enum Spacing {
-    /// Screen gutter used by every tab.
-    static let screen: CGFloat = 16
-    /// Padding inside a content card.
     static let card: CGFloat = 12
-    /// Vertical gap between stacked cards.
-    static let cardGap: CGFloat = 12
     /// Gap between a card's icon badge and its text.
     static let rowIcon: CGFloat = 12
-    /// Gap between chips.
-    static let chip: CGFloat = 8
     /// Apple's minimum hit target.
     static let hitTarget: CGFloat = 44
 }

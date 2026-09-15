@@ -1,28 +1,15 @@
 import SwiftUI
 
-enum AppTab: Hashable, CaseIterable {
+/// The four root tabs.
+///
+/// Only the case values are used: each `Tab` in `RootView` supplies its own
+/// title and `systemImage` inline, so the former `icon` / `label` helpers (and
+/// the unused `CaseIterable` conformance) were dead code.
+enum AppTab: Hashable {
     case home
     case footprint
     case search
     case settings
-
-    var icon: String {
-        switch self {
-        case .home: return "house.fill"
-        case .footprint: return "figure.walk"
-        case .search: return "magnifyingglass"
-        case .settings: return "gearshape.fill"
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .home: return L10n.str("index_title")
-        case .footprint: return L10n.str("footprint_title")
-        case .search: return L10n.str("search_title")
-        case .settings: return L10n.str("settings_title")
-        }
-    }
 }
 
 struct RootView: View {

@@ -18,18 +18,6 @@ final class MorphPerfUITests: XCTestCase {
                       "calendar header should be on screen")
     }
 
-    private func attach(_ name: String, _ text: String?) {
-        let a: XCTAttachment
-        if let text {
-            a = XCTAttachment(string: text)
-        } else {
-            a = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        }
-        a.name = name
-        a.lifetime = .keepAlways
-        add(a)
-    }
-
     func testBothMorphsRun() throws {
         // Query by identifier: the month canvas' accessibility label also
         // contains "年", so a label-based match taps the wrong element.

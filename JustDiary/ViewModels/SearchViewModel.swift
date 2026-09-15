@@ -164,15 +164,6 @@ final class SearchViewModel {
         Task { await doSearch(reset: true) }
     }
 
-    func setLocFilter(country: String, region1: String, noLoc: Bool, showPicker: Bool) {
-        locFilter = LocFilter(country: country, region1: region1, noLoc: noLoc)
-        if showPicker {
-            showLocSheet = true
-        } else {
-            Task { await doSearch(reset: true) }
-        }
-    }
-
     func resetLocFilter() {
         locFilter = LocFilter(country: "", region1: "", noLoc: false)
         Task { await doSearch(reset: true) }
