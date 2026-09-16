@@ -47,7 +47,11 @@ struct DragPagePager<Key: Hashable, Page: View>: View {
         .contentShape(Rectangle())
         .gesture(dragGesture(prevKey: prevKey, nextKey: nextKey), isEnabled: !disabled)
         .onChange(of: current) { _, _ in
-            offset = 0
+            // 外部改页（今天 / morph 收尾）时也把偏移清零，且不要动画：
+            // 这里若继承调用方的 withAnimation，会看见一次多余的滑动。
+            var tr = Transaction()
+            tr.disablesAnimations = true
+            withTransaction(tr) { offset = 0 }
         }
     }
 
@@ -59,7 +63,9 @@ struct DragPagePager<Key: Hashable, Page: View>: View {
                 var raw = t
                 if t > 0, prevKey == nil { raw = rubber(t) }
                 if t < 0, nextKey == nil { raw = -rubber(-t) }
-                offset = raw
+                // 夹在一页之内：越过一页继续拖，屏幕会露出当前页之外的空白，
+                // 松手再回弹，观感就是「翻月不连贯」。
+                offset = min(pageSize, max(-pageSize, raw))
             }
             .onEnded { value in
                 guard !disabled else { return }
@@ -73,7 +79,16 @@ struct DragPagePager<Key: Hashable, Page: View>: View {
                     withAnimation(.snappy(duration: 0.3)) {
                         offset = delta
                     } completion: {
-                        if let target { onPageChange(target) }
+                        // `current` 与 `offset` 必须在**同一个**无动画事务里改：
+                        // 先换 current 再补 offset=0，会先用旧 offset 渲染一帧新页
+                        // （页面向上一跳），再动画滑回原位 —— 这就是翻月末尾的跳变。
+                        // 两个一起改，前后两帧像素完全一致，视觉上无缝。
+                        var tr = Transaction()
+                        tr.disablesAnimations = true
+                        withTransaction(tr) {
+                            offset = 0
+                            if let target { onPageChange(target) }
+                        }
                     }
                 } else {
                     withAnimation(.snappy(duration: 0.3)) {

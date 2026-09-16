@@ -28,17 +28,15 @@ struct HomeView: View {
         GeometryReader { geo in
             let size = geo.size
             VStack(spacing: 0) {
-                // 横屏分栏时头部整块隐藏：年份入口与「今天」都在左栏标题行里，
-                // 留着就会出现两个年份胶囊。
-                if !(layout.splitsMasterDetail && mode == .month) {
+                if layout.splitsMasterDetail {
+                    // 横屏分栏：整块头部隐藏。年份入口已按需求取消，横屏只剩
+                    // 「上下滑切月」一种交互；「今天」在右栏标题行。
+                    splitCalendarArea(size: size)
+                } else {
                     header
                         .padding(.horizontal, 16)
                         .padding(.top, 12)
-                }
-                if layout.splitsMasterDetail, mode == .month {
-                    splitCalendarArea(size: size)
-                } else {
-                    // 横屏点年份胶囊进年历：复用竖屏那套整屏 morph（此时不显示分栏）
+                    // 横屏（尚未分栏的窄窗口）点年份胶囊进年历：复用竖屏那套整屏 morph
                     calendarArea(size: size)
                 }
             }
@@ -66,6 +64,11 @@ struct HomeView: View {
             }
         }
         .task { await vm.loadInitial() }
+        .onChange(of: layout.splitsMasterDetail) { _, split in
+            // 旋转进横屏分栏时，年/周态与 morph 都必须收掉：横屏没有年历入口，
+            // 也不该停留在半屏 morph 上。
+            if split { settleToMonth() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .diaryVersionChanged)) { _ in
             Task { await vm.loadInitial() }
         }
@@ -73,6 +76,21 @@ struct HomeView: View {
             vm.refreshSettings()
             resetToToday()
         }
+    }
+
+    /// 无动画地退回「月」态（横屏分栏使用）。
+    private func settleToMonth() {
+        guard mode != .month || ymMorph != nil || mwMorphMonth != nil else { return }
+        var tr = Transaction()
+        tr.disablesAnimations = true
+        withTransaction(tr) {
+            ymMorph = nil
+            mwMorphMonth = nil
+            zoom = 0
+            expand = 0
+            mode = .month
+        }
+        Task { await vm.reloadDayBlocks() }
     }
 
     // MARK: - Header
@@ -121,10 +139,9 @@ struct HomeView: View {
 
             Spacer()
 
-            // 横屏分栏时右栏标题行已有「今天」，这里不再重复一个相对日期胶囊。
-            if !layout.splitsMasterDetail {
-                InfoCapsule(text: relativeDayLabel(), action: todayTapped)
-            }
+            // 这一整个 header 只在未分栏（竖屏 / 窄窗口）时构建，
+            // 横屏的「今天」在右栏标题行，不会重复。
+            InfoCapsule(text: relativeDayLabel(), action: todayTapped)
         }
         // `height` clipped the capsule once the title grew with the user's
         // text size; `minHeight` is unchanged at the default category.
@@ -230,7 +247,8 @@ struct HomeView: View {
         }
     }
 
-    /// 切到年历（缩放 morph）。竖屏的左上角胶囊与横屏左栏的年份胶囊都走这里。
+    /// 切到年历（缩放 morph）。竖屏左上角的年月胶囊走这里。
+    /// 横屏没有年份入口，此路径不可达。
     private func showYearPage() {
         guard !morphing else { return }
         var tr = Transaction()
@@ -246,26 +264,6 @@ struct HomeView: View {
             zoom = 1
         } completion: {
             morphLog("ym-back-end")
-            ymMorph = nil
-        }
-    }
-
-    /// 从年历点某个月回来（缩放 morph）。
-    private func showMonthPage() {
-        guard !morphing else { return }
-        var tr = Transaction()
-        tr.disablesAnimations = true
-        withTransaction(tr) {
-            vm.selectMonth(DateUtil.monthFirst(selectedDate))
-            ymMorph = (vm.yearPage, vm.monthPage)
-            mode = .month
-            zoom = 1
-        }
-        morphLog("ym-open-start")
-        withAnimation(zoomAnimation) {
-            zoom = 0
-        } completion: {
-            morphLog("ym-open-end")
             ymMorph = nil
         }
     }
@@ -322,81 +320,94 @@ struct HomeView: View {
     ///
     /// 竖屏**不经过这里** —— 年 ↔ 月 ↔ 周三态与 morph 动画保持原样。
     private func splitCalendarArea(size: CGSize) -> some View {
-        // 系统占位由 safeArea 提供（横屏 leading = 62，浮条与灵动岛都在左侧）；
-        // 页面自己的边距统一 16pt，四屏一致。
-        let inset = layout.contentInset
+        // `size` 已经是**扣掉左右安全区**的内容尺寸（横屏 874×402 → 宽 750；
+        // 高度因为 `.ignoresSafeArea(.bottom)` 仍是 402）：左侧那 62pt 系统占位已经
+        // 在几何原点里，这里再减一次就是重复避让 —— 第一版在 HomeView 与 MonthPane
+        // 各避让一次，日历被推到 x ≈ 222，左半屏白白空着，正是「没有充分利用屏幕」的根因。
         let pagePad: CGFloat = 16
-        let top: CGFloat = 50
-        let bottom = layout.bottomInset + 8
-        // 内容可用宽 = 屏宽 − 左侧系统占位；再扣掉两侧 16pt 页面边距。
-        let paneW = size.width - inset
-        let shapeW = max(320, paneW - pagePad * 2)
-        // 月历 7 列每格 ≈56pt（好点、不挤），其余给右栏（本机约 330pt）。
-        let calendarW = min(shapeW - 280, min(420, max(360, (shapeW * 0.52).rounded())))
-        let dayW = shapeW - calendarW - pagePad * 2
-        let paneH = size.height - top
-        let areaH = max(220, paneH - bottom)
+        let topPad: CGFloat = 8
+        // 底部为横屏那枚悬在屏幕底部的系统浮条（实测 `y 338…402`，会盖住两栏最后
+        // 一行）让位：日历区在浮条之上结束。
+        let bottomClearance = layout.bottomInset + 44
+        let paneH = max(220, size.height - topPad - bottomClearance)
 
+        let headerH = CalendarLayout.compactMonthTitleH + CalendarLayout.compactWeekdayHeaderH
         let weeks = CalendarLayout.displayedWeeks(inMonth: vm.monthPage, ws: weekStart).count
-        // 横屏标题区是紧凑的「年份+今天」一行 + 月标题一行
-        let titleAndHeader = MonthPane.titleBlockHeight(compact: true)
-            + CalendarLayout.weekdayHeaderH
-        let density = CalendarDensity.resolve(availableHeight: areaH - titleAndHeader,
+        let density = CalendarDensity.resolve(availableHeight: paneH - headerH,
                                                rows: weeks,
                                                wantsLunar: showsLunar)
         let rows = density.rows(monthWeeks: weeks)
         let cellH = max(CalendarDensity.minimumRowHeight,
-                        (areaH - titleAndHeader) / CGFloat(rows).rounded())
-        return HStack(alignment: .top, spacing: pagePad * 2) {
+                        ((paneH - headerH) / CGFloat(rows)).rounded())
+
+        // 主栏固定 345（可用宽的 46%），其余全部给右栏；除去 16pt 页面边距与
+        // 16pt 栏间距，iPhone 18 Pro 横屏右栏约 356pt，正文一行 ~20 汉字。
+        let calendarW = min(layout.masterWidth, max(260, size.width - pagePad * 2 - 260))
+        let gutter: CGFloat = 16
+        let dayW = max(240, size.width - pagePad * 2 - calendarW - gutter - 0.5)
+        let todayAction = todayTapped
+
+        return HStack(alignment: .top, spacing: 0) {
             // 月历：**上下滑**翻月（与竖屏一致，横屏不引入第二套手势方向）；
             // 每页只画当前月，不显示相邻月的日期。
             DragPagePager(keys: CalendarLayout.allMonthKeys,
                           current: CalendarLayout.monthKey(vm.monthPage),
                           axis: .vertical,
-                          pageSize: areaH,
+                          pageSize: paneH,
                           disabled: false,
                           onPageChange: { key in
-                withAnimation(.snappy(duration: 0.3)) {
-                    vm.selectMonth(CalendarLayout.dateForMonthKey(key))
-                }
-                Task { await vm.reloadDayBlocks() }
+                selectMonthPage(key)
             }) { key in
                 MonthPane(month: CalendarLayout.dateForMonthKey(key),
                           weekStart: weekStart,
                           selectedDate: selectedDate,
                           flags: flags,
                           width: calendarW,
-                          areaH: areaH,
+                          areaH: paneH,
                           cellH: cellH,
                           density: density,
-                          // 「今天」与年份入口都放在左栏标题行 —— 横屏的唯一入口。
-                          showsTodayChip: true,
-                          onTodayTap: todayTapped,
+                          titleHeight: CalendarLayout.compactMonthTitleH,
+                          weekdayHeight: CalendarLayout.compactWeekdayHeaderH,
+                          titleFont: TypeSize.pageTitle,
                           onTapDay: selectDay)
-                    .frame(width: calendarW, height: areaH)
+                    .frame(width: calendarW, height: paneH)
             }
-            .frame(width: calendarW, height: areaH)
+            .frame(width: calendarW, height: paneH)
             .clipped()
 
             Rectangle()
                 .fill(Theme.outlineVariant().opacity(0.4))
-                .frame(width: 0.5)
+                .frame(width: 0.5, height: paneH)
+                .padding(.horizontal, gutter / 2)
 
-            // 右栏：固定宽度，内容限宽并居中（正文一行不超过 ~40 汉字）
+            // 右栏：选中日的日记预览。标题行放「今天」，正文限宽。
             DayPane(blocks: vm.dayBlocks,
                     dayKey: DateUtil.dayKeyOf(selectedDate),
                     isFuture: DateUtil.dayKeyOf(selectedDate) > DateUtil.dayKeyOf(Date()),
                     openEditor: openEditor,
                     bottomInset: layout.bottomInset,
                     maxColumnWidth: 560,
-                    year: DateUtil.calendar.component(.year, from: vm.monthPage),
-                    onYearTap: showYearPage)
-                .frame(width: dayW)
+                    headingHeight: 44,
+                    onTodayTap: todayAction)
+                .frame(width: dayW, height: paneH)
+                .clipped()
         }
-        .padding(.leading, inset + pagePad)
+        .padding(.leading, pagePad)
         .padding(.trailing, pagePad)
-        .frame(width: paneW, height: paneH, alignment: .topLeading)
-        .clipped()
+        .padding(.top, topPad)
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    /// 横屏上下滑翻月：把选中日带到新月份的同一天，右栏才跟着一起走。
+    private func selectMonthPage(_ key: Int) {
+        let month = CalendarLayout.dateForMonthKey(key)
+        let cal = DateUtil.calendar
+        let day = cal.component(.day, from: selectedDate)
+        var comps = cal.dateComponents([.year, .month], from: month)
+        comps.day = min(day, cal.range(of: .day, in: .month, for: month)?.count ?? day)
+        let target = cal.date(from: comps) ?? month
+        vm.select(target)
+        Task { await vm.reloadDayBlocks() }
     }
 
     private func calendarArea(size: CGSize) -> some View {
@@ -481,7 +492,6 @@ struct HomeView: View {
                       cellH: CalendarLayout.monthCellH(areaH: h),
                       density: showsLunar ? .month(lunar: true) : .month(lunar: false),
                       // 竖屏顶部已经有 InfoCapsule(今天 + 相对日期)，这里不再重复。
-                      showsTodayChip: false,
                       onTapDay: openDay)
         }
         .frame(height: h)

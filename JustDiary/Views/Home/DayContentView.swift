@@ -10,6 +10,9 @@ struct DayContentView: View {
     var openEditor: (String) -> Void
     var openDiary: (String) -> Void
     var showFutureToast: () -> Void
+    /// 滚动内容底部的留白。竖屏要整屏滚动，留 96 让最后一张卡片能滚出浮条；
+    /// 横屏分栏里整块只有 ~330pt 高，96 会把内容顶掉一大截，所以调用方传小值。
+    var bottomPadding: CGFloat = 96
     @State private var previewImage: PreviewItem?
 
     var body: some View {
@@ -36,7 +39,7 @@ struct DayContentView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 18)
-            .padding(.bottom, 96)
+            .padding(.bottom, bottomPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .fullScreenCover(item: $previewImage) { item in

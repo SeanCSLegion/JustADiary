@@ -6,76 +6,74 @@ import SwiftUI
 // 密度不同（横屏可能降级为周条），但结构与画笔完全一致，避免两套月历各自漂移。
 
 struct MonthPane: View {
-    @Environment(\.adaptiveLayout) private var layout
-    @Environment(\.diaryDynamicTypeSize) private var typeSize
-
     var month: Date
     var weekStart: String
     var selectedDate: Date
     var flags: Set<String>
+    /// 面板宽度。**已经**在安全区内（横屏时左栏位于系统占位右侧），
+    /// 这里不要再扣一遍 `safeArea.leading`，否则横屏会白白浪费一条 62pt 空白。
     var width: CGFloat
     /// 日历区总高（含标题与星期栏）。
     var areaH: CGFloat
     /// 单行高度，由调用方按可用高度算好。
     var cellH: CGFloat
     var density: CalendarDensity
-    /// 是否在标题行右侧显示「今天」胶囊（横屏用它顶替整屏头部的那个）。
-    var showsTodayChip: Bool
-    var onTodayTap: (() -> Void)? = nil
-    /// 显示年份胶囊（横屏左栏的年份入口；点它进年历）。
-    var showsYearChip: Bool = false
-    var onYearTap: (() -> Void)? = nil
+    /// 标题槽与星期栏高度。竖屏用 72 / 30，横屏用紧凑的 34 / 26。
+    ///
+    /// 这组数字是**年↔月、月↔周 morph 的终点**：morph 里的 `MonthBigTitle` 槽位
+    /// 必须和这里一模一样，否则 morph 结束、真实月历接上时会整体上跳。
+    /// 之前横屏引入紧凑标题行时把这里的默认值也改成了 32，竖屏于是也用了紧凑行，
+    /// 而 morph 仍按 72 计算 —— 这就是「年历切回月历时月历突然上跳」的根因。
+    /// 所以默认值只能引用 `portraitTitleHeight` / `portraitWeekdayHeight`，
+    /// 由 `AdaptiveLayoutTests` 钉死它们等于 `CalendarLayout` 里 morph 用的那组。
+    var titleHeight: CGFloat = MonthPane.portraitTitleHeight
+    var weekdayHeight: CGFloat = MonthPane.portraitWeekdayHeight
+    var titleFont: CGFloat = TypeSize.display
     var onTapDay: (Date) -> Void
 
-    /// 左侧要避让的系统占位宽度。
-    ///
-    /// 横屏时系统浮条在**左边缘**（实测 `safeArea.leading = 62`），灵动岛也在左侧，
-    /// 所以日历内容整体右移这么多；竖屏 `leading = 0`，等于没有偏移。
-    private var leadingInset: CGFloat { layout.contentInset }
-
-    /// 实际画格子的宽度（扣掉系统占位）。
-    private var gridWidth: CGFloat { max(120, width - leadingInset) }
+    /// 竖屏（也就是 morph 终点）的标题槽 / 星期栏 / 网格起点。
+    static let portraitTitleHeight = CalendarLayout.bigTitleH
+    static let portraitWeekdayHeight = CalendarLayout.weekdayHeaderH
+    static var portraitGridOriginY: CGFloat { portraitTitleHeight + portraitWeekdayHeight }
 
     var body: some View {
         let weeks = CalendarLayout.displayedWeeks(inMonth: month, ws: weekStart)
+        // 周条只画一行：调用方给的 cellH 是按「铺满整块」算的，周条要夹回一行的高度，
+        // 否则降级时会出现一行 200pt 高的巨大日期。
+        let rowH = density.isWeekStrip ? min(cellH, CalendarLayout.weekStripH) : cellH
         VStack(spacing: 0) {
             titleRow
-            WeekdayHeaderView(weekStart: weekStart, cellW: gridWidth / 7)
-                .frame(width: gridWidth, height: CalendarLayout.weekdayHeaderH)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            WeekdayHeaderView(weekStart: weekStart, cellW: width / 7)
+                .frame(width: width, height: weekdayHeight)
             Group {
                 if density.isWeekStrip {
                     MonthCanvas(weeks: [selectedRow(weeks: weeks)],
                                 anchorMonth: month,
-                                metrics: weekStripMetrics,
+                                metrics: weekStripMetrics(cellH: rowH),
                                 selectedDate: selectedDate,
                                 flags: flags,
                                 showAdjacent: true,
                                 onTapDay: onTapDay)
-                        .frame(width: gridWidth, height: cellH)
+                        .frame(width: width, height: rowH)
                 } else {
                     MonthCanvas(weeks: weeks,
                                 anchorMonth: month,
-                                metrics: monthMetrics,
+                                metrics: monthMetrics(cellH: rowH),
                                 selectedDate: selectedDate,
                                 flags: flags,
                                 showAdjacent: false,
                                 onTapDay: onTapDay)
-                        .frame(width: gridWidth, height: cellH * CGFloat(weeks.count))
+                        .frame(width: width, height: rowH * CGFloat(weeks.count))
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
             Spacer(minLength: 0)
         }
-        // 整块右移，把左边让给系统导航与灵动岛。
-        // 用 `.top` 对齐：分页器会按 areaH 裁剪，居中的内容会把第一行裁掉。
-        .padding(.leading, leadingInset)
         .frame(width: width, height: areaH, alignment: .top)
         .clipped()
     }
 
-    private var monthMetrics: DayMetrics {
-        DayMetrics(cellW: gridWidth / 7,
+    private func monthMetrics(cellH: CGFloat) -> DayMetrics {
+        DayMetrics(cellW: width / 7,
                    cellH: cellH,
                    dayFont: Self.dayFont(for: cellH),
                    lunarFont: Self.lunarFont(for: cellH),
@@ -83,8 +81,8 @@ struct MonthPane: View {
                    dividerAlpha: 1)
     }
 
-    private var weekStripMetrics: DayMetrics {
-        DayMetrics(cellW: gridWidth / 7,
+    private func weekStripMetrics(cellH: CGFloat) -> DayMetrics {
+        DayMetrics(cellW: width / 7,
                    cellH: cellH,
                    dayFont: Self.dayFont(for: cellH),
                    lunarFont: Self.lunarFont(for: cellH),
@@ -93,30 +91,10 @@ struct MonthPane: View {
     }
 
     private var titleRow: some View {
-        HStack(alignment: .center, spacing: 8) {
-            MonthBigTitle(month: month)
-                .frame(width: nil)
-                // UI 测试用它读当前月份（横屏翻月、竖屏 morph 都靠这个断言）
-                .accessibilityIdentifier("home.monthTitle")
-            Spacer(minLength: 8)
-            if showsTodayChip {
-                InfoCapsule(text: L10n.str("index_today"), action: onTodayTap)
-            }
-        }
-        .frame(height: MonthPane.monthTitleHeight)
-    }
-
-    /// 横屏标题区高度。
-    ///
-    /// 横屏只有 402pt 高：标题区每多占一点，日期格子就少一点，一旦低于
-    /// `CalendarDensity.minimumRowHeight` 就会整块降级成周条。所以横屏只用
-    /// **一行**「月标题 + 今天」，年份入口放进右栏标题行，不再单独占一行。
-    static let monthTitleHeight: CGFloat = 32
-    static let yearRowHeight: CGFloat = 34
-
-    /// 标题区总高：横屏 32pt，竖屏沿用原来的 `bigTitleH(72)`。
-    static func titleBlockHeight(compact: Bool) -> CGFloat {
-        compact ? monthTitleHeight : CalendarLayout.bigTitleH
+        MonthBigTitle(month: month, height: titleHeight, fontSize: titleFont)
+            // UI 测试用它读当前月份（横屏翻月、竖屏 morph 都靠这个断言）
+            .accessibilityIdentifier("home.monthTitle")
+            .frame(height: titleHeight)
     }
 
     /// 日号字号跟着格子高度走：原来写死 20pt，横屏格子只剩 40pt 时就会和农历重叠。
@@ -146,9 +124,10 @@ struct DayPane: View {
     var bottomInset: CGFloat
     /// 正文列宽上限：宽栏必须限宽，否则一行 100+ 字。
     var maxColumnWidth: CGFloat = 660
-    /// 年份入口（横屏放在右栏标题行，左栏让给日期格子）。
-    var year: Int = 0
-    var onYearTap: (() -> Void)? = nil
+    /// 标题行高度。横屏把它抬到 44，好放得下「今天」胶囊。
+    var headingHeight: CGFloat = CalendarLayout.dayTitleH
+    /// 「回到今日」。横屏分栏时放在右栏标题行（左栏整条留给了日期格子）。
+    var onTodayTap: (() -> Void)? = nil
 
     @State private var previewImage: PreviewItem?
 
@@ -160,7 +139,8 @@ struct DayPane: View {
                            isFuture: isFuture,
                            openEditor: openEditor,
                            openDiary: openEditor,
-                           showFutureToast: {})
+                           showFutureToast: {},
+                           bottomPadding: 24)
                 .frame(maxWidth: maxColumnWidth)
                 .frame(maxWidth: .infinity)
                 // 系统浮条悬在内容之上；横屏时它高 64pt，用 safeArea.bottom 就够。
@@ -180,38 +160,23 @@ struct DayPane: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .allowsTightening(true)
-            if AppLanguage.isZh, onYearTap == nil {
+                .accessibilityIdentifier("home.dayHeading")
+            if AppLanguage.isZh {
                 Text(Lunar.fullLabel(date))
                     .diaryFont(TypeSize.caption)
                     .foregroundStyle(Theme.onSurfaceVariant().opacity(0.8))
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            if let onYearTap, year > 0 {
-                Button {
-                    Haptics.tap()
-                    onYearTap()
-                } label: {
-                    Text(L10n.fmt("date_year", year))
-                        .diaryFont(TypeSize.chip, weight: .medium)
-                        .foregroundStyle(Theme.onSurface())
-                        .lineLimit(1)
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 32)
-                        .background {
-                            Capsule()
-                                .fill(.clear)
-                                .glassEffect(.regular.interactive(true), in: Capsule())
-                        }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("home.yearChip")
+            if let onTodayTap {
+                InfoCapsule(text: L10n.str("index_today"), action: onTodayTap)
+                    .accessibilityIdentifier("home.todayChip")
             }
         }
         .padding(.horizontal, 20)
         .frame(maxWidth: maxColumnWidth)
         .frame(maxWidth: .infinity)
-        .frame(height: CalendarLayout.dayTitleH)
+        .frame(height: headingHeight)
     }
 }
 
@@ -220,18 +185,20 @@ struct DayPane: View {
 // 用来在 Xcode 里直接看横屏分栏的效果；也方便调到某个尺寸反复核对。
 // 竖屏那条路径不经过这里（它用的是现有 `HomeView.calendarArea`）。
 
-#Preview("月历面板 · 横屏 440×402") {
+#Preview("月历面板 · 横屏 345×330") {
     MonthPane(month: Date(),
               weekStart: "monday",
               selectedDate: Date(),
               flags: [],
-              width: 440,
-              areaH: 402,
-              cellH: 56,
+              width: 345,
+              areaH: 330,
+              cellH: 60,
               density: .month(lunar: true),
-              showsTodayChip: true,
+              titleHeight: CalendarLayout.compactMonthTitleH,
+              weekdayHeight: CalendarLayout.compactWeekdayHeaderH,
+              titleFont: TypeSize.pageTitle,
               onTapDay: { _ in })
-        .frame(width: 440, height: 402)
+        .frame(width: 345, height: 330)
         .background(BlobBackground())
 }
 
@@ -240,12 +207,14 @@ struct DayPane: View {
               weekStart: "monday",
               selectedDate: Date(),
               flags: [],
-              width: 440,
+              width: 345,
               areaH: 260,
               cellH: 52,
               density: .weekStrip,
-              showsTodayChip: true,
+              titleHeight: CalendarLayout.compactMonthTitleH,
+              weekdayHeight: CalendarLayout.compactWeekdayHeaderH,
+              titleFont: TypeSize.pageTitle,
               onTapDay: { _ in })
-        .frame(width: 440, height: 260)
+        .frame(width: 345, height: 260)
         .background(BlobBackground())
 }

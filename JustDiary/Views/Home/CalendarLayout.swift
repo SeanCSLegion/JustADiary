@@ -124,6 +124,12 @@ enum CalendarLayout {
 
     static let weekdayHeaderH: CGFloat = 30
     static let bigTitleH: CGFloat = 72
+    /// 横屏分栏专用的紧凑标题行 / 星期栏。
+    ///
+    /// 横屏只有 402pt 高，标题每多占 1pt 就是从日期行里扣 1pt；这一对数字是
+    /// 「六行月格 + 底部系统浮条都放得下」的边界值，调大就会整块降级成周条。
+    static let compactMonthTitleH: CGFloat = 34
+    static let compactWeekdayHeaderH: CGFloat = 26
     static let weekStripH: CGFloat = 68
     static let dayTitleH: CGFloat = 40
 

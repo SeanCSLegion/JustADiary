@@ -59,6 +59,7 @@ struct YearMonthMorphView: View, Animatable {
                 // 下面的星期栏与日期网格（之前月份数字会「跳一下」）。
                 ZStack(alignment: .leading) {
                     MonthBigTitle(month: month)
+                        .accessibilityIdentifier("home.monthTitle")
                 }
                 .frame(height: CalendarLayout.bigTitleH)
                 WeekdayHeaderView(weekStart: weekStart, cellW: size.width / 7)
@@ -121,6 +122,7 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
         let contentT = CL.clamp01((progress - 0.25) / 0.75)
         return ZStack(alignment: .top) {
             MonthBigTitle(month: month)
+                .accessibilityIdentifier("home.monthTitle")
                 .offset(y: -progress * titleH)
                 .opacity(1 - CL.clamp01(progress * 2))
             WeekdayHeaderView(weekStart: weekStart, cellW: size.width / 7)

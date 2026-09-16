@@ -197,7 +197,13 @@ struct MonthCanvas: View {
             let selectedKey = DateUtil.dayKeyOf(selectedDate)
             for (i, week) in weeks.enumerated() {
                 let rowY = CGFloat(i) * metrics.cellH
-                if metrics.dividerAlpha > 0.01, i > 0 {
+                // 末尾「整周都不属于本月」的填充行不画分隔线：morph 用的是固定 6 行，
+                // 真实月历只用 `displayedWeeks`（5 行月份少一行），不跳过的话动画收尾
+                // 会在最后一行下面多出一条线、然后就消失。
+                let rowInMonth = showAdjacent || week.days.contains {
+                    DateUtil.calendar.isDate($0, equalTo: anchorMonth, toGranularity: .month)
+                }
+                if metrics.dividerAlpha > 0.01, i > 0, rowInMonth {
                     context.fill(Path(CGRect(x: 0, y: rowY - 0.5, width: metrics.cellW * 7, height: 1)),
                                  with: .color(Theme.outlineVariant().opacity(0.35 * metrics.dividerAlpha)))
                 }
@@ -298,16 +304,20 @@ struct WeekRowCanvas: View {
 
 struct MonthBigTitle: View {
     var month: Date
+    /// 标题槽高度。竖屏是 `CalendarLayout.bigTitleH`（72），横屏分栏用紧凑值。
+    /// **必须**和 `MonthPane` 的标题槽、morph 的终点用同一个数，否则切换时网格会跳。
+    var height: CGFloat = CalendarLayout.bigTitleH
+    var fontSize: CGFloat = TypeSize.display
 
     var body: some View {
         Text(L10n.monthFull(month))
-            .diaryFont(TypeSize.display, weight: .bold)
+            .diaryFont(fontSize, weight: .bold)
             .lineLimit(1)
             .minimumScaleFactor(0.6)
             .foregroundStyle(Theme.onSurface())
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
-            .frame(height: CalendarLayout.bigTitleH)
+            .frame(height: height)
     }
 }
 
@@ -396,12 +406,10 @@ struct YearPageView: View {
                 .padding(.horizontal, CalendarLayout.miniPad)
             MonthCanvas(weeks: weeks,
                         anchorMonth: monthDate,
-                        metrics: DayMetrics(cellW: grid.width / 7,
-                                            cellH: grid.height / 6,
-                                            dayFont: 11,
-                                            lunarFont: 6,
-                                            lunarAlpha: 0,
-                                            dividerAlpha: 0),
+                        // 用与「月→年」morph 起点**同一份**参数：此前这里写死
+                        // `dayFont: 11`，morph 用的是按格宽推导的 12–14pt，
+                        // 于是动画收尾时日期字号会突然缩一下（跳变）。
+                        metrics: CalendarLayout.miniMetrics(in: containerSize),
                         selectedDate: selectedDate,
                         flags: flags,
                         showAdjacent: false,

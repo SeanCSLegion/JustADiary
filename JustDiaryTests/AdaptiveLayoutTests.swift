@@ -153,4 +153,67 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(MonthPane.dayFont(for: 200), 20, "上限仍是 20pt")
         XCTAssertLessThanOrEqual(MonthPane.lunarFont(for: 200), 11)
     }
+
+    // MARK: 月历几何（年↔月 / 月↔周 morph 的终点）
+
+    /// 竖屏 `MonthPane` 的网格起点必须与 morph 的终点重合。
+    ///
+    /// 回归点：横屏引入紧凑标题行时，`MonthPane` 的标题槽默认值被改成了 32pt，
+    /// morph 仍按 72pt 算 —— 动画收尾时月历整体上跳 40pt。
+    func testMonthGridOriginIsSharedWithMorphs() {
+        // MonthPane 的默认标题槽 / 星期栏就是 morph 用的那组常量。
+        XCTAssertEqual(MonthPane.portraitTitleHeight, CalendarLayout.bigTitleH)
+        XCTAssertEqual(MonthPane.portraitWeekdayHeight, CalendarLayout.weekdayHeaderH)
+
+        for height in [600, 714, 800] as [CGFloat] {
+            let morph = CalendarLayout.fullMonthGridRect(in: CGSize(width: 402, height: height))
+            XCTAssertEqual(morph.minY, MonthPane.portraitGridOriginY, accuracy: 0.001)
+            XCTAssertEqual(morph.minY, CalendarLayout.bigTitleH + CalendarLayout.weekdayHeaderH,
+                           accuracy: 0.001)
+        }
+    }
+
+    /// 六行月格正好铺满日历区：标题槽 + 星期栏 + 6 行 = areaH。
+    /// 若 `monthCellH` 与标题槽不是同一套常量，月历底部会留一段空白（或溢出）。
+    func testMonthGridFillsCalendarArea() {
+        for areaH in [600, 714, 800, 900] as [CGFloat] {
+            let bottom = MonthPane.portraitGridOriginY + 6 * CalendarLayout.monthCellH(areaH: areaH)
+            XCTAssertEqual(bottom, areaH, accuracy: 0.001, "areaH=\(areaH)")
+        }
+    }
+
+    /// 年历迷你日期用「按格宽推导」的字号，且与 morph 起点同源。
+    /// 这里守住「不再写死 11pt」这件事（写死会让 morph 收尾时日期字号突然缩一下）。
+    func testMiniMonthMetricsAreGridDerived() {
+        let size = CGSize(width: 402, height: 810)
+        let grid = CalendarLayout.miniGridRect(month: 1, in: size)
+        let m = CalendarLayout.miniMetrics(in: size)
+        XCTAssertEqual(m.cellW, grid.width / 7, accuracy: 0.001)
+        XCTAssertEqual(m.cellH, grid.height / 6, accuracy: 0.001)
+        XCTAssertEqual(m.dayFont,
+                       CalendarLayout.miniDayFont(cellW: grid.width / 7, cellH: grid.height / 6),
+                       accuracy: 0.001)
+        XCTAssertGreaterThan(m.dayFont, 11, "年历迷你日期不应再写死 11pt")
+        XCTAssertEqual(m.lunarAlpha, 0, "迷你月不画农历")
+        XCTAssertEqual(m.dividerAlpha, 0, "迷你月不画分隔线")
+    }
+
+    // MARK: 横屏分栏的垂直预算
+
+    /// 横屏日历区（标题 + 星期栏 + 六行）必须在底部系统浮条之上结束，
+    /// 否则最后一行日期会被浮条压住。
+    func testLandscapeCalendarClearsTheFloatingTabBar() {
+        // iPhone 18 Pro 横屏：屏幕高 402，浮条占 y 338…402（实测），底部安全区 20。
+        let screenH: CGFloat = 402
+        let topPad: CGFloat = 8
+        let bottomInset: CGFloat = 20
+        let bottomClearance = bottomInset + 44
+        let paneH = screenH - topPad - bottomClearance
+        let headerH = CalendarLayout.compactMonthTitleH + CalendarLayout.compactWeekdayHeaderH
+        let cellH = max(CalendarDensity.minimumRowHeight, ((paneH - headerH) / 6).rounded())
+        let bottom = topPad + headerH + 6 * cellH
+        XCTAssertLessThanOrEqual(bottom, 338, "日历最后一行必须在浮条上沿之上")
+        XCTAssertGreaterThanOrEqual(cellH, CalendarDensity.minimumRowHeight,
+                                    "六行月格仍要放得下")
+    }
 }
