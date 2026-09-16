@@ -13,6 +13,7 @@
 		97EDEE5130319B09000E17D3 /* JustDiary.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = "JustDiary.icon"; sourceTree = "<group>"; };
 		C10000000000000000000001 /* JustDiary.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JustDiary.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10000000000000000000003 /* JustDiaryUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JustDiaryUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C10000000000000000000005 /* JustDiaryTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JustDiaryTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -39,6 +40,11 @@
 			path = JustDiaryUITests;
 			sourceTree = "<group>";
 		};
+		A10000000000000000000007 /* JustDiaryTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = JustDiaryTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -56,6 +62,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F1000000000000000000000E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -64,6 +77,7 @@
 			children = (
 				A10000000000000000000001 /* JustDiary */,
 				A10000000000000000000005 /* JustDiaryUITests */,
+				A10000000000000000000007 /* JustDiaryTests */,
 				F10000000000000000000002 /* Products */,
 				97EDEE5130319B09000E17D3 /* JustDiary.icon */,
 			);
@@ -74,6 +88,7 @@
 			children = (
 				C10000000000000000000001 /* JustDiary.app */,
 				C10000000000000000000003 /* JustDiaryUITests.xctest */,
+				C10000000000000000000005 /* JustDiaryTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -126,6 +141,29 @@
 			productReference = C10000000000000000000003 /* JustDiaryUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		B10000000000000000000005 /* JustDiaryTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A20000000000000000000011 /* Build configuration list for PBXNativeTarget "JustDiaryTests" */;
+			buildPhases = (
+				F1000000000000000000000D /* Sources */,
+				F1000000000000000000000E /* Frameworks */,
+				F1000000000000000000000F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A20000000000000000000012 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000007 /* JustDiaryTests */,
+			);
+			name = JustDiaryTests;
+			packageProductDependencies = (
+			);
+			productName = JustDiaryTests;
+			productReference = C10000000000000000000005 /* JustDiaryTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -140,6 +178,10 @@
 						CreatedOnToolsVersion = 27.0;
 					};
 					B10000000000000000000003 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = B10000000000000000000001;
+					};
+					B10000000000000000000005 = {
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = B10000000000000000000001;
 					};
@@ -162,9 +204,11 @@
 			targets = (
 				B10000000000000000000001 /* JustDiary */,
 				B10000000000000000000003 /* JustDiaryUITests */,
+				B10000000000000000000005 /* JustDiaryTests */,
 			);
 			testTargets = (
 				B10000000000000000000003 /* JustDiaryUITests */,
+				B10000000000000000000005 /* JustDiaryTests */,
 			);
 		};
 /* End PBXProject section */
@@ -179,6 +223,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F1000000000000000000000C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F1000000000000000000000F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -202,6 +253,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F1000000000000000000000D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -210,10 +268,22 @@
 			target = B10000000000000000000001 /* JustDiary */;
 			targetProxy = A3000000000000000000000B /* PBXContainerItemProxy */;
 		};
+		A20000000000000000000012 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B10000000000000000000001 /* JustDiary */;
+			targetProxy = A30000000000000000000013 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin PBXContainerItemProxy section */
 		A3000000000000000000000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B10000000000000000000001;
+			remoteInfo = JustDiary;
+		};
+		A30000000000000000000013 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = E10000000000000000000001 /* Project object */;
 			proxyType = 1;
@@ -491,6 +561,66 @@
 			};
 			name = Release;
 		};
+
+		A2000000000000000000000F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+
+					"$(inherited)",
+
+					"@executable_path/Frameworks",
+
+					"@loader_path/Frameworks",
+
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cov.justdiary.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JustDiary.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/JustDiary";
+			};
+			name = Debug;
+		};
+
+		A20000000000000000000010 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+
+					"$(inherited)",
+
+					"@executable_path/Frameworks",
+
+					"@loader_path/Frameworks",
+
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cov.justdiary.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JustDiary.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/JustDiary";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -517,6 +647,15 @@
 			buildConfigurations = (
 				A2000000000000000000000B /* Debug */,
 				A2000000000000000000000C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A20000000000000000000011 /* Build configuration list for PBXNativeTarget "JustDiaryTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A2000000000000000000000F /* Debug */,
+				A20000000000000000000010 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

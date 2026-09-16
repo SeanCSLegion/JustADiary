@@ -41,12 +41,19 @@ JustDiary/
 ├── Data/          # SQLite（串行队列）、日记仓库
 ├── Models/        # 数据模型、日期工具
 └── Resources/     # String Catalog、图标、动态色板
+
+JustDiaryTests/      # 单元测试（宿主为 App）：content_json 编解码与编辑器往返不变量
+JustDiaryUITests/    # UI 测试：导入、morph 动画、足迹、编辑器、设置行
 ```
 
 关键设计：
 - `DiaryRepository` 所有数据库访问均在串行队列执行（`runOnQueue`）
 - 备份/导入/分享渲染在后台任务执行；zip 采用标准格式（raw deflate + CRC32 校验）
 - `ContentPartCache` 缓存 JSON 解析结果；`DiaryImageStore` 缓存降采样图片（ImageIO）
+- 日记正文存成 `edit_block.content_json`：**带版本的信封**（`{"v":2,"parts":[…]}`），
+  段落只存**语义样式**（title/heading/body/quote/list/todo/image），行内样式只记录开启的
+  那几项。字号是样式派生出来的，不落库；v1（裸数组、HTML 名、每 run 带 `size`）仍可解码，
+  旧备份可直接导入。格式与迁移见 `docs/editor-typography.md`
 - 足迹页是**纯数据聚合**（`FootprintDataService`）：不依赖坐标，也不需要任何打包的地理边界数据，因此对任何国家都可用
 - 并发隔离：项目启用 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`，UI 层默认主线程隔离；数据与服务层（`DiaryRepository`、`SQLite`、`BackupService`、`ZipArchive`、`FootprintDataService` 等）显式标注 `nonisolated`，因为它们实际运行在串行队列或后台任务上
 
@@ -61,16 +68,24 @@ python3 generate_project.py
 xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform=iOS Simulator,name=iPhone 18 Pro' build
 ```
 
-- 运行 UI 测试（覆盖导入、morph 动画、足迹页、编辑器冒烟与**字号往返**、设置行可点击）：
+- 运行测试（单元测试覆盖 `content_json` 编解码与编辑器往返不变量；UI 测试覆盖导入、
+  morph 动画、足迹页、编辑器字号往返与「放弃修改」、设置行可点击）：
 
 ```bash
 xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -parallel-testing-enabled NO test
 ```
 
+  也可以只跑其中一类：
+
+```bash
+xcodebuild ... -only-testing:JustDiaryTests test          # 毫秒级
+xcodebuild ... -only-testing:JustDiaryUITests test        # 需要中文模拟器 + 示例数据
+```
+
 ## 开发辅助
 
-- `tools/seed_sample_diary.py`：向模拟器写入一套可复现的示例日记（跨 3 年、4 个国家、
-  5 类内容块），用于开发与截图验证：
+- `tools/seed_sample_diary.py`：向模拟器写入一套可复现的示例日记（v2 格式；跨 3 年、
+  4 个国家、6 类内容块，含行内样式与居中段落），用于开发与截图验证：
 
 ```bash
 python3 tools/seed_sample_diary.py "iPhone 18 Pro"

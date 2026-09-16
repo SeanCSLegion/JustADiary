@@ -108,12 +108,12 @@ final class EditorTypeSizeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["引用"].waitForExistence(timeout: 6), "quote action")
         app.buttons["引用"].tap()
 
-        let authored = "p,h1,h2,quote|正文段落大标题行小标题行引用行"
+        let authored = "body,title,heading,quote|正文段落大标题行小标题行引用行"
         XCTAssertEqual(waitForState(app, authored), authored, "authored block types")
 
         XCTAssertTrue(app.buttons["保存"].waitForExistence(timeout: 6), "save button")
         app.buttons["保存"].tap()
-        XCTAssertEqual(waitForState(app, "read:p,h1,h2,quote"), "read:p,h1,h2,quote",
+        XCTAssertEqual(waitForState(app, "read:body,title,heading,quote"), "read:body,title,heading,quote",
                        "saved block types")
 
         // Passes 2 and 3 — re-open the *saved* block (not a new one) and save it
@@ -124,7 +124,7 @@ final class EditorTypeSizeUITests: XCTestCase {
         for pass in 2...3 {
             app.terminate()
             app = launchApp()
-            XCTAssertEqual(waitForState(app, "read:p,h1,h2,quote"), "read:p,h1,h2,quote",
+            XCTAssertEqual(waitForState(app, "read:body,title,heading,quote"), "read:body,title,heading,quote",
                            "saved block types (pass \(pass))")
 
             let block = app.textViews.firstMatch
@@ -135,7 +135,7 @@ final class EditorTypeSizeUITests: XCTestCase {
 
             XCTAssertTrue(app.buttons["保存"].waitForExistence(timeout: 6), "save button (pass \(pass))")
             app.buttons["保存"].tap()
-            XCTAssertEqual(waitForState(app, "read:p,h1,h2,quote"), "read:p,h1,h2,quote",
+            XCTAssertEqual(waitForState(app, "read:body,title,heading,quote"), "read:body,title,heading,quote",
                            "same styles after the re-save (pass \(pass))")
         }
     }
@@ -176,7 +176,7 @@ final class EditorTypeSizeUITests: XCTestCase {
         editor.typeText("第一稿")
         XCTAssertTrue(app.buttons["保存"].waitForExistence(timeout: 6), "save button")
         app.buttons["保存"].tap()
-        XCTAssertEqual(waitForState(app, "read:p"), "read:p", "saved paragraph")
+        XCTAssertEqual(waitForState(app, "read:body"), "read:body", "saved paragraph")
 
         // Re-open the block, add to it, then discard: the editor must come back
         // to exactly what was saved. The action used to discard the whole edit
@@ -188,7 +188,7 @@ final class EditorTypeSizeUITests: XCTestCase {
         editor = app.textViews.firstMatch
         XCTAssertTrue(editor.waitForExistence(timeout: 10), "re-opened editor")
         editor.typeText("改变")
-        XCTAssertEqual(waitForState(app, "p|改变第一稿"), "p|改变第一稿", "edited content")
+        XCTAssertEqual(waitForState(app, "body|改变第一稿"), "body|改变第一稿", "edited content")
 
         let discard = app.buttons["放弃修改"]
         XCTAssertTrue(discard.waitForExistence(timeout: 6), "discard action")
@@ -196,7 +196,7 @@ final class EditorTypeSizeUITests: XCTestCase {
         let confirm = app.buttons["放弃"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "discard confirmation")
         confirm.tap()
-        XCTAssertEqual(waitForState(app, "p|第一稿"), "p|第一稿",
+        XCTAssertEqual(waitForState(app, "body|第一稿"), "body|第一稿",
                        "discard must restore the saved content")
     }
 }

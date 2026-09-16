@@ -73,6 +73,14 @@ nonisolated enum SettingsStore {
         set { defaults.set(newValue, forKey: "search_index_version") }
     }
 
+    /// Storage format version of `edit_block.content_json` (see
+    /// `ContentDocument`). Kept outside `AppSettings` because it versions the
+    /// *data*, not a user preference — restoring a backup must not reset it.
+    static var contentFormatVersion: Int {
+        get { defaults.integer(forKey: "content_format_version") }
+        set { defaults.set(newValue, forKey: "content_format_version") }
+    }
+
     static var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }

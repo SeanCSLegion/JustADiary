@@ -14,6 +14,9 @@ APP_EXC = "A10000000000000000000003"
 UITEST_SYNC = "A10000000000000000000005"
 UITEST_TARGET = "B10000000000000000000003"
 UITEST_PRODUCT = "C10000000000000000000003"
+UNIT_SYNC = "A10000000000000000000007"
+UNIT_TARGET = "B10000000000000000000005"
+UNIT_PRODUCT = "C10000000000000000000005"
 PROJECT_OBJ = "E10000000000000000000001"
 MAIN_GROUP = "F10000000000000000000001"
 PRODUCTS_GROUP = "F10000000000000000000002"
@@ -23,6 +26,9 @@ APP_RESOURCES = "F10000000000000000000005"
 UITEST_SOURCES = "F1000000000000000000000A"
 UITEST_FRAMEWORKS = "F1000000000000000000000B"
 UITEST_RESOURCES = "F1000000000000000000000C"
+UNIT_SOURCES = "F1000000000000000000000D"
+UNIT_FRAMEWORKS = "F1000000000000000000000E"
+UNIT_RESOURCES = "F1000000000000000000000F"
 PROJ_CFG_DEBUG = "A20000000000000000000001"
 PROJ_CFG_RELEASE = "A20000000000000000000002"
 APP_CFG_DEBUG = "A20000000000000000000003"
@@ -34,6 +40,11 @@ UITEST_CFG_RELEASE = "A2000000000000000000000C"
 UITEST_CFGLIST = "A2000000000000000000000D"
 UITEST_DEP = "A2000000000000000000000E"
 UITEST_PROXY = "A3000000000000000000000B"
+UNIT_CFG_DEBUG = "A2000000000000000000000F"
+UNIT_CFG_RELEASE = "A20000000000000000000010"
+UNIT_CFGLIST = "A20000000000000000000011"
+UNIT_DEP = "A20000000000000000000012"
+UNIT_PROXY = "A30000000000000000000013"
 
 def pbx(build_settings, name, base):
     lines = []
@@ -194,6 +205,29 @@ uitest_common_settings = {
 
 uitest_settings = {"Debug": uitest_common_settings, "Release": uitest_common_settings}
 
+# Hosted unit tests: they link against the app (BUNDLE_LOADER/TEST_HOST) so
+# UIKit and the asset catalog resolve exactly as they do at runtime — the
+# content codec and the editor's attributed-string round trip both need that.
+unittest_common_settings = {
+    "BUNDLE_LOADER": '"$(TEST_HOST)"',
+    "CODE_SIGN_STYLE": "Automatic",
+    "CURRENT_PROJECT_VERSION": "1",
+    "GENERATE_INFOPLIST_FILE": "YES",
+    "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks"],
+    "MARKETING_VERSION": "1.0",
+    "PRODUCT_BUNDLE_IDENTIFIER": "com.cov.justdiary.tests",
+    "PRODUCT_NAME": '"$(TARGET_NAME)"',
+    "SUPPORTED_PLATFORMS": "\"iphoneos iphonesimulator\"",
+    "SWIFT_EMIT_LOC_STRINGS": "NO",
+    "SWIFT_VERSION": "5.0",
+    "TARGETED_DEVICE_FAMILY": _device_family,
+    "TEST_HOST": '"$(BUILT_PRODUCTS_DIR)/JustDiary.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/JustDiary"',
+    "SWIFT_APPROACHABLE_CONCURRENCY": "YES",
+    "SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY": "YES",
+}
+
+unittest_settings = {"Debug": unittest_common_settings, "Release": unittest_common_settings}
+
 def settings_block(cfg_id, name, settings):
     body = pbx(settings, name, "XCBuildConfiguration")
     return (
@@ -219,6 +253,7 @@ content = f"""// !$*UTF8*$!
 		{ICON_REF} /* JustDiary.icon */ = {{isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = "JustDiary.icon"; sourceTree = "<group>"; }};
 		{APP_PRODUCT} /* JustDiary.app */ = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JustDiary.app; sourceTree = BUILT_PRODUCTS_DIR; }};
 		{UITEST_PRODUCT} /* JustDiaryUITests.xctest */ = {{isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JustDiaryUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; }};
+		{UNIT_PRODUCT} /* JustDiaryTests.xctest */ = {{isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JustDiaryTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; }};
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -245,6 +280,11 @@ content = f"""// !$*UTF8*$!
 			path = JustDiaryUITests;
 			sourceTree = "<group>";
 		}};
+		{UNIT_SYNC} /* JustDiaryTests */ = {{
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = JustDiaryTests;
+			sourceTree = "<group>";
+		}};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -262,6 +302,13 @@ content = f"""// !$*UTF8*$!
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		}};
+		{UNIT_FRAMEWORKS} /* Frameworks */ = {{
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		}};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -270,6 +317,7 @@ content = f"""// !$*UTF8*$!
 			children = (
 				{APP_SYNC} /* JustDiary */,
 				{UITEST_SYNC} /* JustDiaryUITests */,
+				{UNIT_SYNC} /* JustDiaryTests */,
 				{PRODUCTS_GROUP} /* Products */,
 				{ICON_REF} /* JustDiary.icon */,
 			);
@@ -280,6 +328,7 @@ content = f"""// !$*UTF8*$!
 			children = (
 				{APP_PRODUCT} /* JustDiary.app */,
 				{UITEST_PRODUCT} /* JustDiaryUITests.xctest */,
+				{UNIT_PRODUCT} /* JustDiaryTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -332,6 +381,29 @@ content = f"""// !$*UTF8*$!
 			productReference = {UITEST_PRODUCT} /* JustDiaryUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		}};
+		{UNIT_TARGET} /* JustDiaryTests */ = {{
+			isa = PBXNativeTarget;
+			buildConfigurationList = {UNIT_CFGLIST} /* Build configuration list for PBXNativeTarget "JustDiaryTests" */;
+			buildPhases = (
+				{UNIT_SOURCES} /* Sources */,
+				{UNIT_FRAMEWORKS} /* Frameworks */,
+				{UNIT_RESOURCES} /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				{UNIT_DEP} /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				{UNIT_SYNC} /* JustDiaryTests */,
+			);
+			name = JustDiaryTests;
+			packageProductDependencies = (
+			);
+			productName = JustDiaryTests;
+			productReference = {UNIT_PRODUCT} /* JustDiaryTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		}};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -346,6 +418,10 @@ content = f"""// !$*UTF8*$!
 						CreatedOnToolsVersion = 27.0;
 					}};
 					{UITEST_TARGET} = {{
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = {APP_TARGET};
+					}};
+					{UNIT_TARGET} = {{
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = {APP_TARGET};
 					}};
@@ -368,9 +444,11 @@ content = f"""// !$*UTF8*$!
 			targets = (
 				{APP_TARGET} /* JustDiary */,
 				{UITEST_TARGET} /* JustDiaryUITests */,
+				{UNIT_TARGET} /* JustDiaryTests */,
 			);
 			testTargets = (
 				{UITEST_TARGET} /* JustDiaryUITests */,
+				{UNIT_TARGET} /* JustDiaryTests */,
 			);
 		}};
 /* End PBXProject section */
@@ -385,6 +463,13 @@ content = f"""// !$*UTF8*$!
 			runOnlyForDeploymentPostprocessing = 0;
 		}};
 		{UITEST_RESOURCES} /* Resources */ = {{
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		}};
+		{UNIT_RESOURCES} /* Resources */ = {{
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -408,6 +493,13 @@ content = f"""// !$*UTF8*$!
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		}};
+		{UNIT_SOURCES} /* Sources */ = {{
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		}};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -416,10 +508,22 @@ content = f"""// !$*UTF8*$!
 			target = {APP_TARGET} /* JustDiary */;
 			targetProxy = {UITEST_PROXY} /* PBXContainerItemProxy */;
 		}};
+		{UNIT_DEP} /* PBXTargetDependency */ = {{
+			isa = PBXTargetDependency;
+			target = {APP_TARGET} /* JustDiary */;
+			targetProxy = {UNIT_PROXY} /* PBXContainerItemProxy */;
+		}};
 /* End PBXTargetDependency section */
 
 /* Begin PBXContainerItemProxy section */
 		{UITEST_PROXY} /* PBXContainerItemProxy */ = {{
+			isa = PBXContainerItemProxy;
+			containerPortal = {PROJECT_OBJ} /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = {APP_TARGET};
+			remoteInfo = JustDiary;
+		}};
+		{UNIT_PROXY} /* PBXContainerItemProxy */ = {{
 			isa = PBXContainerItemProxy;
 			containerPortal = {PROJECT_OBJ} /* Project object */;
 			proxyType = 1;
@@ -440,6 +544,10 @@ content = f"""// !$*UTF8*$!
 {settings_block(UITEST_CFG_DEBUG, "Debug", uitest_settings["Debug"])}
 
 {settings_block(UITEST_CFG_RELEASE, "Release", uitest_settings["Release"])}
+
+{settings_block(UNIT_CFG_DEBUG, "Debug", unittest_settings["Debug"])}
+
+{settings_block(UNIT_CFG_RELEASE, "Release", unittest_settings["Release"])}
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -466,6 +574,15 @@ content = f"""// !$*UTF8*$!
 			buildConfigurations = (
 				{UITEST_CFG_DEBUG} /* Debug */,
 				{UITEST_CFG_RELEASE} /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		}};
+		{UNIT_CFGLIST} /* Build configuration list for PBXNativeTarget "JustDiaryTests" */ = {{
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				{UNIT_CFG_DEBUG} /* Debug */,
+				{UNIT_CFG_RELEASE} /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

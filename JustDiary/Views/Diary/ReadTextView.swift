@@ -75,7 +75,7 @@ struct ReadTextView: UIViewRepresentable {
             imageRanges = []
             imageCallbacks = []
             var todoOrder: [(Int, Int)] = []
-            for (pi, part) in parent.parts.enumerated() where part.type == ContentPartType.todo {
+            for (pi, part) in parent.parts.enumerated() where part.style == ContentPartStyle.todo {
                 for ii in (part.items ?? []).indices { todoOrder.append((pi, ii)) }
             }
             var todoIdx = 0

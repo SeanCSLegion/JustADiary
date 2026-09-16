@@ -57,21 +57,23 @@ enum EditorBlockStyle: String, CaseIterable {
     /// it keeps its own toolbar button.
     static let menuStyles: [EditorBlockStyle] = [.title, .heading, .body]
 
-    /// The value persisted in `ContentPart.type`.
-    var persistedType: String {
+    /// The value persisted in `ContentPart.style`.
+    var partStyle: String {
         switch self {
-        case .title: return ContentPartType.h1
-        case .heading: return ContentPartType.h2
-        case .body: return ContentPartType.paragraph
-        case .quote: return ContentPartType.quote
+        case .title: return ContentPartStyle.title
+        case .heading: return ContentPartStyle.heading
+        case .body: return ContentPartStyle.body
+        case .quote: return ContentPartStyle.quote
         }
     }
 
-    init(persistedType: String) {
-        switch persistedType {
-        case ContentPartType.h1: self = .title
-        case ContentPartType.h2: self = .heading
-        case ContentPartType.quote: self = .quote
+    /// The editor style for a persisted part style. `list`, `todo` and `image`
+    /// have their own persisted names but are drawn with the body attributes.
+    init(partStyle: String) {
+        switch partStyle {
+        case ContentPartStyle.title: self = .title
+        case ContentPartStyle.heading: self = .heading
+        case ContentPartStyle.quote: self = .quote
         default: self = .body
         }
     }
@@ -108,12 +110,12 @@ enum EditorDesignSize {
 
 extension NSAttributedString.Key {
     /// The unscaled design size a run's `.font` was derived from. Internal to
-    /// the editor; never persisted (the design size is persisted separately as
-    /// `TextRun.size`, and then only when it is a custom size).
+    /// the editor and never persisted: the persisted form is the block's
+    /// `ContentPart.style`, which is what the size is derived from again on load.
     static let diaryDesignSize = NSAttributedString.Key("com.cov.justdiary.designSize")
 
     /// The paragraph style a run belongs to. Also editor-internal: the persisted
-    /// form is `ContentPart.type`. Carrying it in the text storage is what makes
+    /// form is `ContentPart.style`. Carrying it in the text storage is what makes
     /// the block type independent of the font size.
     static let diaryBlockStyle = NSAttributedString.Key("com.cov.justdiary.blockStyle")
 }
@@ -160,14 +162,14 @@ enum EditorFont {
     /// `.diaryDesignSize` is the authoritative source. It is missing for text
     /// UIKit re-attributed behind our back — `typingAttributes` is re-synced
     /// from the text at the caret for a fixed set of keys, so every character
-    /// typed after the first one loses the custom key — and that fallback has to
-    /// be *exact*: an approximation drifts the persisted `TextRun.size` upward
-    /// on every save until a paragraph crosses the h2 threshold and the entry is
-    /// rewritten as a heading.
+    /// typed after the first one loses the custom key — and the fallback has to
+    /// be *exact*: it is what decides a paragraph's block type, and an
+    /// approximation drifts upward on every save until a paragraph crosses the
+    /// heading threshold and the entry is rewritten as a heading.
     ///
     /// Sizes this editor itself draws are therefore matched exactly against the
     /// forward mapping before falling back to division, which is only needed for
-    /// per-run sizes in imported documents.
+    /// sizes the editor did not author (imported material).
     static func designSize(of attributes: [NSAttributedString.Key: Any],
                            typeSize: DynamicTypeSize = .large) -> CGFloat? {
         if let n = attributes[.diaryDesignSize] as? NSNumber { return CGFloat(truncating: n) }
@@ -802,19 +804,19 @@ enum PartsCodec {
                                  typeSize: DynamicTypeSize = .large) -> NSAttributedString {
         let result = NSMutableAttributedString()
         for part in parts {
-            switch part.type {
-            case ContentPartType.list:
+            switch part.style {
+            case ContentPartStyle.list:
                 for item in part.items ?? [] {
                     appendMarkerLine(kind: "bullet", done: false, text: item, to: result, typeSize: typeSize)
                 }
-            case ContentPartType.todo:
+            case ContentPartStyle.todo:
                 let items = part.items ?? []
                 let done = part.done ?? Array(repeating: false, count: items.count)
                 for (i, item) in items.enumerated() {
                     appendMarkerLine(kind: "todo", done: done.indices.contains(i) && done[i],
                                      text: item, to: result, typeSize: typeSize)
                 }
-            case ContentPartType.image:
+            case ContentPartStyle.image:
                 if let src = part.src {
                     let storedW = max(1, CGFloat(part.w ?? 300))
                     let storedH = max(1, CGFloat(part.h ?? 200))
@@ -832,7 +834,7 @@ enum PartsCodec {
                     }
                 }
             default:
-                appendLine(part, to: result, block: EditorBlockStyle(persistedType: part.type),
+                appendLine(part, to: result, block: EditorBlockStyle(partStyle: part.style),
                            typeSize: typeSize)
             }
         }
@@ -882,10 +884,9 @@ enum PartsCodec {
         let line = NSMutableAttributedString()
         let style = paragraphStyle(block, center: center)
         for run in runs {
-            // An imported run may carry its own design size; it is resolved the
-            // same way as the block default so the two cannot drift apart.
-            let design = run.size.flatMap { $0 > 0 ? CGFloat($0) : nil } ?? block.designSize
-            var attrs = EditorFont.attributes(design, block: block,
+            // The size comes from the block, never from the run: a paragraph has
+            // one style and that style owns its point size.
+            var attrs = EditorFont.attributes(block.designSize, block: block,
                                               weight: run.bold == true ? .bold : .regular,
                                               italic: run.italic == true,
                                               typeSize: typeSize)
@@ -969,7 +970,7 @@ enum PartsCodec {
                 let effectiveEnd = min(lineRange.location + lineLength, effective.location + effective.length)
                 let sub = text.substring(with: NSRange(location: cursor, length: effectiveEnd - cursor))
                 if let payload = (attrs[.attachment] as? PayloadAttachment)?.payload, payload.kind == "image" {
-                    parts.append(ContentPart(type: ContentPartType.image,
+                    parts.append(ContentPart(style: ContentPartStyle.image,
                                              src: ImagePathUtil.normalizeSrcKey(payload.src),
                                              w: Double(payload.w), h: Double(payload.h)))
                     cursor = effectiveEnd
@@ -980,47 +981,44 @@ enum PartsCodec {
                     continue
                 }
                 let font = attrs[.font] as? UIFont
+                // Only the traits that are actually on are written: a stored
+                // `"bold": false` is noise, and `nil` is what "not styled" means
+                // everywhere else in the format.
+                let bold = font?.fontDescriptor.symbolicTraits.contains(.traitBold) == true
+                let italic = font?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true
                 let strike = (attrs[.strikethroughStyle] as? Int ?? 0) != 0
                 let underline = (attrs[.underlineStyle] as? Int ?? 0) != 0
-                // Persist the *design* size, never the drawn one: the drawn size
-                // grows with the user's text-size setting, and writing it back
-                // would turn a paragraph into a heading on the next load.
-                let design = EditorFont.designSize(of: attrs, typeSize: typeSize)
-                // A size is stored only when the run genuinely differs from its
-                // block's default. `TextRun.size` is therefore unambiguously a
-                // *custom* size (an imported document), and a later change to
-                // the ladder cannot be mistaken for one.
-                let custom = design.flatMap { d -> Double? in
-                    abs(d - block.designSize) > 0.01 ? Double((d * 1000).rounded() / 1000) : nil
-                }
+                // No font size is persisted: it belongs to the block's style, and
+                // a stored size could only describe a size the editor cannot
+                // author or edit. The drawn size is deliberately *not* read here
+                // — it grows with the user's text-size setting.
                 runs.append(TextRun(text: sub,
-                                    bold: font?.fontDescriptor.symbolicTraits.contains(.traitBold) == true,
-                                    italic: font?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true,
-                                    strike: strike,
-                                    underline: underline,
-                                    size: custom))
+                                    bold: bold ? true : nil,
+                                    italic: italic ? true : nil,
+                                    strike: strike ? true : nil,
+                                    underline: underline ? true : nil))
                 cursor = effectiveEnd
             }
             if runs.isEmpty { continue }
-            parts.append(ContentPart(type: block.persistedType, runs: runs, align: align))
+            parts.append(ContentPart(style: block.partStyle, runs: runs, align: align))
         }
         return parts
     }
 
     private static func appendList(parts: inout [ContentPart], item: String, done: Bool?) {
-        if let last = parts.last, last.type == ContentPartType.todo, done != nil {
+        if let last = parts.last, last.style == ContentPartStyle.todo, done != nil {
             var items = last.items ?? []
             items.append(item)
             var newDone = last.done ?? []
             newDone.append(done!)
-            parts[parts.count - 1] = ContentPart(type: last.type, items: items, done: newDone)
-        } else if let last = parts.last, last.type == ContentPartType.list, done == nil {
+            parts[parts.count - 1] = ContentPart(style: last.style, items: items, done: newDone)
+        } else if let last = parts.last, last.style == ContentPartStyle.list, done == nil {
             var items = last.items ?? []
             items.append(item)
-            parts[parts.count - 1] = ContentPart(type: last.type, items: items)
+            parts[parts.count - 1] = ContentPart(style: last.style, items: items)
         } else {
-            let type = done == nil ? ContentPartType.list : ContentPartType.todo
-            parts.append(ContentPart(type: type, items: [item], done: done.map { [$0] }))
+            let type = done == nil ? ContentPartStyle.list : ContentPartStyle.todo
+            parts.append(ContentPart(style: type, items: [item], done: done.map { [$0] }))
         }
     }
 }

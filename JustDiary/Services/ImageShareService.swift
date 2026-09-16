@@ -95,18 +95,18 @@ nonisolated enum ShareRenderer {
         let text = plainText(part)
         let width = contentWidth
         let lineHeight = lineHeightForPart(part)
-        switch part.type {
-        case ContentPartType.h1:
+        switch part.style {
+        case ContentPartStyle.title:
             return CGRect(x: 0, y: y, width: width, height: 52 + 12)
-        case ContentPartType.h2:
+        case ContentPartStyle.heading:
             return CGRect(x: 0, y: y, width: width, height: 46 + 10)
-        case ContentPartType.quote:
+        case ContentPartStyle.quote:
             let box = wrappedHeight(text, font: font, width: width - 22, lineHeight: 40, inkRatio: 0.87)
             return CGRect(x: 0, y: y, width: width, height: box)
-        case ContentPartType.list, ContentPartType.todo:
+        case ContentPartStyle.list, ContentPartStyle.todo:
             let items = part.items ?? []
             return CGRect(x: 0, y: y, width: width, height: Double(items.count) * 55)
-        case ContentPartType.image:
+        case ContentPartStyle.image:
             let h = imageHeight(part)
             return CGRect(x: 0, y: y, width: width, height: h)
         default:
@@ -180,21 +180,21 @@ nonisolated enum ShareRenderer {
     }
 
     private static func fontForPart(_ part: ContentPart) -> UIFont {
-        switch part.type {
-        case ContentPartType.h1: return UIFont.systemFont(ofSize: 36, weight: .bold)
-        case ContentPartType.h2: return UIFont.systemFont(ofSize: 32, weight: .semibold)
-        case ContentPartType.quote: return UIFont.systemFont(ofSize: 30, weight: .regular)
-        case ContentPartType.list, ContentPartType.todo: return UIFont.systemFont(ofSize: 30, weight: .regular)
+        switch part.style {
+        case ContentPartStyle.title: return UIFont.systemFont(ofSize: 36, weight: .bold)
+        case ContentPartStyle.heading: return UIFont.systemFont(ofSize: 32, weight: .semibold)
+        case ContentPartStyle.quote: return UIFont.systemFont(ofSize: 30, weight: .regular)
+        case ContentPartStyle.list, ContentPartStyle.todo: return UIFont.systemFont(ofSize: 30, weight: .regular)
         default: return UIFont.systemFont(ofSize: 31, weight: .regular)
         }
     }
 
     private static func lineHeightForPart(_ part: ContentPart) -> Double {
-        switch part.type {
-        case ContentPartType.h1: return 52
-        case ContentPartType.h2: return 46
-        case ContentPartType.quote: return 40
-        case ContentPartType.list, ContentPartType.todo: return 55
+        switch part.style {
+        case ContentPartStyle.title: return 52
+        case ContentPartStyle.heading: return 46
+        case ContentPartStyle.quote: return 40
+        case ContentPartStyle.list, ContentPartStyle.todo: return 55
         default: return 50
         }
     }
@@ -315,12 +315,12 @@ nonisolated enum ShareRenderer {
 
     private static func drawPart(_ c: CGContext, _ part: ContentPart, x: Double, y: Double, palette: Palette) {
         let text = plainText(part)
-        switch part.type {
-        case ContentPartType.h1:
+        switch part.style {
+        case ContentPartStyle.title:
             drawText(text, x: x, y: y, font: .systemFont(ofSize: 36, weight: .bold), color: palette.text)
-        case ContentPartType.h2:
+        case ContentPartStyle.heading:
             drawText(text, x: x, y: y, font: .systemFont(ofSize: 32, weight: .semibold), color: palette.text)
-        case ContentPartType.quote:
+        case ContentPartStyle.quote:
             let bg = palette.quoteBg
             c.saveGState()
             c.setFillColor(bg.cgColor)
@@ -331,7 +331,7 @@ nonisolated enum ShareRenderer {
             c.restoreGState()
             drawWrapped(text, x: x + 22 + 22, y: y + 20, width: contentWidth - 22 - 22, font: .systemFont(ofSize: 30),
                         lineHeight: 40, color: palette.text)
-        case ContentPartType.list:
+        case ContentPartStyle.list:
             let items = part.items ?? []
             for (i, item) in items.enumerated() {
                 let iy = y + Double(i) * 55
@@ -339,7 +339,7 @@ nonisolated enum ShareRenderer {
                 drawWrapped(item, x: x + 24, y: iy, width: contentWidth - 24, font: .systemFont(ofSize: 30),
                             lineHeight: 55, color: palette.text)
             }
-        case ContentPartType.todo:
+        case ContentPartStyle.todo:
             let items = part.items ?? []
             let done = part.done ?? Array(repeating: false, count: items.count)
             for (i, item) in items.enumerated() {
@@ -349,7 +349,7 @@ nonisolated enum ShareRenderer {
                 drawWrapped(item, x: x + 42, y: iy, width: contentWidth - 42, font: .systemFont(ofSize: 30),
                             lineHeight: 55, color: color)
             }
-        case ContentPartType.image:
+        case ContentPartStyle.image:
             let img = loadImage(part.src)
             let h = imageHeight(part)
             let rect = CGRect(x: x, y: y, width: contentWidth, height: h)

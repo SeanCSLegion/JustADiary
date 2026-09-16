@@ -23,21 +23,27 @@ from datetime import datetime
 BUNDLE_ID = "com.cov.justdiary"
 
 # (dayKey, time, country, code, region1, region2, region3, lat, lng, locText, [parts])
-def p(text):      return {"type": "p", "text": text}
-def h1(text):     return {"type": "h1", "text": text}
-def h2(text):     return {"type": "h2", "text": text}
-def quote(text):  return {"type": "quote", "text": text}
-def ul(items):    return {"type": "ul", "items": items}
-def todo(items, done): return {"type": "todo", "items": items, "done": done}
+#
+# `content_json` is a versioned document (`{"v": 2, "parts": [...]}`) whose parts
+# carry a semantic block *style*; the point size belongs to the style and follows
+# the system text-size setting, so nothing here stores one. See
+# `JustDiary/Models/ContentPart.swift`.
+CONTENT_VERSION = 2
+
+def p(text):      return {"style": "body", "text": text}
+def h1(text):     return {"style": "title", "text": text}
+def h2(text):     return {"style": "heading", "text": text}
+def quote(text):  return {"style": "quote", "text": text}
+def ul(items):    return {"style": "list", "items": items}
+def todo(items, done): return {"style": "todo", "items": items, "done": done}
 
 
 def run(text, bold=False, italic=False, underline=False, strike=False):
     """One styled span, mirroring `TextRun`.
 
-    A `size` is written only for a custom size (imported material). Text the app
-    authors always renders at its block's design size — Apple's ladder, i.e.
-    title 28 / heading 22 / body 17 / quote 15 — so storing one would be
-    redundant and, worse, ambiguous.
+    A run carries inline character styles only. It has no font size: the
+    paragraph's style owns the size, and the size follows the system text-size
+    setting (Apple's ladder: title 28 / heading 22 / body 17 / quote 15).
     """
     r = {"text": text}
     if bold:      r["bold"] = True
@@ -47,11 +53,16 @@ def run(text, bold=False, italic=False, underline=False, strike=False):
     return r
 
 
-def rich(part_type, *runs, align=None):
+def rich(style, *runs, align=None):
     """A paragraph built from styled runs, optionally centered."""
-    part = {"type": part_type, "runs": list(runs)}
+    part = {"style": style, "runs": list(runs)}
     if align: part["align"] = align
     return part
+
+
+def document(parts):
+    """The value written to `edit_block.content_json`."""
+    return {"v": CONTENT_VERSION, "parts": parts}
 
 
 def part_text(part):
@@ -137,10 +148,10 @@ ENTRIES = [
       p("这一段是正文，用来和下面的标题、引用对比字号。"),
       h2("小标题"),
       quote("引用块比正文小一级，并且有自己的底色。"),
-      rich("p", run("这一段带"), run("粗体", bold=True), run("、"),
+      rich("body", run("这一段带"), run("粗体", bold=True), run("、"),
            run("斜体", italic=True), run("、"), run("下划线", underline=True),
            run("和"), run("删除线", strike=True), run("。")),
-      rich("p", run("这一行是居中的正文。"), align="center"),
+      rich("body", run("这一行是居中的正文。"), align="center"),
       todo(["验证标题层级", "验证引用底色", "验证行距"], [True, True, False])]),
 ]
 
@@ -192,7 +203,7 @@ def main() -> None:
     for day in sorted(by_day):
         rows = by_day[day]
         first_text = next((part_text(part) for part in rows[0][10]
-                           if part["type"] in ("h1", "h2", "p") and part_text(part)), "")
+                           if part["style"] in ("title", "heading", "body") and part_text(part)), "")
         summary = first_text[:40] or "无地点记录"
         cur.execute("INSERT INTO diary(id, day_key, summary, search_text, created_utc, updated_utc)"
                     " VALUES(?,?,?,?,?,?)", (diary_id, day, summary, summary, 0, 0))
@@ -206,7 +217,7 @@ def main() -> None:
                 " content_json, search_text, loc_precision, loc_quality, country, country_code,"
                 " region1, region2, region3, created_utc, updated_utc)"
                 " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (diary_id, ms, loc, lat, lng, json.dumps(parts, ensure_ascii=False), text,
+                (diary_id, ms, loc, lat, lng, json.dumps(document(parts), ensure_ascii=False, sort_keys=True), text,
                  "exact" if loc else "none", "precise" if loc else "none",
                  country, code, r1, r2, r3, 0, 0))
         diary_id += 1

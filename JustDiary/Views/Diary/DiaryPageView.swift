@@ -84,12 +84,12 @@ struct DiaryPageView: View {
         if vm.isRead {
             let types = vm.blocks
                 .flatMap { ContentFlatten.parseContentCached($0.contentJson) }
-                .map(\.type)
+                .map(\.style)
             return "read:" + types.joined(separator: ",")
         }
         let parts = vm.controller.currentParts()
         let text = parts.map(ContentFlatten.flattenPart).joined()
-        return parts.map(\.type).joined(separator: ",") + "|" + text
+        return parts.map(\.style).joined(separator: ",") + "|" + text
     }
 
     // MARK: - Keyboard

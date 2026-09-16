@@ -83,7 +83,7 @@ struct DiaryPartsView: View {
         var current: [ContentPart] = []
         var currentStart = 0
         for (i, part) in parts.enumerated() {
-            if part.type == ContentPartType.image {
+            if part.style == ContentPartStyle.image {
                 if !current.isEmpty {
                     chunks.append(Chunk(parts: current, offset: currentStart, image: nil))
                     current = []

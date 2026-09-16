@@ -59,6 +59,7 @@ nonisolated final class DiaryRepository {
                 do {
                     try migrateSchema()
                     try ensureFtsTable()
+                    try migrateContentFormat()
                     try backfillIndexIfNeeded()
                 } catch {
                     Log.db.error("migrate/index failed: \(String(describing: error), privacy: .public)")
@@ -216,6 +217,35 @@ nonisolated final class DiaryRepository {
         }
     }
 
+    /// Rewrites `edit_block.content_json` in the current storage format when it
+    /// is still v1 — a bare part array whose runs carried a font size and whose
+    /// block style names came from HTML (`h1`/`h2`/`p`/`ul`/`img`).
+    ///
+    /// This is a tidiness pass, not a correctness requirement: `parseContent`
+    /// decodes v1 on the fly, and the import path already re-encodes through
+    /// `ImagePathUtil.normalizeContent`. Doing it once keeps the database (and
+    /// therefore the backups exported from it) uniform.
+    private func migrateContentFormat() throws {
+        guard SettingsStore.contentFormatVersion < ContentDocument.currentVersion else { return }
+        guard let db else { return }
+        let rows = db.query("SELECT id, content_json FROM edit_block ORDER BY id;")
+        for chunk in rows.chunked(by: 500) {
+            try db.inTransaction {
+                for row in chunk {
+                    let id = row["id"] as! Int64
+                    let json = (row["content_json"] as? String) ?? "[]"
+                    let normalized = ImagePathUtil.normalizeContent(json)
+                    if normalized != json {
+                        // The text is unchanged, so `search_text` and the FTS
+                        // index stay valid.
+                        try db.execute("UPDATE edit_block SET content_json = ? WHERE id = ?;", [normalized, id])
+                    }
+                }
+            }
+        }
+        SettingsStore.contentFormatVersion = ContentDocument.currentVersion
+    }
+
     private func backfillIndexIfNeeded() throws {
         if isSearchIndexReady {
             if ftsSupported && isFtsTableExists { return }
@@ -232,7 +262,7 @@ nonisolated final class DiaryRepository {
                 for row in chunk {
                     let id = row["id"] as! Int64
                     let json = (row["content_json"] as? String) ?? "[]"
-                    let normalized = ImagePathUtil.normalizeContentImagePaths(json)
+                    let normalized = ImagePathUtil.normalizeContent(json)
                     let text = ContentFlatten.flattenContent(normalized)
                     try db.execute("UPDATE edit_block SET content_json = ?, search_text = ? WHERE id = ?;", [normalized, text, id])
                 }
@@ -444,7 +474,7 @@ nonisolated final class DiaryRepository {
             let oldJson = (oldRow?["content_json"] as? String) ?? "[]"
             let diaryId = (oldRow?["diary_id"] as? Int64) ?? 0
             let now = Int64(Date().timeIntervalSince1970 * 1000)
-            let newJson = ImagePathUtil.normalizeContentImagePaths(contentJson)
+            let newJson = ImagePathUtil.normalizeContent(contentJson)
             try db.inTransaction {
                 try db.execute("UPDATE edit_block SET content_json = ?, search_text = ?, updated_utc = ? WHERE id = ?;",
                                [newJson, ContentFlatten.flattenContent(newJson), now, blockId])
@@ -636,7 +666,7 @@ nonisolated final class DiaryRepository {
                     try mainDb.execute("INSERT OR IGNORE INTO diary_flag(day_key) VALUES (?);", [dayKey])
                     var dayText = ""
                     for b in blocks {
-                        let json = ImagePathUtil.normalizeContentImagePaths((b["content_json"] as? String) ?? "[]")
+                        let json = ImagePathUtil.normalizeContent((b["content_json"] as? String) ?? "[]")
                         let parts = ContentFlatten.parseContent(json)
                         var rewritten = parts
                         for i in rewritten.indices {
