@@ -79,7 +79,9 @@ enum DayDraw {
         let lunarY = top + m.dayFont + 4 + lineH / 2
         let cx = (CGFloat(col) + 0.5) * m.cellW
         let circleC = top + contentH / 2
-        let circleD = min(m.cellW - 2, contentH + 10, m.cellH - 2)
+        // 选中圆比内容再大一圈，让「选中」比「今天」更醒目；但受格宽/格高夹住，
+        // 相邻两格之间不会碰在一起。
+        let circleD = min(m.cellW - 3, contentH + 14, m.cellH - 3)
 
         if isSelected {
             context.fill(Path(ellipseIn: CGRect(x: cx - circleD / 2, y: circleC - circleD / 2,
@@ -318,7 +320,7 @@ struct MiniMonthLabel: View {
         let thisMonth = DateUtil.calendar.component(.month, from: Date())
         let isCurrent = year == thisYear && month == thisMonth
         Text(L10n.monthName(month))
-            .diaryFont(TypeSize.rowTitle, weight: isCurrent ? .bold : .semibold)
+            .diaryFont(15, weight: isCurrent ? .bold : .semibold)
             .lineLimit(1)
             .minimumScaleFactor(0.7)
             .foregroundStyle(isCurrent ? Theme.primary() : Theme.onSurface())

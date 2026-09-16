@@ -8,6 +8,7 @@ struct HomeView: View {
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.adaptiveLayout) private var layout
 
     @State private var vm = HomeViewModel()
     @State private var mode: CalendarMode = .month
@@ -27,10 +28,19 @@ struct HomeView: View {
         GeometryReader { geo in
             let size = geo.size
             VStack(spacing: 0) {
-                header
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                calendarArea(size: size)
+                // 横屏分栏时头部整块隐藏：年份入口与「今天」都在左栏标题行里，
+                // 留着就会出现两个年份胶囊。
+                if !(layout.splitsMasterDetail && mode == .month) {
+                    header
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                }
+                if layout.splitsMasterDetail, mode == .month {
+                    splitCalendarArea(size: size)
+                } else {
+                    // 横屏点年份胶囊进年历：复用竖屏那套整屏 morph（此时不显示分栏）
+                    calendarArea(size: size)
+                }
             }
         }
         .ignoresSafeArea(edges: .bottom)
@@ -111,7 +121,10 @@ struct HomeView: View {
 
             Spacer()
 
-            InfoCapsule(text: relativeDayLabel(), action: todayTapped)
+            // 横屏分栏时右栏标题行已有「今天」，这里不再重复一个相对日期胶囊。
+            if !layout.splitsMasterDetail {
+                InfoCapsule(text: relativeDayLabel(), action: todayTapped)
+            }
         }
         // `height` clipped the capsule once the title grew with the user's
         // text size; `minHeight` is unchanged at the default category.
@@ -211,23 +224,49 @@ struct HomeView: View {
                 mwMorphMonth = nil
             }
         case .month:
-            var tr = Transaction()
-            tr.disablesAnimations = true
-            withTransaction(tr) {
-                vm.yearPage = DateUtil.calendar.component(.year, from: vm.monthPage)
-                ymMorph = (vm.yearPage, vm.monthPage)
-                mode = .year
-                zoom = 0
-            }
-            morphLog("ym-back-start")
-            withAnimation(zoomAnimation) {
-                zoom = 1
-            } completion: {
-                morphLog("ym-back-end")
-                ymMorph = nil
-            }
+            showYearPage()
         case .year:
             break
+        }
+    }
+
+    /// 切到年历（缩放 morph）。竖屏的左上角胶囊与横屏左栏的年份胶囊都走这里。
+    private func showYearPage() {
+        guard !morphing else { return }
+        var tr = Transaction()
+        tr.disablesAnimations = true
+        withTransaction(tr) {
+            vm.yearPage = DateUtil.calendar.component(.year, from: vm.monthPage)
+            ymMorph = (vm.yearPage, vm.monthPage)
+            mode = .year
+            zoom = 0
+        }
+        morphLog("ym-back-start")
+        withAnimation(zoomAnimation) {
+            zoom = 1
+        } completion: {
+            morphLog("ym-back-end")
+            ymMorph = nil
+        }
+    }
+
+    /// 从年历点某个月回来（缩放 morph）。
+    private func showMonthPage() {
+        guard !morphing else { return }
+        var tr = Transaction()
+        tr.disablesAnimations = true
+        withTransaction(tr) {
+            vm.selectMonth(DateUtil.monthFirst(selectedDate))
+            ymMorph = (vm.yearPage, vm.monthPage)
+            mode = .month
+            zoom = 1
+        }
+        morphLog("ym-open-start")
+        withAnimation(zoomAnimation) {
+            zoom = 0
+        } completion: {
+            morphLog("ym-open-end")
+            ymMorph = nil
         }
     }
 
@@ -278,6 +317,87 @@ struct HomeView: View {
     }
 
     // MARK: - Calendar area
+
+    /// 横屏（宽度足够）走「左月历 + 右选中日」的静态分栏。
+    ///
+    /// 竖屏**不经过这里** —— 年 ↔ 月 ↔ 周三态与 morph 动画保持原样。
+    private func splitCalendarArea(size: CGSize) -> some View {
+        // 系统占位由 safeArea 提供（横屏 leading = 62，浮条与灵动岛都在左侧）；
+        // 页面自己的边距统一 16pt，四屏一致。
+        let inset = layout.contentInset
+        let pagePad: CGFloat = 16
+        let top: CGFloat = 50
+        let bottom = layout.bottomInset + 8
+        // 内容可用宽 = 屏宽 − 左侧系统占位；再扣掉两侧 16pt 页面边距。
+        let paneW = size.width - inset
+        let shapeW = max(320, paneW - pagePad * 2)
+        // 月历 7 列每格 ≈56pt（好点、不挤），其余给右栏（本机约 330pt）。
+        let calendarW = min(shapeW - 280, min(420, max(360, (shapeW * 0.52).rounded())))
+        let dayW = shapeW - calendarW - pagePad * 2
+        let paneH = size.height - top
+        let areaH = max(220, paneH - bottom)
+
+        let weeks = CalendarLayout.displayedWeeks(inMonth: vm.monthPage, ws: weekStart).count
+        // 横屏标题区是紧凑的「年份+今天」一行 + 月标题一行
+        let titleAndHeader = MonthPane.titleBlockHeight(compact: true)
+            + CalendarLayout.weekdayHeaderH
+        let density = CalendarDensity.resolve(availableHeight: areaH - titleAndHeader,
+                                               rows: weeks,
+                                               wantsLunar: showsLunar)
+        let rows = density.rows(monthWeeks: weeks)
+        let cellH = max(CalendarDensity.minimumRowHeight,
+                        (areaH - titleAndHeader) / CGFloat(rows).rounded())
+        return HStack(alignment: .top, spacing: pagePad * 2) {
+            // 月历：**上下滑**翻月（与竖屏一致，横屏不引入第二套手势方向）；
+            // 每页只画当前月，不显示相邻月的日期。
+            DragPagePager(keys: CalendarLayout.allMonthKeys,
+                          current: CalendarLayout.monthKey(vm.monthPage),
+                          axis: .vertical,
+                          pageSize: areaH,
+                          disabled: false,
+                          onPageChange: { key in
+                withAnimation(.snappy(duration: 0.3)) {
+                    vm.selectMonth(CalendarLayout.dateForMonthKey(key))
+                }
+                Task { await vm.reloadDayBlocks() }
+            }) { key in
+                MonthPane(month: CalendarLayout.dateForMonthKey(key),
+                          weekStart: weekStart,
+                          selectedDate: selectedDate,
+                          flags: flags,
+                          width: calendarW,
+                          areaH: areaH,
+                          cellH: cellH,
+                          density: density,
+                          // 「今天」与年份入口都放在左栏标题行 —— 横屏的唯一入口。
+                          showsTodayChip: true,
+                          onTodayTap: todayTapped,
+                          onTapDay: selectDay)
+                    .frame(width: calendarW, height: areaH)
+            }
+            .frame(width: calendarW, height: areaH)
+            .clipped()
+
+            Rectangle()
+                .fill(Theme.outlineVariant().opacity(0.4))
+                .frame(width: 0.5)
+
+            // 右栏：固定宽度，内容限宽并居中（正文一行不超过 ~40 汉字）
+            DayPane(blocks: vm.dayBlocks,
+                    dayKey: DateUtil.dayKeyOf(selectedDate),
+                    isFuture: DateUtil.dayKeyOf(selectedDate) > DateUtil.dayKeyOf(Date()),
+                    openEditor: openEditor,
+                    bottomInset: layout.bottomInset,
+                    maxColumnWidth: 560,
+                    year: DateUtil.calendar.component(.year, from: vm.monthPage),
+                    onYearTap: showYearPage)
+                .frame(width: dayW)
+        }
+        .padding(.leading, inset + pagePad)
+        .padding(.trailing, pagePad)
+        .frame(width: paneW, height: paneH, alignment: .topLeading)
+        .clipped()
+    }
 
     private func calendarArea(size: CGSize) -> some View {
         let w = size.width
@@ -352,23 +472,30 @@ struct HomeView: View {
                       onPageChange: { key in
             vm.selectMonth(CalendarLayout.dateForMonthKey(key))
         }) { key in
-            let d = CalendarLayout.dateForMonthKey(key)
-            VStack(spacing: 0) {
-                MonthBigTitle(month: d)
-                WeekdayHeaderView(weekStart: weekStart, cellW: w / 7)
-                    .frame(width: w, height: CalendarLayout.weekdayHeaderH)
-                MonthCanvas(weeks: CalendarLayout.weeks(inMonth: d, ws: weekStart),
-                            anchorMonth: d,
-                            metrics: CalendarLayout.monthMetrics(width: w, areaH: h, lunar: showsLunar),
-                            selectedDate: selectedDate,
-                            flags: flags,
-                            showAdjacent: false,
-                            onTapDay: openDay,
-                            onAdjacentDaySelected: openDay)
-            }
-            .frame(width: w, height: h)
+            MonthPane(month: CalendarLayout.dateForMonthKey(key),
+                      weekStart: weekStart,
+                      selectedDate: selectedDate,
+                      flags: flags,
+                      width: w,
+                      areaH: h,
+                      cellH: CalendarLayout.monthCellH(areaH: h),
+                      density: showsLunar ? .month(lunar: true) : .month(lunar: false),
+                      // 竖屏顶部已经有 InfoCapsule(今天 + 相对日期)，这里不再重复。
+                      showsTodayChip: false,
+                      onTapDay: openDay)
         }
         .frame(height: h)
+    }
+
+    /// 点某个日期：横屏只更新选中日（不进入周视图），竖屏走原来的 morph。
+    private func selectDay(_ day: Date) {
+        if layout.splitsMasterDetail {
+            Haptics.tap()
+            withAnimation(.snappy(duration: 0.25)) { vm.select(day) }
+            Task { await vm.reloadDayBlocks() }
+        } else {
+            openDay(day)
+        }
     }
 
     private func weekLayer(w: CGFloat, h: CGFloat) -> some View {

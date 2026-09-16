@@ -53,6 +53,10 @@ struct RootView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        // 导航形态交给系统：紧凑宽度是底部浮条，iPad 横屏 / 宽窗口自动变侧边栏。
+        // 实测（见 docs/adaptive-layout-plan.md §2.2）系统在 iPhone 横屏仍把浮条留在
+        // 底部居中，所以横屏不需要我们做任何导航侧的改动。
+        .tabViewStyle(.sidebarAdaptable)
         .tint(Theme.primary())
         .preferredColorScheme(AppConfigService.colorScheme)
         // Publish the system text-size category so the explicit design sizes can
@@ -61,6 +65,8 @@ struct RootView: View {
         // own curve for its text style.
         .environment(\.diaryDynamicTypeSize, dynamicTypeSize)
         .environment(\.locale, AppLanguage.locale)
+        // 版面判定只在这里读一次几何：所有页面用 @Environment(\.adaptiveLayout)。
+        .adaptiveLayoutReader()
         // Rebuild the whole tree whenever the language or any settings-driven UI
         // tick changes. This guarantees all L10n strings, the color scheme and the
         // canvas layers re-render immediately instead of after an app restart.
@@ -91,6 +97,9 @@ struct RootView: View {
             DiaryPageView(dayKey: appState.editorDayKey)
                 .environment(\.diaryDynamicTypeSize, dynamicTypeSize)
                 .environment(\.locale, AppLanguage.locale)
+                // 与上面同理：presentation 不会从更内层继承环境，这里补上版面判定
+                // （编辑器在横屏要限宽、格式栏要贴右侧）。
+                .adaptiveLayoutReader()
         }
         .task {
             await DiaryRepository.shared.prepare()

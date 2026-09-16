@@ -30,6 +30,7 @@
 - 自定义组件：`GlassChip`、`GlassActionChip`、`GlassCountBadge`、`PressableGlassIcon`、`diaryCard`（内容卡片修饰符）、`GlassEmptyState`、`TabBarClearance`、`AppAlertItem`
 
 > 界面规范（设计令牌、动态字体与上限、编辑器往返不变量、日期格式、玻璃边界、溢出处理）见 `docs/design-system.md`。
+> 横屏 / iPad / Mac / iPhone Duo 的自适应版面（分档规则、逐屏版面、设计稿）见 `docs/adaptive-layout-plan.md`。
 
 ## 架构
 
@@ -84,6 +85,25 @@ xcodebuild ... -only-testing:JustDiaryTests test          # 毫秒级
 xcodebuild ... -only-testing:JustDiaryUITests test        # 需要中文模拟器 + 示例数据
 ```
 
+## 设计稿
+
+手机端与 iPad / Mac **分开设计**：
+
+- `docs/design/landscape/phone.html`：手机端。**竖屏 7 张是当前实现的 1:1 复刻**（含年历 / 周历 morph 的目标形态），横屏 6 张是新设计的版面
+- `docs/design/landscape/wide.html`：iPad / Mac 三栏版面（先行版，后续打磨）
+- `docs/design/landscape/gallery.html`：13 张设计稿总览
+
+设计稿的唯一定义在 `docs/design/landscape/`：`devices.js`（参考设备 + **手机横屏系统占位常量**）、
+`engine.js`（图标/数据/绘制函数/`layoutFor()` 版面判定）、`frames-phone.js`（横屏）、
+`frames-phone-portrait.js`（竖屏复刻）、`frames-wide.js`（iPad / Mac）；
+令牌在 `mockup.css`，与 `Assets.xcassets`、`DesignSystem.swift` 一一对应。改完执行：
+
+```bash
+node tools/capture_design_mockups.mjs              # 重新导出全部 PNG（2×）
+node tools/capture_design_mockups.mjs --phone      # 只手机端
+node tools/capture_design_mockups.mjs ph-home      # 只导出 id 含 ph-home 的
+```
+
 ## 开发辅助
 
 - `tools/seed_sample_diary.py`：向模拟器写入一套可复现的示例日记（v2 格式；跨 3 年、
@@ -111,4 +131,5 @@ python3 tools/seed_sample_diary.py "iPhone 18 Pro"
 - **编辑页字体与段落样式**（字体模型、E1–E6 待办的处理结果、往返测试）见 `docs/editor-typography.md`
 - **位置的记录规则**（何时获取、保存确认、与历史编辑的关系）见 `docs/location-recording.md`
 - 首页动画性能与系统显示设置适配见 `docs/animation-and-accessibility.md`
+- **横屏 / iPad / Mac 自适应布局方案与设计稿**见 `docs/adaptive-layout-plan.md`
 - 升级调研（含 Apple 官方文档引用）见 `docs/research/`

@@ -2,6 +2,7 @@ import SwiftUI
 import Charts
 
 struct FootprintView: View {
+    @Environment(\.adaptiveLayout) private var layout
     @State private var vm = FootprintViewModel()
     @State private var showTimeFilter = false
 
@@ -27,20 +28,32 @@ struct FootprintView: View {
                         showTimeFilter = true
                     }
                 }
-                .padding(.horizontal, 16)
+                .adaptivePagePadding()
             }
 
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 12) {
-                    statsCard
-                    if vm.yearly.count > 1 {
-                        trendCard
+                if layout.splitsDashboard {
+                    // 宽屏：三栏骨架里的「中栏 = 统计 + 趋势图」那一栏
+                    VStack(spacing: 12) {
+                        statsCard
+                        if vm.yearly.count > 1 { trendCard }
                     }
-                    listCard
+                    .adaptivePagePadding()
+                    .padding(.top, 10)
+                    // 底部要给系统浮条留位置（横屏 64pt）
+                    .padding(.bottom, max(24, layout.bottomInset + 40))
+                } else {
+                    VStack(spacing: 12) {
+                        statsCard
+                        if vm.yearly.count > 1 {
+                            trendCard
+                        }
+                        listCard
+                    }
+                    .adaptivePagePadding()
+                    .padding(.top, 10)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-                .padding(.bottom, 24)
             }
         }
         .padding(.top, 12)
@@ -118,7 +131,7 @@ struct FootprintView: View {
                     AxisValueLabel()
                 }
             }
-            .frame(height: 132)
+            .frame(height: layout.splitsDashboard ? 200 : 132)
             // Axis labels are drawn by Charts from the environment font; without
             // this they stayed at the system default while the rest of the card
             // followed the user's text size.

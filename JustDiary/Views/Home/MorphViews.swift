@@ -30,12 +30,8 @@ struct YearMonthMorphView: View, Animatable {
         let miniRect = CalendarLayout.miniGridRect(month: monthNum, in: size)
         let fullRect = CalendarLayout.fullMonthGridRect(in: size)
         let grid = CL.lerp(miniRect, fullRect, t)
-        let mini = DayMetrics(cellW: miniRect.width / 7,
-                              cellH: miniRect.height / 6,
-                              dayFont: 11,
-                              lunarFont: 11,
-                              lunarAlpha: 0,
-                              dividerAlpha: 0)
+        // 迷你月的起点必须与年历页完全一致（否则过渡中字号会跳）
+        let mini = CalendarLayout.miniMetrics(in: size)
         let full = CalendarLayout.monthMetrics(width: size.width, areaH: size.height, lunar: showsLunar)
         var metrics = DayMetrics.lerp(mini, full, t)
         metrics.cellW = grid.width / 7
@@ -59,7 +55,12 @@ struct YearMonthMorphView: View, Animatable {
                 .scaleEffect(yearScale, anchor: anchor)
                 .opacity(yearOpacity)
             VStack(spacing: 0) {
-                MonthBigTitle(month: month)
+                // 固定尺寸的槽位：动画中 `MonthBigTitle` 的生长/收缩不会推动
+                // 下面的星期栏与日期网格（之前月份数字会「跳一下」）。
+                ZStack(alignment: .leading) {
+                    MonthBigTitle(month: month)
+                }
+                .frame(height: CalendarLayout.bigTitleH)
                 WeekdayHeaderView(weekStart: weekStart, cellW: size.width / 7)
                     .frame(height: CalendarLayout.weekdayHeaderH)
             }

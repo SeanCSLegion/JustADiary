@@ -7,6 +7,56 @@ enum CalendarMode {
     case week
 }
 
+/// 日历密度：由**可用高度**决定，用来替代原来「月↔周整屏 morph」在横屏的职责。
+///
+/// 竖屏仍走原来的 `mode`（年/月/周三态 morph）；横屏只有 `month` 一种交互，
+/// 放不下六周格时自动降级为「周条」，这样内容永远不会被压扁。
+enum CalendarDensity: Equatable {
+    /// 六周格 + 农历行。
+    case month(lunar: Bool)
+    /// 只剩一行的周条（横向翻周）。
+    case weekStrip
+
+    /// 每行至少这么高，才放得下 20pt 日号 + 11pt 农历 + 选中圆。
+    static let minimumRowHeight: CGFloat = 44
+
+    /// 由可用高度与**实际需要画的行数**决定密度。
+    ///
+    /// - Parameters:
+    ///   - availableHeight: 日历区可用高度（不含标题/星期栏/底部预留）。
+    ///   - rows: 实际行数（见 `CalendarLayout.displayedWeeks`，不要传固定的 6）。
+    ///   - wantsLunar: 是否希望显示农历行。
+    static func resolve(availableHeight: CGFloat, rows: Int, wantsLunar: Bool,
+                        typeSize: CGFloat = 1) -> CalendarDensity {
+        let needed = max(1, rows)
+        // 行高随可用高度分配，并夹在 [最小行高, 舒适上限]：
+        // 扣掉农历行需要的空间后，剩下的每行还不到最小行高，才放弃农历。
+        let perRow = (availableHeight / CGFloat(needed)).rounded()
+        if perRow >= minimumRowHeight + 16 {
+            return .month(lunar: wantsLunar)
+        }
+        if perRow >= minimumRowHeight {
+            return .month(lunar: false)
+        }
+        return .weekStrip
+    }
+
+    var isWeekStrip: Bool {
+        if case .weekStrip = self { return true }
+        return false
+    }
+
+    var showsLunar: Bool {
+        if case .month(let lunar) = self { return lunar }
+        return false
+    }
+
+    /// 需要绘制的行数。
+    func rows(monthWeeks: Int) -> Int {
+        isWeekStrip ? 1 : monthWeeks
+    }
+}
+
 struct WeekDays {
     var start: Date
     var days: [Date]
@@ -79,7 +129,8 @@ enum CalendarLayout {
 
     static let yearTitleH: CGFloat = 62
     static let yearPad: CGFloat = 16
-    static let yearSpacing: CGFloat = 10
+    /// 月与月之间的空隙：从 10 收到 6，给迷你月里的字号留出空间。
+    static let yearSpacing: CGFloat = 6
 
     static func monthCellW(width: CGFloat) -> CGFloat { width / 7 }
 
@@ -112,6 +163,16 @@ enum CalendarLayout {
                height: (size.height - yearTitleH - 8 - yearSpacing * 3) / 4)
     }
 
+    /// 年历里迷你日期字号：格子变小的时候按格宽收缩，避免相邻日期叠在一起。
+    ///
+    /// 3 列布局下单元格约 15pt 宽，所以 15×0.95 ≈ 14pt —— 比原来的 11pt 明显大；
+    /// 上限再由「格高 × 0.5」兜住，保证选中圆不会碰到上下两行。
+    static func miniDayFont(cellW: CGFloat, cellH: CGFloat) -> CGFloat {
+        min(14, max(9, min(cellW * 0.95, cellH * 0.5)))
+    }
+
+    static let miniLunarHidden: CGFloat = 0
+
     static func yearCardRect(month: Int, in size: CGSize) -> CGRect {
         let card = yearCardSize(in: size)
         let col = CGFloat((month - 1) % 3)
@@ -123,7 +184,7 @@ enum CalendarLayout {
     }
 
     static let miniPad: CGFloat = 6
-    static let miniTitleH: CGFloat = 16
+    static let miniTitleH: CGFloat = 17
 
     static func miniGridRect(month: Int, in size: CGSize) -> CGRect {
         let card = yearCardRect(month: month, in: size)
@@ -131,6 +192,20 @@ enum CalendarLayout {
                       y: card.minY + miniPad + miniTitleH,
                       width: card.width - miniPad * 2,
                       height: card.height - miniPad * 2 - miniTitleH)
+    }
+
+    /// 年历迷你月的绘制参数 —— 年历页与「月→年」morph 的起点必须完全一致，
+    /// 否则过渡到一半会出现字号/间距的跳变（之前月份数字会「跳一下」）。
+    static func miniMetrics(in size: CGSize) -> DayMetrics {
+        let grid = miniGridRect(month: 1, in: size)
+        let cellW = grid.width / 7
+        let cellH = grid.height / 6
+        return DayMetrics(cellW: cellW,
+                          cellH: cellH,
+                          dayFont: miniDayFont(cellW: cellW, cellH: cellH),
+                          lunarFont: 6,
+                          lunarAlpha: miniLunarHidden,
+                          dividerAlpha: 0)
     }
 
     static func fullMonthGridRect(in size: CGSize) -> CGRect {
@@ -210,6 +285,26 @@ enum CalendarLayout {
 
     private static let lock = NSLock()
     private static var weeksCache: [Int: [WeekDays]] = [:]
+
+    /// 实际需要绘制的周，去掉末尾「整周都不属于本月」的填充行。
+    ///
+    /// `weeks(inMonth:)` 固定返回 6 行（月份可能只占 5 行），末尾那行若一天都不在
+    /// 本月内，就不该参与密度判定 —— 否则会把「5 行放得下」误判成「6 行放不下」，
+    /// 横屏于是错误地降级成周条（这正是第一版横屏只剩一行日期的原因）。
+    static func displayedWeeks(inMonth month: Date, ws: String) -> [WeekDays] {
+        var rows = weeks(inMonth: month, ws: ws)
+        // 明确写成从尾部逐个判断的循环：`dropLast(where:)` 与 `dropLast(_:)` 的
+        // 重载在这里容易让编译器选错，反而报「Int 不接受闭包」。
+        while rows.count > 1 {
+            guard let last = rows.last else { break }
+            let hasThisMonth = last.days.contains {
+                DateUtil.calendar.isDate($0, equalTo: month, toGranularity: .month)
+            }
+            if hasThisMonth { break }
+            rows.removeLast()
+        }
+        return rows
+    }
 
     static func weeks(inMonth month: Date, ws: String) -> [WeekDays] {
         let key = (DateUtil.calendar.component(.year, from: month) * 100 + DateUtil.calendar.component(.month, from: month)) * 2 + (ws == "sunday" ? 1 : 0)

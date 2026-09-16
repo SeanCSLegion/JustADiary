@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-Hans" data-page="wide">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一页时光 · iPad / Mac 版面设计稿（三栏）</title>
+<link rel="stylesheet" href="mockup.css">
+<script src="engine.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-dot"></span>
+    <div>
+      <strong>一页时光 · iPad / Mac 设计稿</strong>
+      <span>iPad 竖屏 / 横屏 · Mac 窗口 · 三栏版面（先行版）</span>
+    </div>
+  </div>
+
+  <div class="pickers">
+    <label>屏幕
+      <select id="sel-screen"></select>
+    </label>
+    <label>外观
+      <select id="sel-theme">
+        <option value="dark">深色</option>
+        <option value="light">浅色</option>
+      </select>
+    </label>
+    <label>标注
+      <select id="sel-annot">
+        <option value="on">显示</option>
+        <option value="off">隐藏</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" id="chk-spec" checked> 规格</label>
+  </div>
+</header>
+
+<main>
+  <section class="stage" id="stage">
+    <div class="stage-inner" id="stage-inner"></div>
+  </section>
+
+  <aside class="specpanel" id="specpanel">
+    <div class="specpanel-inner" id="specpanel-inner"></div>
+  </aside>
+</main>
+
+<footer class="legend" id="legend"></footer>
+
+<script defer src="devices.js"></script>
+<script defer src="frames-wide.js"></script>
+<script defer src="boot.js"></script>
+<script>
+  /* 本地打开时按文件 mtime 给资源加版本串：否则改了源码刷新页面还是旧的 */
+  (function () {
+    var files = ['mockup.css','engine.js','devices.js','frames-phone.js','frames-phone-portrait.js','frames-wide.js'].map(function(n){return n;});
+    var links = Array.prototype.slice.call(document.querySelectorAll('link[href], script[src]'));
+    links.forEach(function (el) {
+      var url = el.getAttribute('href') || el.getAttribute('src');
+      if (!url || url.indexOf('?') >= 0) return;
+      if (files.indexOf(url) < 0) return;
+      var v = el.getAttribute('data-v') || Date.now();
+      el.setAttribute(url === (el.getAttribute('href') || '') ? 'href' : 'src', url + '?v=' + v);
+    });
+  })();
+</script>
+</body>
+</html>

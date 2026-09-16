@@ -31,6 +31,8 @@ struct DragPagePager<Key: Hashable, Page: View>: View {
             page(current)
                 .frame(width: axis == .horizontal ? pageSize : nil,
                        height: axis == .vertical ? pageSize : nil)
+                // 每页单独裁剪：页内容超出 pageSize 时不会溢到相邻页
+                .clipped()
                 .offset(x: axis == .horizontal ? offset : 0,
                         y: axis == .vertical ? offset : 0)
             if let nextKey, showsNeighbours {

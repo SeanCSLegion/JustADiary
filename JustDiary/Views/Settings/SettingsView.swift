@@ -2,20 +2,28 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
+    @Environment(\.adaptiveLayout) private var layout
     @State private var vm = SettingsViewModel()
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 12) {
-                header
-                generalCard
-                rulesCard
-                reminderCard
-                dataCard
-                aboutCard
+                if layout.cardColumns > 1 {
+                    // 宽屏：两列卡片。用 LazyVGrid + `.top` 对齐 —— 各卡按内容自然高度，
+                    // 不强行拉平（短卡里留白比拉齐更自然）。
+                    cardGrid
+                } else {
+                    header
+                    generalCard
+                    rulesCard
+                    reminderCard
+                    dataCard
+                    aboutCard
+                }
                 TabBarClearance()
             }
-            .padding(.horizontal, 16)
+            // 四屏统一的页面边距（左侧让开系统占位）
+            .adaptivePagePadding()
             .padding(.top, 12)
         }
         .task { await vm.refreshStatus() }
@@ -101,6 +109,21 @@ struct SettingsView: View {
         PageHeader(title: L10n.str("settings_title"))
     }
 
+    /// 宽屏：标题跨两列，卡片保持自然高度。
+    private var cardGrid: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
+                                 count: layout.cardColumns),
+                  alignment: .leading,
+                  spacing: 12) {
+            header.gridCellColumns(layout.cardColumns)
+            generalCard
+            rulesCard
+            reminderCard
+            dataCard
+            aboutCard
+        }
+    }
+
     // MARK: - Cards
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -116,8 +139,8 @@ struct SettingsView: View {
             .foregroundStyle(Theme.onSurfaceVariant())
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 2)
+            .padding(.top, 12)
+            .padding(.bottom, 0)
     }
 
     private func valueRow(icon: String, title: String, sub: String?, value: String, action: @escaping () -> Void) -> some View {

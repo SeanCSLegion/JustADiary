@@ -4,9 +4,6 @@
     "" : {
 
     },
-    ":" : {
-
-    },
     "%lld" : {
 
     },
@@ -1723,6 +1720,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "输入关键词，或选择时间与地点筛选"
+          }
+        }
+      }
+    },
+    "search_filter_keyword" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyword"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关键词"
           }
         }
       }

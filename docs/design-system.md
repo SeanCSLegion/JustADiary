@@ -289,3 +289,58 @@ iOS 默认值：
 
 时间选择器的 sheet 用 `.medium` detent，不再写死 `.height(320)`——大字号下那个高度
 会把轮盘和按钮裁掉。
+
+---
+
+## 十、自适应版面（横屏 / iPad / Mac / iPhone Duo）
+
+完整的方案、设计稿与改动清单见 `docs/adaptive-layout-plan.md`。这一节只记与设计令牌有关的约定。
+
+> **范围**：手机端已定稿（竖屏交互完全不动；横屏左右分栏）；iPad / Mac 的三栏版面是
+> 骨架先行版，后续单独打磨。实现与测试都先在手机上进行。
+
+**唯一的判定依据是「当前可用宽度」**，不看 `UIDevice.idiom`、不看 orientation、不读
+`UIScreen.main`。三档：
+
+| 档 | 宽度 | 导航 | 页内分栏 | 卡片列数 |
+|---|---|---|---|---|
+| 紧凑 | < 700pt | 底部浮条 | 无 | 1 |
+| 中等 | 700–999pt | 底部 / 顶部浮条 | 有 | 1–2 |
+| 宽 | ≥ 1000pt | 系统侧边栏（≥1100pt） | 可到 3 区 | 2–3 |
+
+导航形态交给系统：`TabView` + `.tabViewStyle(.sidebarAdaptable)`。**不要自己画第二套导航**，
+也不要在 `TabView` 里再套 `NavigationSplitView`（会和页内已有的主从结构叠成两层导航）。
+
+**手机横屏的系统占位是实测的**（真机 UI 测试探针，三种方向各测一次）：
+
+| 方向 | `safeAreaInsets` | 系统占位 |
+|---|---|---|
+| 竖屏 | T62 L0 B34 R0 | 浮条在底部；灵动岛在顶部居中 |
+| 横屏 | T0 L62 B20 R62 | **浮条变左侧竖排胶囊**（`leading = 62`）；灵动岛在同一侧的竖直中部 |
+
+所以横屏可用内容宽度是 `874 − 62 − 62 = 750pt`，内容要右移 `safeArea.leading`。
+这些值**必须从 `safeAreaInsets` 派生，不要写死**（见 `AdaptiveLayout`）。
+
+> 判断「系统条在哪一侧」时，`Frame` 仍以竖屏坐标系报告，肉眼旋转截图很容易看反
+> （本项目为此反复了两次）。用方向无关的度量：把元素中心与屏幕中心的距离分别在
+> 横竖两个方向算一遍，只有一侧会贴边。
+
+**宽屏的三条硬约束**（违反任何一条都会让 iPad/Mac 版变难看）：
+
+1. 正文列限宽：阅读 ≤ 660pt、编辑 ≤ 620pt、卡片流每列 ≤ 480pt。不设上限时 1376pt 的窗口
+   会把正文拉成一行 120 个字。
+2. **固定高度改为按可用空间派生，字号也要跟着走**。原来的横屏重叠就是「格子高度由可用
+   高度算、`dayFont` 写死 20pt」造成的：402pt 高的横屏里格子只剩 39pt，装不下 20pt 日号
+   + 11pt 农历 + 圆点。现在日历密度按高度三档降级（月格含农历 → 月格 → 周条）。
+3. 左右安全区**分别**读取（`safeAreaInsets.leading` / `.trailing`），不假设对称；
+   折痕的「避免区」留一个环境值钩子，等 iOS 27.1 的 `reservedRegion` 再接。
+
+`TabBarClearance` 只在浮条位于底部时留白；横屏浮条在顶部时同样需要顶部留白
+（现在缺这一项，内容会钻到浮条下面）。
+
+**设计稿即规范**：`docs/design/landscape/mockups.js` 里的 `layoutFor()` 就是上表的代码版，
+`mockup.css` 顶部的令牌与 `DesignSystem.swift` / `Assets.xcassets` 一一对应。改令牌要两边同步。
+
+**不要提前用的 API**（iOS 27.1 才有，Xcode 27.0 SDK 中确认不存在）：
+`ArrangementView` / `UIArrangementViewController` / `onHingeChange` / `UIHingeInteraction` /
+`GeometryProxy.reservedRegion`。本方案的宽度分档是这些 API 的超集，接入时不需要改版面。

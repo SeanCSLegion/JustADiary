@@ -180,7 +180,21 @@ struct RichTextView: UIViewRepresentable {
     }
 }
 
+/// 格式栏方向：横屏宽屏时竖排贴在正文右侧（离手指更近，也符合系统把工具栏
+/// 移到侧边的方向），窄屏仍贴键盘上方横排。
+private struct FontToolbarVerticalKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var fontToolbarVertical: Bool {
+        get { self[FontToolbarVerticalKey.self] }
+        set { self[FontToolbarVerticalKey.self] = newValue }
+    }
+}
+
 struct FontToolbar: View {
+    @Environment(\.fontToolbarVertical) private var vertical
     var controller: RichEditorController
     var onTap: (() -> Void)? = nil
 
@@ -258,15 +272,16 @@ struct FontToolbar: View {
         let todo = controller.isTodoActive()
         let blockStyleActive = list || quote || todo
 
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+        ScrollView(vertical ? .vertical : .horizontal, showsIndicators: false) {
+            AnyLayout(vertical ? AnyLayout(VStackLayout(spacing: 6))
+                               : AnyLayout(HStackLayout(spacing: 6))) {
                 styleMenu
                 btn("text.aligncenter", accessibilityLabel: L10n.str("editor_tool_center"),
                     active: center, disabled: blockStyleActive) {
                     controller.toggleCenter()
                 }
                 Divider()
-                    .frame(height: 20)
+                    .frame(width: vertical ? 20 : nil, height: vertical ? nil : 20)
                     .overlay(Theme.outlineVariant().opacity(0.5))
                 btn("list.bullet", accessibilityLabel: L10n.str("editor_tool_list"),
                     active: list) {
@@ -281,7 +296,7 @@ struct FontToolbar: View {
                     controller.toggleTodo()
                 }
                 Divider()
-                    .frame(height: 20)
+                    .frame(width: vertical ? 20 : nil, height: vertical ? nil : 20)
                     .overlay(Theme.outlineVariant().opacity(0.5))
                 btn("bold", accessibilityLabel: L10n.str("editor_tool_bold"),
                     active: styles.bold) {
@@ -300,9 +315,9 @@ struct FontToolbar: View {
                     controller.toggleUnderline()
                 }
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, vertical ? 2 : 8)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, vertical ? 6 : 12)
         .background {
             // The formatting bar floats above the editor's content, which is
             // precisely the navigation/control layer Liquid Glass is for. It

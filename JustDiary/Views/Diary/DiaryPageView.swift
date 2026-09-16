@@ -3,6 +3,7 @@ import UIKit
 
 struct DiaryPageView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.adaptiveLayout) private var layout
     var dayKey: String?
 
     @State private var vm = DiaryViewModel()
@@ -16,6 +17,9 @@ struct DiaryPageView: View {
                 FontToolbar(controller: vm.controller, onTap: {
                     vm.controller.textView?.becomeFirstResponder()
                 })
+                // 横屏且宽度够时，格式栏是正文右侧的竖排面板（见 mockup
+                // docs/design/landscape/screens/write-pad.png）；窄屏仍贴键盘上方。
+                .environment(\.fontToolbarVertical, layout.splitsMasterDetail)
                 // Above the keyboard when it is up, otherwise just above the home
                 // indicator. The bar sits over the content, so the ignored bottom
                 // safe area has to be added back here.
@@ -140,8 +144,10 @@ struct DiaryPageView: View {
                             TabBarClearance(base: 140)
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .adaptivePagePadding()
                     .padding(.top, 10)
+                    .frame(maxWidth: layout.contentColumn(vm.isRead ? 660 : 620))
+                    .frame(maxWidth: .infinity)
                     .animation(.diaryStandard, value: vm.blocks.map(\.id))
                 }
                 .onChange(of: vm.scrollTarget) { _, target in

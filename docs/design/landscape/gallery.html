@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-Hans" data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一页时光 · 自适应布局设计稿总览</title>
+<style>
+  :root { --bg:#0A0C10; --fg:#E1E2E8; --dim:#C5C6D0; --line:#262A32; --primary:#2563EB; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.7 -apple-system,"SF Pro Text","PingFang SC",system-ui,sans-serif; }
+  header { padding:34px 40px 20px; border-bottom:1px solid var(--line); }
+  h1 { margin:0 0 6px; font-size:22px; letter-spacing:-.01em; }
+  header p { margin:0 0 6px; color:var(--dim); max-width:800px; }
+  header a { color:#8FB6FF; }
+  nav { display:flex; flex-wrap:wrap; gap:8px; padding:18px 40px 0; }
+  nav a { color:var(--dim); text-decoration:none; font-size:12.5px; padding:4px 10px;
+    border:1px solid var(--line); border-radius:999px; }
+  section { padding:26px 40px 60px; max-width:1560px; }
+  h2 { font-size:18px; margin:0 0 4px; }
+  h2 .sub { font-size:12.5px; color:var(--dim); font-weight:400; margin-left:10px; }
+  figure { margin:26px 0 0; padding-bottom:30px; border-bottom:1px solid var(--line); }
+  figcaption { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+  figcaption b { font-size:17px; }
+  figcaption .tag { font-size:11.5px; font-weight:600; padding:2px 9px; border-radius:999px;
+    background:rgba(37,99,235,.18); color:#8FB6FF; }
+  figcaption .meta { font-size:12.5px; color:var(--dim); font-family:ui-monospace,"SF Mono",Menlo,monospace; }
+  img { display:block; max-width:100%; height:auto; border-radius:12px;
+    border:1px solid var(--line); background:#0A0C10; }
+  figure p { margin:14px 0 0; color:var(--dim); max-width:1000px; font-size:13px; }
+  @media print { body { background:#fff; color:#111; } figure { break-inside:avoid; } nav { display:none; } }
+</style></head>
+<body>
+<header>
+  <h1>一页时光 · 自适应布局设计稿</h1>
+  <p>手机端与 iPad / Mac 端**分开设计**：手机目标是把横竖屏都排下，宽屏目标是用宽度换信息密度。
+     每一张都按设备真实尺寸（pt）绘制，2× 导出。</p>
+  <p>可交互版本：<a href="phone.html">phone.html（手机端）</a> · <a href="wide.html">wide.html（iPad / Mac）</a></p>
+</header>
+<nav><a href="#ph-home-landscape">首页 · 手机横屏（本次重点）</a><a href="#ph-home-landscape-week">首页 · 手机横屏 · 高度不足时的降级</a><a href="#ph-footprint-landscape">足迹 · 手机横屏</a><a href="#ph-search-landscape">搜索 · 手机横屏</a><a href="#ph-settings-landscape">设置 · 手机横屏（两列卡片）</a><a href="#ph-read-landscape">日记阅读 · 手机横屏</a><a href="#ph-home-portrait">首页 · 手机竖屏 · 月视图（复刻实现）</a><a href="#ph-home-year">首页 · 手机竖屏 · 年历（morph 目标）</a><a href="#ph-home-week">首页 · 手机竖屏 · 周视图（morph 目标）</a><a href="#ph-footprint-portrait">足迹 · 手机竖屏（复刻实现）</a><a href="#ph-search-portrait">搜索 · 手机竖屏（复刻实现）</a><a href="#ph-settings-portrait">设置 · 手机竖屏（复刻实现）</a><a href="#wide-home">首页 · Mac 窗口 / iPad（三栏）</a><a href="#wide-footprint">足迹 · Mac 窗口 / iPad（三栏）</a><a href="#wide-search">搜索 · Mac 窗口 / iPad（三栏）</a><a href="#wide-settings">设置 · Mac 窗口 / iPad（三栏）</a><a href="#wide-duo-inner">iPhone Duo · 内屏展开（先行验证）</a></nav>
+<section>
+  <h2>一、手机竖屏<span class="sub">1:1 复刻项目当前实现（含年历 / 周历 morph 的目标形态）</span></h2>
+  <figure id="ph-home-portrait">
+    <figcaption><b>首页 · 手机竖屏 · 月视图（复刻实现）</b><span class="tag">当前实现</span>
+      <span class="meta">iPhone 18 Pro · 竖屏 · 402 × 874 pt</span></figcaption>
+    <img src="screens/ph-home-portrait.png" alt="首页 · 手机竖屏 · 月视图（复刻实现）" loading="lazy">
+    <p>这一张是项目<b>现在竖屏的真实样子</b>，1:1 复刻，用作横屏改造的对照基准。顶部左侧是「‹ 2026年」玻璃胶囊（点它进年历），右侧是「今天」胶囊；下面是 32pt 的「九月」大标题、30pt 的星期栏、六行月格。日期下有下划线表示有日记；今天用圆环、选中日用实心圆；未来的日期整体降到 35% 不透明度。竖屏这部分<b>不做任何改动</b>。</p>
+  </figure>
+  <figure id="ph-home-year">
+    <figcaption><b>首页 · 手机竖屏 · 年历（morph 目标）</b><span class="tag">当前实现</span>
+      <span class="meta">iPhone 18 Pro · 竖屏 · 402 × 874 pt</span></figcaption>
+    <img src="screens/ph-home-year.png" alt="首页 · 手机竖屏 · 年历（morph 目标）" loading="lazy">
+    <p>点「‹ 2026年」之后整屏缩放 morph 到这一屏：左上 32pt 的「2026年」（品牌色）+ 右侧当年生肖，下面一条分隔线，再下面 3×4 的迷你月。迷你月里有日记的日期用下划线，当前月标题是品牌色，选中日在当前月里是实心小圆。再点某个月会缩放回月视图 —— 这套 morph 保留不动。</p>
+  </figure>
+  <figure id="ph-home-week">
+    <figcaption><b>首页 · 手机竖屏 · 周视图（morph 目标）</b><span class="tag">当前实现</span>
+      <span class="meta">iPhone 18 Pro · 竖屏 · 402 × 874 pt</span></figcaption>
+    <img src="screens/ph-home-week.png" alt="首页 · 手机竖屏 · 周视图（morph 目标）" loading="lazy">
+    <p>点某一天之后 morph 到这一屏：大标题滑出、星期栏升到顶部、被选中的那一行展开到原来整屏的位置，其余行淡出；下面是日期行（日期 + 农历）和当天日记卡。这是竖屏阅读日记的主路径，保留不动。</p>
+  </figure>
+  <figure id="ph-footprint-portrait">
+    <figcaption><b>足迹 · 手机竖屏（复刻实现）</b><span class="tag">当前实现</span>
+      <span class="meta">iPhone 18 Pro · 竖屏 · 402 × 874 pt</span></figcaption>
+    <img src="screens/ph-footprint-portrait.png" alt="足迹 · 手机竖屏（复刻实现）" loading="lazy">
+    <p>顶部是「足迹」大标题 + 右侧「已标注 14 处 · 未记录 3 篇」；下面一行年份筛选胶囊（横向滚动）；再下面是统计卡（省市 / 城市 / 国家 / 片段 / 天数）、年度记录天数柱状图和地点清单卡。三层结构不变，横屏版只是把它压成一列可滚动的排法。</p>
+  </figure>
+  <figure id="ph-search-portrait">
+    <figcaption><b>搜索 · 手机竖屏（复刻实现）</b><span class="tag">当前实现</span>
+      <span class="meta">iPhone 18 Pro · 竖屏 · 402 × 874 pt</span></figcaption>
+    <img src="screens/ph-search-portrait.png" alt="搜索 · 手机竖屏（复刻实现）" loading="lazy">
+    <p>顶部「搜索」标题，下面是玻璃搜索框，再下面是筛选卡（「时间范围」与「地点」两组胶囊），没有条件时居中显示空状态「搜索你的日记」。横屏版把筛选压成一行、结果横向铺开，这一张是对照。</p>
+  </figure>
+  <figure id="ph-settings-portrait">
+    <figcaption><b>设置 · 手机竖屏（复刻实现）</b><span class="tag">当前实现</span>
+      <span class="meta">iPhone 18 Pro · 竖屏 · 402 × 874 pt</span></figcaption>
+    <img src="screens/ph-settings-portrait.png" alt="设置 · 手机竖屏（复刻实现）" loading="lazy">
+    <p>设置页是「卡片 + 卡内分组标题」：通用、日记规则、提醒、数据、关于五张卡，每张卡里第一行是分组标题，下面是行。每行的结构是图标徽章（38pt 圆角方块）+ 标题 + 副标题 + 尾值或开关；行分隔线从标题文字处开始，不缩进到图标下面。竖屏保持单列。</p>
+  </figure>
+</section>
+
+<section>
+  <h2>二、手机横屏<span class="sub">系统导航在横屏仍居底部居中（实测）；左右边距与竖屏一致 20pt；上下滑切月，不做年份切换</span></h2>
+  <figure id="ph-home-landscape">
+    <figcaption><b>首页 · 手机横屏（本次重点）</b><span class="tag">左右分栏</span>
+      <span class="meta">iPhone 18 Pro · 横屏 · 874 × 402 pt</span></figcaption>
+    <img src="screens/ph-home-landscape.png" alt="首页 · 手机横屏（本次重点）" loading="lazy">
+    <p>横屏 402pt 高塞不下「标题 + 六周格 + 日期行 + 日记卡」，所以拆成左右两栏：左栏月历（<b>唯一翻月方式是上下滑</b>，横屏不提供年份切换，以免与竖屏的年历 morph 交互打架），右栏是选中日的日记。<b>系统导航在横屏仍在屏幕底部居中</b>（真机实测：bar 高 64pt、四个按钮 x 290–583），所以左右边距和竖屏一样是 20pt，只有底部要给浮条留出 64pt。灵动岛在横屏是竖转贴左边缘的小条（37 宽 × 132 高、垂直居中），落在 x 0–37 内，20pt 边距 + 首列位置自然避开。</p>
+  </figure>
+  <figure id="ph-home-landscape-week">
+    <figcaption><b>首页 · 手机横屏 · 高度不足时的降级</b><span class="tag">周条 + 内容</span>
+      <span class="meta">iPhone 18 Pro · 横屏 · 874 × 402 pt</span></figcaption>
+    <img src="screens/ph-home-landscape-week.png" alt="首页 · 手机横屏 · 高度不足时的降级" loading="lazy">
+    <p>当可用高度放不下六周格（分屏、键盘弹起、Duo 折一半），左栏自动从「月」降级为「周条」：一行 7 天、横向翻周，右栏仍是选中日。这样内容永远不会被压扁，日期也永远可点。降级只影响密度，不改变左右分栏结构。</p>
+  </figure>
+  <figure id="ph-footprint-landscape">
+    <figcaption><b>足迹 · 手机横屏</b><span class="tag">左右两栏 · 各自滚动</span>
+      <span class="meta">iPhone 18 Pro · 横屏 · 874 × 402 pt</span></figcaption>
+    <img src="screens/ph-footprint-landscape.png" alt="足迹 · 手机横屏" loading="lazy">
+    <p>横屏改成左右两栏：左栏是筛选 + 统计 + 年度趋势图（占满剩余高度，图表能长到 190pt），右栏是地点清单。<b>两栏各自纵向滚动</b>——左栏看趋势、右栏查地点，互不牵动。之前我按「单列滚动」做是保守了：402pt 高确实放得下两栏，只要把统计卡压到一行、图表吸收剩余高度就行。</p>
+  </figure>
+  <figure id="ph-search-landscape">
+    <figcaption><b>搜索 · 手机横屏</b><span class="tag">单栏 + 关键词栏</span>
+      <span class="meta">iPhone 18 Pro · 横屏 · 874 × 402 pt</span></figcaption>
+    <img src="screens/ph-search-landscape.png" alt="搜索 · 手机横屏" loading="lazy">
+    <p>横屏只把「条件」压成一行（搜索框 + 时间 + 地点），<b>结果保持与竖屏一致的单栏纵向列表</b>——横屏每行更长，摘要能多显示半行，扫读反而更快。搜索框下面新增<b>当前关键词栏</b>：每个生效中的关键词是一个可单独点掉的胶囊，多关键词时能一眼看清「现在到底在搜什么」，右侧还有「清除全部条件」。</p>
+  </figure>
+  <figure id="ph-settings-landscape">
+    <figcaption><b>设置 · 手机横屏（两列卡片）</b><span class="tag">2 列 · 不等高</span>
+      <span class="meta">iPhone 18 Pro · 横屏 · 874 × 402 pt</span></figcaption>
+    <img src="screens/ph-settings-landscape.png" alt="设置 · 手机横屏（两列卡片）" loading="lazy">
+    <p>横屏宽度够放两列设置卡片，一屏能看更多。<b>卡片按内容自然高度，不拉齐</b>——「通用」只有两行就矮一点，「日记规则」六行就高一点，右列卡片各自接排，下方留白没关系。<b>卡片各自对齐列顶，行不跨卡对齐</b>，这也是实现的自然结果。</p>
+  </figure>
+  <figure id="ph-read-landscape">
+    <figcaption><b>日记阅读 · 手机横屏</b><span class="tag">限宽阅读栏</span>
+      <span class="meta">iPhone 18 Pro · 横屏 · 874 × 402 pt</span></figcaption>
+    <img src="screens/ph-read-landscape.png" alt="日记阅读 · 手机横屏" loading="lazy">
+    <p>阅读页在横屏仍然是<b>单栏限宽</b>（620pt）并居中：横屏的宽度应该换成更好的每行字数，而不是把正文拆成两栏。工具按钮收到顶栏一行，返回键在最左（在 92pt 系统区之后）、操作在右。底部留出浮条/指示条的高度。</p>
+  </figure>
+</section>
+
+<section>
+  <h2>三、iPad / Mac / iPhone Duo<span class="sub">三栏版面（骨架先行版，待后续打磨）</span></h2>
+  <figure id="wide-home">
+    <figcaption><b>首页 · Mac 窗口 / iPad（三栏）</b><span class="tag">三栏骨架</span>
+      <span class="meta">Mac · 窗口 1432×900 · 1432 × 900 pt</span></figcaption>
+    <img src="screens/wide-home.png" alt="首页 · Mac 窗口 / iPad（三栏）" loading="lazy">
+    <p>宽屏统一用三栏：左导航轨（系统 sidebarAdaptable 的形态）、中月历、右选中日的日记。中间的月历保持「点日期即换右栏」的轻交互，不抢右栏的阅读空间。这一版是骨架验证；细节按你的要求之后单独打磨。</p>
+  </figure>
+  <figure id="wide-footprint">
+    <figcaption><b>足迹 · Mac 窗口 / iPad（三栏）</b><span class="tag">三栏骨架</span>
+      <span class="meta">Mac · 窗口 1432×900 · 1432 × 900 pt</span></figcaption>
+    <img src="screens/wide-footprint.png" alt="足迹 · Mac 窗口 / iPad（三栏）" loading="lazy">
+    <p>中栏放统计与趋势图（图表能长到 240pt 高），右栏放地点清单。两者独立滚动：看趋势和查地点是两件事。</p>
+  </figure>
+  <figure id="wide-search">
+    <figcaption><b>搜索 · Mac 窗口 / iPad（三栏）</b><span class="tag">三栏骨架</span>
+      <span class="meta">Mac · 窗口 1432×900 · 1432 × 900 pt</span></figcaption>
+    <img src="screens/wide-search.png" alt="搜索 · Mac 窗口 / iPad（三栏）" loading="lazy">
+    <p>中栏是条件（搜索框 + 筛选），右栏是结果并在 ≥1180pt 时并排一条预览 —— 搜索的价值在于快速确认再跳转，有预览就不用来回进出日记页。</p>
+  </figure>
+  <figure id="wide-settings">
+    <figcaption><b>设置 · Mac 窗口 / iPad（三栏）</b><span class="tag">三栏骨架</span>
+      <span class="meta">Mac · 窗口 1432×900 · 1432 × 900 pt</span></figcaption>
+    <img src="screens/wide-settings.png" alt="设置 · Mac 窗口 / iPad（三栏）" loading="lazy">
+    <p>中栏放「通用 / 规则」，右栏放其余卡片并按宽度 1–2 列排。设置没有主从关系，所以按卡片自我完整地流动，不做左右详情。</p>
+  </figure>
+  <figure id="wide-duo-inner">
+    <figcaption><b>iPhone Duo · 内屏展开（先行验证）</b><span class="tag">紧凑档 · 不是三栏</span>
+      <span class="meta">iPhone Duo · 内屏展开 · 664 × 750 pt</span></figcaption>
+    <img src="screens/wide-duo-inner.png" alt="iPhone Duo · 内屏展开（先行验证）" loading="lazy">
+    <p>Duo 内屏展开约 664 × 750pt，比 iPad 竖屏（1032pt）窄得多，所以它落在「紧凑」档：和手机竖屏一样是单栏，只是月格更高。重点在于 —— Duo 不需要任何专用布局，它只是同一个尺寸阶梯上的一个刻度。</p>
+  </figure>
+</section>
+</body></html>
