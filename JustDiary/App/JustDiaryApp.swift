@@ -47,6 +47,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         if ProcessInfo.processInfo.arguments.contains("-ui-test-reset-settings") {
             SettingsStore.save(AppSettings())
         }
+        if ProcessInfo.processInfo.arguments.contains("-ui-test-no-autoloc") {
+            // UI-test hook: an entry with no location now asks before saving, so
+            // tests that are not about location turn the lookup off and stay
+            // independent of the simulator's simulated position.
+            var settings = SettingsStore.load()
+            settings.autoLoc = false
+            SettingsStore.save(settings)
+        }
         AppConfigService.applyThemeMode()
         Log.app.info("app launched v\(SettingsStore.appVersion, privacy: .public)")
         return true

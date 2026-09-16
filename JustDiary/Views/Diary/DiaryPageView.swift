@@ -7,7 +7,6 @@ struct DiaryPageView: View {
 
     @State private var vm = DiaryViewModel()
     @State private var showPhotoPicker = false
-    @State private var showPrecisionMenu = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -396,41 +395,7 @@ struct DiaryPageView: View {
                     .background {
                         Capsule().fill(Theme.primaryContainer())
                     }
-                if vm.settings.autoLoc, vm.editingIndex == nil || vm.canEditToday {
-                    Button {
-                        Haptics.tap()
-                        if vm.location == nil {
-                            vm.beginLocate()
-                        } else {
-                            showPrecisionMenu = true
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "location.fill")
-                                .diaryFont(TypeSize.caption)
-                            Text(vm.locationLabel)
-                                .diaryFont(TypeSize.meta)
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(Theme.primary())
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background {
-                            Capsule().fill(Theme.primaryContainer())
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .confirmationDialog(L10n.str("search_loc_title"), isPresented: $showPrecisionMenu) {
-                        Button(L10n.str("editor_location_retry_action"), role: .none) {
-                            vm.refreshLocation()
-                        }
-                        ForEach(LocationResolver.availablePrecisions(), id: \.self) { precision in
-                            Button(L10n.precisionLabel(precision)) {
-                                vm.applyPrecision(precision)
-                            }
-                        }
-                    }
-                }
+                locationRow
             }
             RichTextView(controller: vm.controller,
                          placeholder: L10n.str(vm.editingIndex != nil ? "editor_placeholder_edit" : "editor_placeholder_new"),
@@ -443,5 +408,86 @@ struct DiaryPageView: View {
         }
         .padding(10)
         .diaryCard(cornerRadius: Radius.card, interactive: true)
+    }
+
+    /// The entry's location.
+    ///
+    /// Only a *new* block looks a location up. An existing block keeps whatever
+    /// it was written with — editing it can still change the precision, but it
+    /// can no longer fetch a place, and a block saved without one stays without
+    /// one (`DiaryViewModel.saveEditor` asks before that happens).
+    @ViewBuilder
+    private var locationRow: some View {
+        if vm.isEditingExistingBlock {
+            if vm.location != nil {
+                locationMenu(text: vm.locationText)
+            } else if vm.settings.autoLoc {
+                locationChipLabel(L10n.str("search_loc_no_loc"), tint: Theme.onSurfaceVariant())
+            }
+        } else if vm.settings.autoLoc {
+            if vm.location != nil {
+                locationMenu(text: vm.locationText)
+            } else if vm.locating {
+                locationChipLabel(L10n.str("editor_location_fetching"), tint: Theme.primary())
+            } else {
+                Button {
+                    Haptics.tap()
+                    vm.beginLocate()
+                } label: {
+                    locationChipLabel(L10n.str("editor_location_retry_action"), tint: Theme.primary())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// Location chip that opens the precision menu (and, for a block that does
+    /// not exist yet, "look it up again").
+    private func locationMenu(text: String) -> some View {
+        Menu {
+            ForEach(vm.precisionOptions, id: \.self) { precision in
+                Button {
+                    Haptics.tap()
+                    vm.applyPrecision(precision)
+                } label: {
+                    if precision == vm.location?.locPrecision {
+                        Label(L10n.precisionLabel(precision), systemImage: "checkmark")
+                    } else {
+                        Text(L10n.precisionLabel(precision))
+                    }
+                }
+            }
+            if vm.canRelocate {
+                Divider()
+                Button {
+                    Haptics.tap()
+                    vm.refreshLocation()
+                } label: {
+                    Text(L10n.str("editor_location_retry_action"))
+                }
+            }
+        } label: {
+            locationChipLabel(text, tint: Theme.primary())
+        }
+        .buttonStyle(.plain)
+        .menuOrder(.fixed)
+        .accessibilityLabel(L10n.str("search_loc_title"))
+        .accessibilityValue(text)
+    }
+
+    private func locationChipLabel(_ text: String, tint: Color) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "location.fill")
+                .diaryFont(TypeSize.caption)
+            Text(text)
+                .diaryFont(TypeSize.meta)
+                .lineLimit(1)
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background {
+            Capsule().fill(Theme.primaryContainer())
+        }
     }
 }

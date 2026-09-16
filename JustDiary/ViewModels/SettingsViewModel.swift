@@ -8,12 +8,8 @@ final class SettingsViewModel {
     var settings = SettingsStore.load()
     var showDayStartPicker = false
     var showRemindPicker = false
-    var themeMenuShowing = false
-    var langMenuShowing = false
-    var weekMenuShowing = false
     var busyText: String?
     var resultAlert: AppAlertItem?
-    var exportChooserShowing = false
     var importModeShowing = false
     var showImportPicker = false
     var importURL: URL?

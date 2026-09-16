@@ -44,6 +44,9 @@ struct SettingsView: View {
         .confirmationDialog(L10n.str("settings_import_mode_title"),
                             isPresented: $vm.importModeShowing,
                             titleVisibility: .visible) {
+            // Kept as a dialog on purpose: this one confirms a destructive
+            // action (the file's days replace the ones already stored) rather
+            // than picking a value, which is what a confirmation dialog is for.
             Button(L10n.str("settings_import_skip")) { vm.runImport(mode: "skip") }
             Button(L10n.str("settings_import_overwrite")) { vm.runImport(mode: "overwrite") }
             Button(L10n.str("cancel"), role: .cancel) {}
@@ -52,20 +55,22 @@ struct SettingsView: View {
             hourPickerSheet(title: L10n.str("settings_day_start"),
                             hour: Binding(get: { vm.settings.dayStartHour },
                                           set: { vm.settings.dayStartHour = $0 }),
-                            minute: Binding(get: { 0 }, set: { _ in }),
                             isPresented: $vm.showDayStartPicker,
                             onApply: { vm.applyDayStart() })
-                .presentationDetents([.height(320)])
+                .presentationDetents([.medium])
         }
         .sheet(isPresented: $vm.showRemindPicker) {
-            hourPickerSheet(title: L10n.str("settings_remind_time"),
-                            hour: Binding(get: { vm.settings.remindHour },
-                                          set: { vm.settings.remindHour = $0 }),
-                            minute: Binding(get: { vm.settings.remindMinute },
-                                            set: { vm.settings.remindMinute = $0 }),
+            timePickerSheet(title: L10n.str("settings_remind_time"),
+                            time: Binding(get: {
+                                DateUtil.referenceTime(hour: vm.settings.remindHour,
+                                                       minute: vm.settings.remindMinute)
+                            }, set: { date in
+                                vm.settings.remindHour = DateUtil.hour(of: date)
+                                vm.settings.remindMinute = DateUtil.minute(of: date)
+                            }),
                             isPresented: $vm.showRemindPicker,
                             onApply: { vm.applyRemindTime() })
-                .presentationDetents([.height(320)])
+                .presentationDetents([.medium])
         }
         .overlay {
             if let busyText = vm.busyText {
@@ -120,37 +125,76 @@ struct SettingsView: View {
             Haptics.tap()
             action()
         } label: {
-            HStack(spacing: 12) {
-                GlassIconBadge(systemName: icon)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .diaryFont(TypeSize.rowTitle)
-                        .foregroundStyle(Theme.onSurface())
-                    if let sub {
-                        Text(sub)
-                            .diaryFont(TypeSize.rowSub)
-                            .foregroundStyle(Theme.onSurfaceVariant())
-                            .lineLimit(2)
-                    }
-                }
-                Spacer(minLength: 8)
-                // Without these the trailing value pushed the chevron off the
-                // row once the user raised the system text size.
-                Text(value)
-                    .diaryFont(TypeSize.rowValue)
-                    .foregroundStyle(Theme.onSurfaceVariant())
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .multilineTextAlignment(.trailing)
-                Image(systemName: "chevron.right")
-                    .diaryFont(TypeSize.rowValue)
-                    .foregroundStyle(Theme.onSurfaceVariant())
-            }
-            .padding(.horizontal, 12)
-            .frame(minHeight: 56)
-            .contentShape(Rectangle())
+            rowLabel(icon: icon, title: title, sub: sub, value: value)
         }
         .buttonStyle(.plain)
+    }
+
+    /// A row whose trailing value opens a menu of options.
+    ///
+    /// This is what a value choice should be, rather than a
+    /// `confirmationDialog`: a dialog is for confirming an action, while a menu
+    /// is the compact, checkmark-bearing way to pick one of a few mutually
+    /// exclusive values — and on iOS 26 it gets the Liquid Glass menu
+    /// presentation. (`settings_import_mode_title` stays a dialog: it confirms a
+    /// destructive action.)
+    private func menuRow<Content: View>(icon: String, title: String, sub: String?, value: String,
+                                        @ViewBuilder options: () -> Content) -> some View {
+        Menu {
+            options()
+        } label: {
+            rowLabel(icon: icon, title: title, sub: sub, value: value)
+        }
+        .buttonStyle(.plain)
+        .menuOrder(.fixed)
+        .accessibilityValue(value)
+    }
+
+    /// One entry of a `menuRow`, with the current value marked.
+    private func option(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
+            if selected {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func rowLabel(icon: String, title: String, sub: String?, value: String) -> some View {
+        HStack(spacing: 12) {
+            GlassIconBadge(systemName: icon)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .diaryFont(TypeSize.rowTitle)
+                    .foregroundStyle(Theme.onSurface())
+                if let sub {
+                    Text(sub)
+                        .diaryFont(TypeSize.rowSub)
+                        .foregroundStyle(Theme.onSurfaceVariant())
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 8)
+            // Without these the trailing value pushed the chevron off the
+            // row once the user raised the system text size.
+            Text(value)
+                .diaryFont(TypeSize.rowValue)
+                .foregroundStyle(Theme.onSurfaceVariant())
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .multilineTextAlignment(.trailing)
+            Image(systemName: "chevron.right")
+                .diaryFont(TypeSize.rowValue)
+                .foregroundStyle(Theme.onSurfaceVariant())
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 56)
+        .contentShape(Rectangle())
     }
 
     private func switchRow(icon: String, title: String, sub: String?, isOn: Binding<Bool>, onChange: @escaping (Bool) -> Void) -> some View {
@@ -186,26 +230,26 @@ struct SettingsView: View {
     private var generalCard: some View {
         card {
             sectionTitle(L10n.str("settings_section_general"))
-            valueRow(icon: "globe", title: L10n.str("settings_language"),
-                     sub: L10n.str("settings_language_sub"),
-                     value: langLabel) {
-                vm.langMenuShowing = true
-            }
-            .confirmationDialog(L10n.str("settings_language"), isPresented: $vm.langMenuShowing) {
-                Button(L10n.str("settings_lang_system")) { vm.setLanguage("system") }
-                Button(L10n.str("settings_lang_zh")) { vm.setLanguage("zh") }
-                Button(L10n.str("settings_lang_en")) { vm.setLanguage("en") }
+            menuRow(icon: "globe", title: L10n.str("settings_language"),
+                    sub: L10n.str("settings_language_sub"),
+                    value: langLabel) {
+                option(L10n.str("settings_lang_system"),
+                       selected: vm.settings.appLanguage == "system") { vm.setLanguage("system") }
+                option(L10n.str("settings_lang_zh"),
+                       selected: vm.settings.appLanguage == "zh") { vm.setLanguage("zh") }
+                option(L10n.str("settings_lang_en"),
+                       selected: vm.settings.appLanguage == "en") { vm.setLanguage("en") }
             }
             RowDivider(horizontalPadding: RowDivider.textInset)
-            valueRow(icon: "paintpalette", title: L10n.str("settings_theme"),
-                     sub: L10n.str("settings_theme_sub"),
-                     value: themeLabel) {
-                vm.themeMenuShowing = true
-            }
-            .confirmationDialog(L10n.str("settings_theme"), isPresented: $vm.themeMenuShowing) {
-                Button(L10n.str("settings_theme_system")) { vm.setTheme("system") }
-                Button(L10n.str("settings_theme_light")) { vm.setTheme("light") }
-                Button(L10n.str("settings_theme_dark")) { vm.setTheme("dark") }
+            menuRow(icon: "paintpalette", title: L10n.str("settings_theme"),
+                    sub: L10n.str("settings_theme_sub"),
+                    value: themeLabel) {
+                option(L10n.str("settings_theme_system"),
+                       selected: vm.settings.themeMode == "system") { vm.setTheme("system") }
+                option(L10n.str("settings_theme_light"),
+                       selected: vm.settings.themeMode == "light") { vm.setTheme("light") }
+                option(L10n.str("settings_theme_dark"),
+                       selected: vm.settings.themeMode == "dark") { vm.setTheme("dark") }
             }
         }
     }
@@ -237,14 +281,13 @@ struct SettingsView: View {
                 vm.showDayStartPicker = true
             }
             RowDivider(horizontalPadding: RowDivider.textInset)
-            valueRow(icon: "calendar", title: L10n.str("settings_week_start"),
-                     sub: L10n.str("settings_week_start_sub"),
-                     value: vm.settings.weekStart == "sunday" ? L10n.str("settings_week_sunday") : L10n.str("settings_week_monday")) {
-                vm.weekMenuShowing = true
-            }
-            .confirmationDialog(L10n.str("settings_week_start"), isPresented: $vm.weekMenuShowing) {
-                Button(L10n.str("settings_week_monday")) { vm.setWeekStart("monday") }
-                Button(L10n.str("settings_week_sunday")) { vm.setWeekStart("sunday") }
+            menuRow(icon: "calendar", title: L10n.str("settings_week_start"),
+                    sub: L10n.str("settings_week_start_sub"),
+                    value: vm.settings.weekStart == "sunday" ? L10n.str("settings_week_sunday") : L10n.str("settings_week_monday")) {
+                option(L10n.str("settings_week_monday"),
+                       selected: vm.settings.weekStart != "sunday") { vm.setWeekStart("monday") }
+                option(L10n.str("settings_week_sunday"),
+                       selected: vm.settings.weekStart == "sunday") { vm.setWeekStart("sunday") }
             }
             RowDivider(horizontalPadding: RowDivider.textInset)
             switchRow(icon: "clock", title: L10n.str("settings_auto_time"),
@@ -305,13 +348,14 @@ struct SettingsView: View {
     private var dataCard: some View {
         card {
             sectionTitle(L10n.str("settings_section_data"))
-            valueRow(icon: "square.and.arrow.up", title: L10n.str("settings_export"),
-                     sub: L10n.str("settings_export_sub"), value: "") {
-                vm.exportChooserShowing = true
-            }
-            .confirmationDialog(L10n.str("settings_export_choice_title"), isPresented: $vm.exportChooserShowing) {
-                Button(L10n.str("settings_export_data_only")) { vm.runExport(includeSettings: false) }
-                Button(L10n.str("settings_export_data_settings")) { vm.runExport(includeSettings: true) }
+            menuRow(icon: "square.and.arrow.up", title: L10n.str("settings_export"),
+                    sub: L10n.str("settings_export_sub"), value: "") {
+                option(L10n.str("settings_export_data_only"), selected: false) {
+                    vm.runExport(includeSettings: false)
+                }
+                option(L10n.str("settings_export_data_settings"), selected: false) {
+                    vm.runExport(includeSettings: true)
+                }
             }
             RowDivider(horizontalPadding: RowDivider.textInset)
             valueRow(icon: "square.and.arrow.down", title: L10n.str("settings_import"),
@@ -331,33 +375,51 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Picker sheet
+    // MARK: - Picker sheets
 
-    private func hourPickerSheet(title: String, hour: Binding<Int>, minute: Binding<Int>,
+    /// Hour-only wheel, for the day-start rule.
+    ///
+    /// The old sheet also showed a minute wheel whose binding could not change
+    /// anything (the rule has no minute), and labelled the hours `0…23` — which
+    /// reads wrong in a 12-hour locale. The labels are now the app's own time
+    /// strings, so they follow the device's 24-hour setting and the app language
+    /// like every other time in the UI.
+    private func hourPickerSheet(title: String, hour: Binding<Int>,
                                  isPresented: Binding<Bool>, onApply: @escaping () -> Void) -> some View {
         VStack(spacing: 16) {
             GlassSheetHeader(title: title) {
                 isPresented.wrappedValue = false
             }
-            HStack(spacing: 8) {
-                Picker("", selection: hour) {
-                    ForEach(0..<24, id: \.self) { h in
-                        Text("\(h)").tag(h)
-                    }
+            Picker("", selection: hour) {
+                ForEach(0..<24, id: \.self) { h in
+                    Text(L10n.timeLabel(hour: h, minute: 0)).tag(h)
                 }
-                .pickerStyle(.wheel)
-                .frame(width: 90)
-                Text(":")
-                    .diaryFont(TypeSize.cardTitle, weight: .medium)
-                    .foregroundStyle(Theme.onSurface())
-                Picker("", selection: minute) {
-                    ForEach(0..<60, id: \.self) { m in
-                        Text(String(format: "%02d", m)).tag(m)
-                    }
-                }
-                .pickerStyle(.wheel)
-                .frame(width: 90)
             }
+            .pickerStyle(.wheel)
+            .labelsHidden()
+            GlassPrimaryButton(title: L10n.str("save"), fullWidth: true) {
+                onApply()
+                isPresented.wrappedValue = false
+            }
+        }
+        .padding(20)
+    }
+
+    /// Time wheel for the reminder.
+    ///
+    /// A `DatePicker` rather than two hand-built wheels: it formats the hour,
+    /// minute and AM/PM symbol for the current language and honours the device's
+    /// 12/24-hour setting, which the hand-built version did not.
+    private func timePickerSheet(title: String, time: Binding<Date>,
+                                 isPresented: Binding<Bool>, onApply: @escaping () -> Void) -> some View {
+        VStack(spacing: 16) {
+            GlassSheetHeader(title: title) {
+                isPresented.wrappedValue = false
+            }
+            DatePicker("", selection: time, displayedComponents: .hourAndMinute)
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .environment(\.locale, AppLanguage.locale)
             GlassPrimaryButton(title: L10n.str("save"), fullWidth: true) {
                 onApply()
                 isPresented.wrappedValue = false

@@ -520,6 +520,23 @@
         }
       }
     },
+    "editor_location_missing_msg" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No location yet. Once saved, you can't add one to this entry."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还没有获取到地点。保存后这条记录将无法再添加位置。"
+          }
+        }
+      }
+    },
     "editor_location_retry" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -618,6 +635,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "只读内容"
+          }
+        }
+      }
+    },
+    "editor_save_anyway" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Anyway"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仍然保存"
           }
         }
       }
@@ -2267,23 +2301,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在生成备份…"
-          }
-        }
-      }
-    },
-    "settings_export_choice_title" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Export backup"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "导出备份"
           }
         }
       }

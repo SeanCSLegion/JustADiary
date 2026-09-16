@@ -31,13 +31,18 @@ final class EditorTypeSizeUITests: XCTestCase {
     }
 
     /// Launches on today's entry at the largest accessibility text size.
-    /// `resetData` wipes the store first, so assertions do not depend on what an
-    /// earlier run left behind.
+    ///
+    /// `resetData` wipes the day first, so assertions do not depend on what an
+    /// earlier run left behind. The location lookup is switched off: an entry
+    /// saved without one now asks for confirmation, which these tests are not
+    /// about.
     private func launchApp(resetData: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         var args = [
             "-ui-test-open-day", todayKey(),
             "-ui-test-editor-state",
+            "-ui-test-reset-settings",
+            "-ui-test-no-autoloc",
             // Drives SwiftUI's `dynamicTypeSize` for the launched app.
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
         ]
@@ -152,9 +157,45 @@ final class EditorTypeSizeUITests: XCTestCase {
                              "input area must grow with the text size (was \(normal.height) → \(largest.height))")
     }
 
+    /// A block saved without a location stays without one: only a *new* block
+    /// looks a location up, so re-opening it later offers no way to add one.
+    func testEntrySavedWithoutLocationCannotGainOne() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-open-day", todayKey(), "-ui-test-reset-data",
+                               "-ui-test-reset-settings", "-ui-test-no-location",
+                               "-ui-test-editor-state"]
+        app.launch()
+
+        openWriteMode(app)
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "editor text view")
+        editor.tap()
+        editor.typeText("没有位置")
+
+        let save = app.buttons["保存"]
+        XCTAssertTrue(save.waitForExistence(timeout: 6), "save button")
+        save.tap()
+        // Saving an entry that never got a location asks first, because the
+        // decision cannot be taken back afterwards.
+        let confirm = app.buttons["仍然保存"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "save-without-location confirmation")
+        confirm.tap()
+        XCTAssertEqual(waitForState(app, "read:body"), "read:body", "entry was saved")
+
+        let block = app.textViews.firstMatch
+        XCTAssertTrue(block.waitForExistence(timeout: 10), "rendered block")
+        block.tap()
+        XCTAssertTrue(app.staticTexts["未记录地点"].waitForExistence(timeout: 10),
+                      "the location row reports that nothing was recorded")
+        XCTAssertFalse(app.buttons["选择地点"].exists, "no precision menu without a location")
+        XCTAssertFalse(app.staticTexts["重新获取位置"].exists,
+                       "editing an existing block must not look a location up")
+    }
+
     private func emptyEditorFrame(contentSizeCategory: String?) throws -> CGRect {
         let app = XCUIApplication()
-        var args = ["-ui-test-open-day", todayKey(), "-ui-test-reset-data"]
+        var args = ["-ui-test-open-day", todayKey(), "-ui-test-reset-data",
+                    "-ui-test-reset-settings", "-ui-test-no-autoloc"]
         if let contentSizeCategory {
             args += ["-UIPreferredContentSizeCategoryName", contentSizeCategory]
         }

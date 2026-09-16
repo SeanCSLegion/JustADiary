@@ -13,6 +13,28 @@ nonisolated enum DateUtil {
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 
+    /// A date on the reference day (2000-01-01) at the given time.
+    ///
+    /// Time controls (`DatePicker`, the day-start wheel) deal in `Date`s, while
+    /// the app stores a bare hour and minute.
+    static func referenceTime(hour: Int, minute: Int) -> Date {
+        var comps = DateComponents()
+        comps.year = 2000
+        comps.month = 1
+        comps.day = 1
+        comps.hour = hour
+        comps.minute = minute
+        return calendar.date(from: comps) ?? Date()
+    }
+
+    static func hour(of date: Date) -> Int {
+        calendar.component(.hour, from: date)
+    }
+
+    static func minute(of date: Date) -> Int {
+        calendar.component(.minute, from: date)
+    }
+
     static func parseDayKey(_ key: String) -> Date? {
         let parts = key.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }

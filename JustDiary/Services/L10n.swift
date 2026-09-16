@@ -202,14 +202,7 @@ nonisolated enum L10n {
 
     /// Clock time for a bare hour/minute pair (reminder time, day-start time).
     static func timeLabel(hour: Int, minute: Int) -> String {
-        var comps = DateComponents()
-        comps.year = 2000
-        comps.month = 1
-        comps.day = 1
-        comps.hour = hour
-        comps.minute = minute
-        let date = DateUtil.calendar.date(from: comps) ?? Date()
-        return timeFormatter().string(from: date)
+        timeFormatter().string(from: DateUtil.referenceTime(hour: hour, minute: minute))
     }
 
     /// Capsule label for the selected day: 今天 / 昨天 / 明天 / N天前 / N天后.

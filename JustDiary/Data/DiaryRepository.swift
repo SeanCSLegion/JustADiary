@@ -467,7 +467,15 @@ nonisolated final class DiaryRepository {
         }
     }
 
-    func updateBlockContent(blockId: Int64, contentJson: String) async throws {
+    /// Saves a block's content, and optionally the location it is displayed
+    /// with.
+    ///
+    /// Only the precision and its text can change after a block exists — the
+    /// coordinates and the reverse-geocoded region belong to the moment it was
+    /// written — so those are the only location columns this touches. Pass the
+    /// location columns as `nil` to leave them alone.
+    func updateBlockContent(blockId: Int64, contentJson: String,
+                            locText: String? = nil, locPrecision: String? = nil) async throws {
         try await runOnQueue { [self] in
             guard let db else { throw DBError.notReady }
             let oldRow = db.queryFirst("SELECT content_json, diary_id FROM edit_block WHERE id = ?;", [blockId])
@@ -475,9 +483,17 @@ nonisolated final class DiaryRepository {
             let diaryId = (oldRow?["diary_id"] as? Int64) ?? 0
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             let newJson = ImagePathUtil.normalizeContent(contentJson)
+            let text = ContentFlatten.flattenContent(newJson)
             try db.inTransaction {
-                try db.execute("UPDATE edit_block SET content_json = ?, search_text = ?, updated_utc = ? WHERE id = ?;",
-                               [newJson, ContentFlatten.flattenContent(newJson), now, blockId])
+                if let locText, let locPrecision {
+                    try db.execute("""
+                    UPDATE edit_block SET content_json = ?, search_text = ?, updated_utc = ?,
+                      loc_text = ?, loc_precision = ? WHERE id = ?;
+                    """, [newJson, text, now, locText, locPrecision, blockId])
+                } else {
+                    try db.execute("UPDATE edit_block SET content_json = ?, search_text = ?, updated_utc = ? WHERE id = ?;",
+                                   [newJson, text, now, blockId])
+                }
                 if diaryId > 0 { try touchDiaryTx(diaryId: diaryId, updatedUtc: now) }
             }
             cleanupImages(from: oldJson, to: newJson)

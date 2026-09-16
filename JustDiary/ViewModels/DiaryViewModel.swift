@@ -117,6 +117,10 @@ final class DiaryViewModel {
         // "discard changes" in a new entry restored the block edited earlier in
         // the session, because `editingOriginalParts` outlived `enterEditBlock`.
         editingOriginalParts = []
+        // Likewise the location: it belongs to the block being written, and
+        // leaving the previous block's address here would save it onto this one.
+        location = nil
+        locating = false
         loadToken += 1
         autoFocusEditor = true
         withAnimation(.diaryStandard) {
@@ -141,6 +145,10 @@ final class DiaryViewModel {
         loadToken += 1
         autoFocusEditor = true
         startUtc = block.startTimeUtc
+        // Show the location this block was written with. It is not looked up
+        // again — only its precision can still be changed.
+        location = Self.locationSnapshot(from: block)
+        locating = false
         withAnimation(.diaryStandard) {
             isRead = false
         }
@@ -218,9 +226,17 @@ final class DiaryViewModel {
         let contentJson = ContentFlatten.serializeContent(parts)
         if let editingIndex {
             let block = blocks[editingIndex]
+            // Editing never changes where a block is: the coordinates and the
+            // address belong to the moment it was written. The precision (and
+            // the address text derived from it) can still be adjusted.
+            let locText = location?.locText ?? block.locText
+            let locPrecision = location?.locPrecision ?? block.locPrecision
             Task {
                 do {
-                    try await DiaryRepository.shared.updateBlockContent(blockId: block.id, contentJson: contentJson)
+                    try await DiaryRepository.shared.updateBlockContent(blockId: block.id,
+                                                                       contentJson: contentJson,
+                                                                       locText: locText,
+                                                                       locPrecision: locPrecision)
                     DiaryRepository.shared.bumpDiaryVersion()
                     await reloadAndShowRead()
                 } catch {
@@ -230,17 +246,38 @@ final class DiaryViewModel {
             }
             return
         }
+
         let blockDayKey = DateUtil.dayKeyForUtc(startUtc, dayStartHour: settings.dayStartHour)
-        if blockDayKey != DateUtil.dayKeyOf(Date()) {
-            let displayDay = L10n.formatDayKey(blockDayKey)
-            alertItem = .confirm(title: L10n.str("editor_cross_day_title"),
-                                 message: L10n.fmt("editor_cross_day_msg", displayDay),
-                                 confirmLabel: L10n.str("editor_save_exit")) {
-                self.saveByDayKey(blockDayKey, contentJson: contentJson)
+        if settings.autoLoc, location == nil {
+            // Saving now means this entry will never have a location, because
+            // only a new block looks one up.
+            alertItem = .confirm(title: L10n.str("editor_location_retry"),
+                                 message: L10n.str("editor_location_missing_msg"),
+                                 confirmLabel: L10n.str("editor_save_anyway")) {
+                // Another alert (the cross-day one) may follow, so let this one
+                // finish dismissing first.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    self.finishNewBlockSave(dayKey: blockDayKey, contentJson: contentJson)
+                }
             }
             return
         }
-        saveByDayKey(blockDayKey, contentJson: contentJson)
+        finishNewBlockSave(dayKey: blockDayKey, contentJson: contentJson)
+    }
+
+    /// Everything that happens after a new block's location question has been
+    /// answered: the cross-day check, then the insert.
+    private func finishNewBlockSave(dayKey: String, contentJson: String) {
+        if dayKey != DateUtil.dayKeyOf(Date()) {
+            let displayDay = L10n.formatDayKey(dayKey)
+            alertItem = .confirm(title: L10n.str("editor_cross_day_title"),
+                                 message: L10n.fmt("editor_cross_day_msg", displayDay),
+                                 confirmLabel: L10n.str("editor_save_exit")) {
+                self.saveByDayKey(dayKey, contentJson: contentJson)
+            }
+            return
+        }
+        saveByDayKey(dayKey, contentJson: contentJson)
     }
 
     private func saveByDayKey(_ dayKey: String, contentJson: String) {
@@ -348,6 +385,9 @@ final class DiaryViewModel {
     }
 
     func beginLocate() {
+        // Only a block that does not exist yet looks a location up; an existing
+        // block keeps the one it was written with.
+        guard editingIndex == nil else { return }
         guard LocStatus.isAuthorized else {
             LocationService.shared.requestPermission()
             Task {
@@ -371,25 +411,76 @@ final class DiaryViewModel {
             return
         }
         let snapshot = await LocationResolver.resolve(location: loc)
-        location = snapshot
+        // Coordinates with no address are not a usable record: treat that as "no
+        // location" so the entry is saved without one instead of carrying an
+        // empty place that can never be filled in later.
+        location = snapshot.locText.isEmpty ? nil : snapshot
         locating = false
     }
 
     func applyPrecision(_ precision: String) {
         guard var snapshot = location else { return }
         snapshot.locPrecision = precision
-        snapshot.locText = LocationResolver.text(for: snapshot.placemark, precision: precision)
+        if let recorded = snapshot.recordedPrecision,
+           precision == recorded,
+           let text = snapshot.recordedText {
+            // Back to the level the block was recorded at: keep its text
+            // verbatim, since the place name / street it may hold are not stored
+            // anywhere else.
+            snapshot.locText = text
+        } else if let placemark = snapshot.placemark {
+            snapshot.locText = LocationResolver.text(for: placemark, precision: precision)
+        } else {
+            snapshot.locText = LocationResolver.text(for: snapshot.region, precision: precision)
+        }
         location = snapshot
     }
 
+    /// Looks the location up again. Only a new block may do this: the address of
+    /// an existing block is part of what was recorded.
     func refreshLocation() {
+        guard editingIndex == nil else { return }
         location = nil
         beginLocate()
     }
 
-    var locationLabel: String {
-        if locating { return L10n.str("editor_location_fetching") }
-        return location?.locText.isEmpty == false ? location!.locText : L10n.str("editor_location_retry")
+    /// Whether the block being edited was already saved.
+    var isEditingExistingBlock: Bool { editingIndex != nil }
+
+    /// A new block may still look its location up; an existing one may not.
+    var canRelocate: Bool { editingIndex == nil }
+
+    /// The address currently held by the editor, if any.
+    var locationText: String { location?.locText ?? "" }
+
+    /// Precisions the location menu offers for the current block.
+    var precisionOptions: [String] {
+        guard let location else { return [] }
+        if let recorded = location.recordedPrecision {
+            return LocationResolver.availablePrecisions(for: location.region, recorded: recorded)
+        }
+        return LocationResolver.availablePrecisions()
+    }
+
+    /// Rebuilds the editor's location state from a stored block.
+    ///
+    /// The coordinates and the address were fixed when the block was written —
+    /// only the precision can still be adjusted — so this reconstructs what that
+    /// needs from the block's own columns instead of looking anything up.
+    private static func locationSnapshot(from block: EditBlock) -> LocationSnapshot? {
+        let precision = block.locPrecision.isEmpty ? LocPrecision.none : block.locPrecision
+        guard !block.locText.isEmpty || precision != LocPrecision.none else { return nil }
+        let region = LocRegion(country: block.country, countryCode: block.countryCode,
+                               region1: block.region1, region2: block.region2, region3: block.region3,
+                               locQuality: block.locQuality)
+        return LocationSnapshot(latitude: block.latitude,
+                                longitude: block.longitude,
+                                locText: block.locText,
+                                locPrecision: precision,
+                                region: region,
+                                placemark: nil,
+                                recordedPrecision: precision,
+                                recordedText: block.locText)
     }
 
     // MARK: - Image insert
