@@ -35,6 +35,24 @@ enum Screen {
 
     static var height: CGFloat { size.height }
     static var width: CGFloat { size.width }
+
+    /// Bottom safe-area inset of the presenting scene (the home-indicator strip).
+    ///
+    /// The editor's format bar floats over the content with the bottom safe area
+    /// ignored, so it has to add this back by hand: a hard 84pt left it stranded
+    /// well above the indicator whenever the keyboard was down.
+    static var safeAreaBottom: CGFloat {
+        if Thread.isMainThread {
+            return currentInsets.bottom
+        }
+        return DispatchQueue.main.sync { currentInsets.bottom }
+    }
+
+    private static var currentInsets: UIEdgeInsets {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        return scene?.keyWindow?.safeAreaInsets ?? .zero
+    }
 }
 
 // MARK: - Background

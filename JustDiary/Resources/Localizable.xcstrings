@@ -282,6 +282,57 @@
         }
       }
     },
+    "editor_discard" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Discard Changes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "放弃修改"
+          }
+        }
+      }
+    },
+    "editor_discard_msg" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your unsaved changes will be lost and can’t be recovered."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未保存的内容将丢失，且无法恢复。"
+          }
+        }
+      }
+    },
+    "editor_discard_title" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Discard changes?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "放弃修改？"
+          }
+        }
+      }
+    },
     "editor_editing" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -329,6 +380,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "退出编辑"
+          }
+        }
+      }
+    },
+    "editor_font_body" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正文"
+          }
+        }
+      }
+    },
+    "editor_font_heading" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heading"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "大标题"
+          }
+        }
+      }
+    },
+    "editor_font_sub" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subheading"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "小标题"
           }
         }
       }
@@ -520,23 +622,6 @@
         }
       }
     },
-    "editor_redo" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Redo"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重做"
-          }
-        }
-      }
-    },
     "editor_save_exit" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -622,23 +707,6 @@
         }
       }
     },
-    "editor_tool_heading" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Heading"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "标题"
-          }
-        }
-      }
-    },
     "editor_tool_italic" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -703,6 +771,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "删除线"
+          }
+        }
+      }
+    },
+    "editor_tool_style" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paragraph Style"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "段落样式"
           }
         }
       }
@@ -1336,6 +1421,23 @@
         }
       }
     },
+    "read_search_next" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next match"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下一个匹配"
+          }
+        }
+      }
+    },
     "read_search_placeholder" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1349,6 +1451,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在当前日记中查找…"
+          }
+        }
+      }
+    },
+    "read_search_prev" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous match"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上一个匹配"
           }
         }
       }

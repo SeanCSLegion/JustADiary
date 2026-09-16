@@ -26,13 +26,25 @@ final class PlaceholderTextView: UITextView {
         let font = UIFont.diary(EditorDesignSize.body, typeSize: typeSize)
         self.font = font
         placeholderLabel.font = font
+        minimumHeight = (160 * DynamicTypeMetrics.multiplier(for: EditorDesignSize.body, typeSize: typeSize)).rounded()
         setNeedsLayout()
     }
+
+    /// Minimum height of the input area: the 160pt the design shipped with,
+    /// grown by the body style's Dynamic Type multiplier.
+    ///
+    /// It used to be a hard 160pt. That is right at the default text size, but at
+    /// the largest accessibility sizes the placeholder grew while the field
+    /// stayed put, so the hint filled most of the input area. Scaling by the
+    /// *style's* factor (not one global number) keeps the default design
+    /// untouched and matches how `TabBarClearance` and the other minimum heights
+    /// in the app grow.
+    private var minimumHeight: CGFloat = 160
 
     override var intrinsicContentSize: CGSize {
         let width = bounds.width > 0 ? bounds.width : 340
         let size = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        return CGSize(width: width, height: max(160, size.height))
+        return CGSize(width: width, height: max(minimumHeight, size.height))
     }
 
     override func layoutSubviews() {
@@ -195,12 +207,51 @@ struct FontToolbar: View {
         .accessibilityAddTraits(active ? .isSelected : [])
     }
 
+    /// Paragraph-style picker, the equivalent of the style list in Notes' "Aa"
+    /// menu. It replaces the old heading toggle, which could only ever switch
+    /// between h1 and body — an h2 was reachable only in imported documents.
+    private var styleMenu: some View {
+        let current = controller.currentBlockStyle()
+        let active = current != .body
+        return Menu {
+            ForEach(EditorBlockStyle.menuStyles, id: \.self) { style in
+                Button {
+                    Haptics.tap()
+                    controller.applyBlockStyle(style)
+                    onTap?()
+                } label: {
+                    if style == current {
+                        Label(L10n.str(style.localizationKey), systemImage: "checkmark")
+                    } else {
+                        Text(L10n.str(style.localizationKey))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "textformat.size")
+                    .diaryFont(15, weight: .medium)
+                Image(systemName: "chevron.down")
+                    .diaryFont(9, weight: .semibold)
+            }
+            .foregroundStyle(active ? .white : Theme.onSurface())
+            .frame(minWidth: 46, minHeight: 40)
+            .contentShape(Capsule())
+            .background {
+                Capsule().fill(active ? Theme.primary() : .clear)
+            }
+        }
+        .buttonStyle(.plain)
+        .menuOrder(.fixed)
+        .accessibilityLabel(L10n.str("editor_tool_style"))
+        .accessibilityValue(L10n.str(current.localizationKey))
+    }
+
     @ViewBuilder
     var body: some View {
         // Observing the controller's format tick re-evaluates this body after
         // every edit/cursor move/format toggle, keeping the button states live.
         let styles = controller.activeStyles()
-        let heading = controller.currentHeadingLevel() == 1
         let center = controller.isCenterActive()
         let list = controller.isListActive()
         let quote = controller.isQuoteActive()
@@ -209,10 +260,7 @@ struct FontToolbar: View {
 
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                btn("textformat.size", accessibilityLabel: L10n.str("editor_tool_heading"),
-                    active: heading) {
-                    controller.applyHeading(controller.currentHeadingLevel() == 1 ? 0 : 1)
-                }
+                styleMenu
                 btn("text.aligncenter", accessibilityLabel: L10n.str("editor_tool_center"),
                     active: center, disabled: blockStyleActive) {
                     controller.toggleCenter()

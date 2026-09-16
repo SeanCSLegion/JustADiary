@@ -126,7 +126,9 @@ struct ReadTextView: UIViewRepresentable {
                     let current = attributed.attributes(at: range.location, effectiveRange: nil)
                     let design = EditorFont.designSize(of: current, typeSize: typeSize) ?? EditorDesignSize.body
                     let bold = (current[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true
-                    for (key, value) in EditorFont.attributes(design, weight: bold ? .bold : .medium,
+                    for (key, value) in EditorFont.attributes(design,
+                                                              block: EditorFont.blockStyle(of: current),
+                                                              weight: bold ? .bold : .medium,
                                                               typeSize: typeSize) {
                         attributed.addAttribute(key, value: value, range: range)
                     }

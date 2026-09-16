@@ -116,8 +116,11 @@ enum DynamicTypeMetrics {
     /// supporting text grow more than display text.
     ///
     /// Result at AX5 for the sizes this app uses:
-    /// 32 → 44.8, 24 → 34.8, 20 → 29, 18 → 27, 16 → 24.8, 15 → 24, 13 → 21.5,
-    /// 12 → 20.4, 11 → 19.3.
+    /// 32 → 44.8, 28 → 39.2, 24 → 34.8, 22 → 31.9, 20 → 29, 18 → 27, 17 → 25.5,
+    /// 16 → 24.8, 15 → 24, 13 → 21.5, 12 → 20.4, 11 → 19.3.
+    ///
+    /// The editor's 28 / 22 / 17 / 15 ladder (§3 of docs/design-system.md) is
+    /// part of that list and stays monotonic too.
     static func ceiling(for style: UIFont.TextStyle) -> CGFloat {
         switch style {
         case .largeTitle: return 1.35

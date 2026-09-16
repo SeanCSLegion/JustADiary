@@ -113,6 +113,10 @@ final class DiaryViewModel {
             return
         }
         loadParts = []
+        // A brand-new entry has nothing to fall back to: without this a
+        // "discard changes" in a new entry restored the block edited earlier in
+        // the session, because `editingOriginalParts` outlived `enterEditBlock`.
+        editingOriginalParts = []
         loadToken += 1
         autoFocusEditor = true
         withAnimation(.diaryStandard) {
@@ -171,6 +175,29 @@ final class DiaryViewModel {
             return
         }
         onDismiss?()
+    }
+
+    // MARK: - Discard
+
+    /// "Discard changes" in the editor's top bar.
+    ///
+    /// It throws away every edit made since the editor was opened and there is
+    /// no undo stack to get them back, so it asks first — the button used to be
+    /// labelled "Redo" with an undo arrow and silently discarded the whole entry
+    /// on a single tap.
+    func confirmDiscardEditing() {
+        guard !controller.isEmpty() else { return }
+        alertItem = .confirm(title: L10n.str("editor_discard_title"),
+                             message: L10n.str("editor_discard_msg"),
+                             confirmLabel: L10n.str("discard")) {
+            self.discardEditing()
+        }
+    }
+
+    private func discardEditing() {
+        loadParts = editingOriginalParts
+        loadToken += 1
+        controller.refreshTypingAttributes()
     }
 
     // MARK: - Save

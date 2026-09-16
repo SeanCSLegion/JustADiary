@@ -119,6 +119,13 @@ struct RootView: View {
             if let idx = ProcessInfo.processInfo.arguments.firstIndex(of: "-ui-test-open-day"),
                ProcessInfo.processInfo.arguments.count > idx + 1 {
                 let key = ProcessInfo.processInfo.arguments[idx + 1]
+                if ProcessInfo.processInfo.arguments.contains("-ui-test-reset-data") {
+                    // UI-test hook: start the editor round-trip tests from a
+                    // clean day. Only the day being opened is touched, so the
+                    // sample data other screens' tests use survives.
+                    await DiaryRepository.shared.deleteDiaryByDay(key)
+                    DiaryRepository.shared.bumpDiaryVersion()
+                }
                 appState.editorDayKey = key
                 appState.presentEditor = true
             }

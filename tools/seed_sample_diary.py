@@ -31,6 +31,40 @@ def ul(items):    return {"type": "ul", "items": items}
 def todo(items, done): return {"type": "todo", "items": items, "done": done}
 
 
+def run(text, bold=False, italic=False, underline=False, strike=False):
+    """One styled span, mirroring `TextRun`.
+
+    A `size` is written only for a custom size (imported material). Text the app
+    authors always renders at its block's design size — Apple's ladder, i.e.
+    title 28 / heading 22 / body 17 / quote 15 — so storing one would be
+    redundant and, worse, ambiguous.
+    """
+    r = {"text": text}
+    if bold:      r["bold"] = True
+    if italic:    r["italic"] = True
+    if underline: r["underline"] = True
+    if strike:    r["strike"] = True
+    return r
+
+
+def rich(part_type, *runs, align=None):
+    """A paragraph built from styled runs, optionally centered."""
+    part = {"type": part_type, "runs": list(runs)}
+    if align: part["align"] = align
+    return part
+
+
+def part_text(part):
+    """Plain text of a part, for `summary` / `search_text`."""
+    if part.get("runs"):
+        return "".join(r.get("text", "") for r in part["runs"])
+    if part.get("text") is not None:
+        return part["text"]
+    if part.get("items"):
+        return " ".join(part["items"])
+    return ""
+
+
 ENTRIES = [
     ("2024-05-12", "09:10", "中国", "CN", "广东省", "深圳市", "南山区", 22.54, 113.95,
      "南山区 · 深圳市 · 广东省 · 中国",
@@ -96,6 +130,18 @@ ENTRIES = [
     ("2026-06-11", "23:00", "", "", "", "", "", 0.0, 0.0, "",
      [h2("深夜"),
       p("写到这里已经很晚了。明天还要早起。")]),
+    # Exercises the editor's paragraph styles and inline formats: one paragraph
+    # per style, plus bold / italic / underline / strike and a centered line.
+    ("2026-09-08", "21:40", "", "", "", "", "", 0.0, 0.0, "",
+     [h1("字体样式自检"),
+      p("这一段是正文，用来和下面的标题、引用对比字号。"),
+      h2("小标题"),
+      quote("引用块比正文小一级，并且有自己的底色。"),
+      rich("p", run("这一段带"), run("粗体", bold=True), run("、"),
+           run("斜体", italic=True), run("、"), run("下划线", underline=True),
+           run("和"), run("删除线", strike=True), run("。")),
+      rich("p", run("这一行是居中的正文。"), align="center"),
+      todo(["验证标题层级", "验证引用底色", "验证行距"], [True, True, False])]),
 ]
 
 
@@ -145,8 +191,8 @@ def main() -> None:
     diary_id = 1
     for day in sorted(by_day):
         rows = by_day[day]
-        first_text = next((part.get("text") for part in rows[0][10]
-                           if part["type"] in ("h1", "h2", "p") and part.get("text")), "")
+        first_text = next((part_text(part) for part in rows[0][10]
+                           if part["type"] in ("h1", "h2", "p") and part_text(part)), "")
         summary = first_text[:40] or "无地点记录"
         cur.execute("INSERT INTO diary(id, day_key, summary, search_text, created_utc, updated_utc)"
                     " VALUES(?,?,?,?,?,?)", (diary_id, day, summary, summary, 0, 0))
@@ -154,7 +200,7 @@ def main() -> None:
             (d, t, country, code, r1, r2, r3, lat, lng, loc, parts) = row
             hh, mm = map(int, t.split(":"))
             ms = int(datetime.strptime(d, "%Y-%m-%d").replace(hour=hh, minute=mm).timestamp() * 1000)
-            text = " ".join(part.get("text", "") for part in parts)
+            text = " ".join(part_text(part) for part in parts)
             cur.execute(
                 "INSERT INTO edit_block(diary_id, start_time_utc, loc_text, latitude, longitude,"
                 " content_json, search_text, loc_precision, loc_quality, country, country_code,"

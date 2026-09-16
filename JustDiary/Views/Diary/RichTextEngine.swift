@@ -2,33 +2,120 @@ import SwiftUI
 import UIKit
 import Observation
 
-// MARK: - Editor design sizes
+// MARK: - Editor paragraph styles
 //
-// The editor's text storage is the thing `parts(from:)` reads back to decide
-// whether a line is an h1, an h2 or a paragraph, and `TextRun.size` is
-// persisted in the diary JSON. The storage must therefore keep the *design*
-// size, never the size that was actually drawn: once Dynamic Type is honoured,
-// a 15pt paragraph can be drawn at 26pt, and reading that back would classify
-// every paragraph as a heading and rewrite the saved entry.
+// The editor's paragraph styles are named after the equivalent styles in Apple
+// Notes (Title / Heading / Body) and are backed by Apple's own type ladder —
+// Title 1 = 28, Title 2 = 22, Body = 17, Subheadline = 15 (HIG › Typography,
+// iOS default). Two things follow from doing it this way:
 //
-// So a run carries two things: a `.font` at the resolved display size, and
-// `.diaryDesignSize`, the unscaled size that font was derived from.
+// * Sizes are never chosen freely. The stored number is a *design* size that is
+//   drawn through `DynamicTypeMetrics`, so entry text follows
+//   设置 › 显示与亮度 › 文字大小 exactly like Notes does.
+// * A paragraph's type is stored explicitly (`.diaryBlockStyle`, persisted as
+//   `ContentPart.type`) instead of being inferred from its point size. The
+//   ladder can therefore change without silently rewriting saved entries; size
+//   inference survives only as a fallback for imported runs.
+enum EditorBlockStyle: String, CaseIterable {
+    case title
+    case heading
+    case body
+    case quote
+
+    /// Title 1 / Title 2 / Body / Subheadline of the iOS type ladder.
+    var designSize: CGFloat {
+        switch self {
+        case .title: return 28
+        case .heading: return 22
+        case .body: return 17
+        case .quote: return 15
+        }
+    }
+
+    /// Extra leading between wrapped lines, as a fraction of the design size so
+    /// that it grows with the text. It used to be a flat 2pt (7pt for quotes),
+    /// which read as cramped once the user raised the system text size, and it
+    /// was keyed off "size == quote" — i.e. off the very thing this change
+    /// decouples the block type from.
+    var lineSpacing: CGFloat {
+        self == .quote ? designSize * 0.5 : designSize * 0.13
+    }
+
+    /// Space after the paragraph. Rendered only: like alignment it is derived
+    /// from the block type on load rather than persisted.
+    var paragraphSpacing: CGFloat {
+        switch self {
+        case .title: return designSize * 0.4
+        case .heading: return designSize * 0.3
+        case .quote: return designSize * 0.4
+        case .body: return 0
+        }
+    }
+
+    /// Styles offered by the format bar's paragraph-style menu, in Notes' order
+    /// (largest first). Quote is not here: it is a marker as much as a style, so
+    /// it keeps its own toolbar button.
+    static let menuStyles: [EditorBlockStyle] = [.title, .heading, .body]
+
+    /// The value persisted in `ContentPart.type`.
+    var persistedType: String {
+        switch self {
+        case .title: return ContentPartType.h1
+        case .heading: return ContentPartType.h2
+        case .body: return ContentPartType.paragraph
+        case .quote: return ContentPartType.quote
+        }
+    }
+
+    init(persistedType: String) {
+        switch persistedType {
+        case ContentPartType.h1: self = .title
+        case ContentPartType.h2: self = .heading
+        case ContentPartType.quote: self = .quote
+        default: self = .body
+        }
+    }
+
+    var localizationKey: String {
+        switch self {
+        case .title: return "editor_font_heading"
+        case .heading: return "editor_font_sub"
+        case .body: return "editor_font_body"
+        case .quote: return "editor_tool_quote"
+        }
+    }
+}
+
 enum EditorDesignSize {
-    static let h1: CGFloat = 22
-    static let h2: CGFloat = 18
-    static let body: CGFloat = 15
-    static let quote: CGFloat = 13
+    static let h1 = EditorBlockStyle.title.designSize
+    static let h2 = EditorBlockStyle.heading.designSize
+    static let body = EditorBlockStyle.body.designSize
+    static let quote = EditorBlockStyle.quote.designSize
 
     /// Every size the editor authors, for exact recovery of a design size from
     /// a drawn one. See `EditorFont.designSize(of:typeSize:)`.
-    static let authored: [CGFloat] = [h1, h2, body, quote]
+    static let authored: [CGFloat] = EditorBlockStyle.allCases.map(\.designSize)
+
+    /// The style a bare point size maps to. Used only for runs that carry no
+    /// `.diaryBlockStyle` — chiefly imported documents, whose runs may be any
+    /// size at all. The thresholds sit halfway between the ladder's steps.
+    static func blockStyle(for size: CGFloat) -> EditorBlockStyle {
+        if size >= (h1 + h2) / 2 { return .title }
+        if size >= (h2 + body) / 2 { return .heading }
+        return .body
+    }
 }
 
 extension NSAttributedString.Key {
     /// The unscaled design size a run's `.font` was derived from. Internal to
     /// the editor; never persisted (the design size is persisted separately as
-    /// `TextRun.size`).
+    /// `TextRun.size`, and then only when it is a custom size).
     static let diaryDesignSize = NSAttributedString.Key("com.cov.justdiary.designSize")
+
+    /// The paragraph style a run belongs to. Also editor-internal: the persisted
+    /// form is `ContentPart.type`. Carrying it in the text storage is what makes
+    /// the block type independent of the font size.
+    static let diaryBlockStyle = NSAttributedString.Key("com.cov.justdiary.blockStyle")
 }
 
 enum EditorFont {
@@ -48,14 +135,24 @@ enum EditorFont {
         return f
     }
 
-    /// Attributes for a run at `designSize`.
-    static func attributes(_ designSize: CGFloat, weight: UIFont.Weight = .regular,
+    /// Attributes for a run at `designSize`, belonging to `block`.
+    static func attributes(_ designSize: CGFloat,
+                           block: EditorBlockStyle? = nil,
+                           weight: UIFont.Weight = .regular,
                            italic: Bool = false,
                            typeSize: DynamicTypeSize) -> [NSAttributedString.Key: Any] {
-        [
+        var attrs: [NSAttributedString.Key: Any] = [
             .font: font(designSize, weight: weight, italic: italic, typeSize: typeSize),
             .diaryDesignSize: NSNumber(value: Double(designSize))
         ]
+        if let block { attrs[.diaryBlockStyle] = block.rawValue }
+        return attrs
+    }
+
+    /// The paragraph style a run belongs to, if the editor authored it.
+    static func blockStyle(of attributes: [NSAttributedString.Key: Any]) -> EditorBlockStyle? {
+        guard let raw = attributes[.diaryBlockStyle] as? String else { return nil }
+        return EditorBlockStyle(rawValue: raw)
     }
 
     /// Design size of a run.
@@ -96,11 +193,21 @@ final class RichEditorController {
     /// the same metrics the rest of the UI uses.
     var dynamicTypeSize: DynamicTypeSize = .large
 
-    func baseTypingAttributes() -> [NSAttributedString.Key: Any] {
-        var attrs = EditorFont.attributes(EditorDesignSize.body, typeSize: dynamicTypeSize)
+    /// Typing attributes for a paragraph of `block`: what the next typed
+    /// character will look like. Also the reset applied after a block toggle.
+    func typingAttributes(for block: EditorBlockStyle) -> [NSAttributedString.Key: Any] {
+        var attrs = EditorFont.attributes(block.designSize, block: block, typeSize: dynamicTypeSize)
         attrs[.foregroundColor] = Theme.onSurfaceUIColor()
-        attrs[.paragraphStyle] = NSMutableParagraphStyle()
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = block.lineSpacing
+        style.paragraphSpacing = block.paragraphSpacing
+        attrs[.paragraphStyle] = style
+        attrs[.backgroundColor] = block == .quote ? Theme.quoteBgUIColor() : UIColor.clear
         return attrs
+    }
+
+    func baseTypingAttributes() -> [NSAttributedString.Key: Any] {
+        typingAttributes(for: .body)
     }
 
     func refreshTypingAttributes() {
@@ -202,136 +309,124 @@ final class RichEditorController {
         }
     }
 
-    // MARK: - Block styles (heading / list / quote / todo are mutually exclusive)
+    // MARK: - Paragraph styles
+    //
+    // Title / heading / quote / body are mutually exclusive with list & todo: a
+    // list item is a paragraph style of its own, so turning one on removes the
+    // other. Center alignment may coexist with a heading/body but not with
+    // list/quote/todo.
 
-    /// Block styles are mutually exclusive. Turning one on first cancels the
-    /// others on the paragraph: list/todo markers are removed, quote background
-    /// is cleared and font sizes are reset. Center alignment is only cancelled
-    /// when the new block style is list/quote/todo (heading may coexist with it).
-    private func normalizeBlockStyle(_ attributed: NSMutableAttributedString,
-                                     lineStart: Int,
-                                     cancelCenter: Bool) {
-        let loc = lineStart
-        if loc < attributed.length,
-           let payload = (attributed.attribute(.attachment, at: loc, effectiveRange: nil) as? PayloadAttachment)?.payload,
-           payload.kind == "bullet" || payload.kind == "todo" {
-            attributed.replaceCharacters(in: NSRange(location: loc, length: 1), with: "")
+    /// Applies a paragraph style to every paragraph the caret or selection
+    /// touches. Like Notes, a paragraph style belongs to the paragraph rather
+    /// than to the selected glyphs, so a partial selection still restyles the
+    /// whole line.
+    func applyBlockStyle(_ block: EditorBlockStyle) {
+        guard let tv = textView else { return }
+        let ranges = paragraphRanges(covering: tv.selectedRange)
+        if !ranges.isEmpty {
+            apply { attributed in
+                // Back to front: restyling a paragraph can drop its list/todo
+                // marker, which shifts every later range by one.
+                for range in ranges.reversed() {
+                    self.restyle(attributed, range: range, to: block, cancelCenter: block == .quote)
+                }
+            }
+        } else {
+            notifyFormatChange()
         }
-        let para = paragraphRange(in: attributed, around: loc)
+        tv.typingAttributes = typingAttributes(for: block)
+    }
+
+    /// The paragraph style at the caret, for the format bar's menu state.
+    func currentBlockStyle() -> EditorBlockStyle {
+        guard let tv = textView else { return .body }
+        let location = tv.selectedRange.location
+        let attrs: [NSAttributedString.Key: Any]
+        if tv.textStorage.length > 0, location < tv.textStorage.length,
+           !(tv.selectedRange.length == 0 && Self.paragraphIsEmpty(in: tv.textStorage, location: location)) {
+            // Probe the *start* of the paragraph: UIKit drops the custom keys
+            // from characters typed after the first one, so the character at the
+            // caret may be one that no longer carries them.
+            let para = paragraphRange(in: tv.textStorage, around: location)
+            let probe = para.location < tv.textStorage.length ? para.location : location
+            attrs = tv.textStorage.attributes(at: probe, effectiveRange: nil)
+        } else {
+            attrs = tv.typingAttributes
+        }
+        if let explicit = EditorFont.blockStyle(of: attrs) { return explicit }
+        if let bg = attrs[.backgroundColor] as? UIColor, !bg.isEqual(UIColor.clear) { return .quote }
+        let size = EditorFont.designSize(of: attrs, typeSize: dynamicTypeSize) ?? EditorDesignSize.body
+        return EditorDesignSize.blockStyle(for: size)
+    }
+
+    /// Restyles one paragraph (newline included), preserving bold/italic traits.
+    private func restyle(_ attributed: NSMutableAttributedString, range: NSRange,
+                         to block: EditorBlockStyle, cancelCenter: Bool = false) {
+        // Drop a list/todo marker: it is a paragraph style of its own, and it
+        // would otherwise stay attached to what is now a heading/quote/body.
+        if range.location < attributed.length,
+           let payload = (attributed.attribute(.attachment, at: range.location, effectiveRange: nil) as? PayloadAttachment)?.payload,
+           payload.kind == "bullet" || payload.kind == "todo" {
+            attributed.replaceCharacters(in: NSRange(location: range.location, length: 1), with: "")
+        }
+        let para = paragraphRange(in: attributed, around: range.location)
+        guard para.length > 0 else { return }
         attributed.enumerateAttribute(.font, in: para) { value, r, _ in
             guard let font = value as? UIFont else { return }
             let traits = font.fontDescriptor.symbolicTraits
-            let weight: UIFont.Weight = traits.contains(.traitBold) ? .bold : .regular
-            let italic = traits.contains(.traitItalic)
-            let attrs = EditorFont.attributes(EditorDesignSize.body, weight: weight, italic: italic,
+            let attrs = EditorFont.attributes(block.designSize, block: block,
+                                              weight: traits.contains(.traitBold) ? .bold : .regular,
+                                              italic: traits.contains(.traitItalic),
                                               typeSize: dynamicTypeSize)
             attributed.removeAttribute(.font, range: r)
             attributed.removeAttribute(.diaryDesignSize, range: r)
+            attributed.removeAttribute(.diaryBlockStyle, range: r)
             for (key, value) in attrs {
                 attributed.addAttribute(key, value: value, range: r)
             }
         }
-        attributed.enumerateAttribute(.backgroundColor, in: para) { value, r, _ in
-            attributed.removeAttribute(.backgroundColor, range: r)
+        attributed.removeAttribute(.backgroundColor, range: para)
+        if block == .quote {
+            attributed.addAttribute(.backgroundColor, value: Theme.quoteBgUIColor(), range: para)
         }
         attributed.enumerateAttribute(.paragraphStyle, in: para) { value, r, _ in
             let style = ((value as? NSParagraphStyle) ?? NSParagraphStyle()).mutableCopy() as! NSMutableParagraphStyle
-            if cancelCenter {
+            if cancelCenter || block == .quote {
                 style.alignment = .left
             }
-            style.lineSpacing = 2
+            style.lineSpacing = block.lineSpacing
+            style.paragraphSpacing = block.paragraphSpacing
             attributed.addAttribute(.paragraphStyle, value: style, range: r)
         }
     }
 
-    func applyHeading(_ level: Int) {
-        guard let tv = textView else { return }
-        let size: CGFloat = level == 1 ? EditorDesignSize.h1 : (level == 2 ? EditorDesignSize.h2 : EditorDesignSize.body)
-        let range = tv.selectedRange
-
-        if range.length > 0 {
-            // A real selection: apply the heading to the selected runs and drop
-            // quote/list/todo styling from them (mutual exclusion). Center is
-            // preserved: heading and center may coexist.
-            apply { attributed in
-                if level > 0 {
-                    let para = paragraphRange(in: attributed, around: range.location)
-                    if para.length > 0,
-                       let payload = (attributed.attribute(.attachment, at: para.location, effectiveRange: nil) as? PayloadAttachment)?.payload,
-                       payload.kind == "bullet" || payload.kind == "todo" {
-                        attributed.replaceCharacters(in: NSRange(location: para.location, length: 1), with: "")
-                    }
-                    attributed.enumerateAttribute(.backgroundColor, in: range) { value, r, _ in
-                        if let bg = value as? UIColor, !bg.isEqual(UIColor.clear) {
-                            attributed.removeAttribute(.backgroundColor, range: r)
-                        }
-                    }
-                }
-                attributed.enumerateAttribute(.font, in: range) { value, subRange, _ in
-                    guard let font = value as? UIFont else { return }
-                    let traits = font.fontDescriptor.symbolicTraits
-                    let weight: UIFont.Weight = traits.contains(.traitBold) ? .bold : .regular
-                    let attrs = EditorFont.attributes(size, weight: weight,
-                                                      italic: traits.contains(.traitItalic),
-                                                      typeSize: dynamicTypeSize)
-                    attributed.removeAttribute(.font, range: subRange)
-                    attributed.removeAttribute(.diaryDesignSize, range: subRange)
-                    for (key, value) in attrs {
-                        attributed.addAttribute(key, value: value, range: subRange)
-                    }
-                }
-                if level > 0 {
-                    attributed.enumerateAttribute(.paragraphStyle, in: range) { value, r, _ in
-                        let style = ((value as? NSParagraphStyle) ?? NSParagraphStyle()).mutableCopy() as! NSMutableParagraphStyle
-                        style.lineSpacing = 2
-                        attributed.addAttribute(.paragraphStyle, value: style, range: r)
-                    }
-                }
+    /// Paragraph ranges (terminating newline included) touched by `range`, or
+    /// the caret's paragraph when `range` is empty. An empty trailing line has
+    /// no paragraph and yields nothing, which is how "only affect what is typed
+    /// next" is expressed.
+    private func paragraphRanges(covering range: NSRange) -> [NSRange] {
+        guard let tv = textView else { return [] }
+        let ns = tv.textStorage.string as NSString
+        guard ns.length > 0 else { return [] }
+        var result: [NSRange] = []
+        var start = 0
+        while start < ns.length {
+            var end = start
+            while end < ns.length && ns.character(at: end) != 0x0A {
+                end += 1
             }
-        } else {
-            // Empty caret: heading (like bold/strike/underline/italic) only
-            // affects content typed afterwards; other block styles on the line
-            // are cancelled first (mutual exclusion).
-            if level > 0 {
-                let start = paragraphRange(around: tv.selectedRange).location
-                apply { attributed in
-                    normalizeBlockStyle(attributed, lineStart: start, cancelCenter: false)
-                }
+            let lineEnd = end < ns.length ? end + 1 : end
+            let line = NSRange(location: start, length: lineEnd - start)
+            let hit: Bool
+            if range.length == 0 {
+                hit = range.location >= start && range.location <= lineEnd
             } else {
-                notifyFormatChange()
+                hit = NSIntersectionRange(range, line).length > 0
             }
-            tv.typingAttributes[.font] = EditorFont.font(size, typeSize: dynamicTypeSize)
-            tv.typingAttributes[.diaryDesignSize] = NSNumber(value: Double(size))
+            if hit { result.append(line) }
+            start = end + 1
         }
-    }
-
-    /// Heading state is decided on the *design* size, not the drawn size: once
-    /// Dynamic Type is honoured a paragraph and an h2 can be drawn at the same
-    /// point size, so comparing what is on screen would mis-report headings.
-    private func designSize(at location: Int) -> CGFloat {
-        guard let tv = textView else { return EditorDesignSize.body }
-        if tv.textStorage.length > 0, location < tv.textStorage.length,
-           let value = EditorFont.designSize(of: tv.textStorage.attributes(at: location, effectiveRange: nil)) {
-            return value
-        }
-        return EditorFont.designSize(of: tv.typingAttributes) ?? EditorDesignSize.body
-    }
-
-    func currentHeadingLevel() -> Int {
-        guard let tv = textView else { return 0 }
-        // Empty caret: what gets typed next governs the toggle state (UIKit keeps
-        // typingAttributes in sync with the attributes at the insertion point).
-        let size: CGFloat
-        if tv.selectedRange.length == 0 {
-            size = EditorFont.designSize(of: tv.typingAttributes, typeSize: dynamicTypeSize) ?? EditorDesignSize.body
-        } else {
-            let location = min(tv.selectedRange.location, max(0, tv.textStorage.length - 1))
-            guard tv.textStorage.length > 0, location < tv.textStorage.length else { return 0 }
-            size = designSize(at: location)
-        }
-        if size >= EditorDesignSize.h1 { return 1 }
-        if size >= EditorDesignSize.h2 { return 2 }
-        return 0
+        return result
     }
 
     func toggleCenter() {
@@ -438,7 +533,8 @@ final class RichEditorController {
         apply { attributed in
             if !isMarked {
                 // Turning on: cancel heading / quote / other marker / center first.
-                normalizeBlockStyle(attributed, lineStart: insertLocation, cancelCenter: true)
+                self.restyle(attributed, range: NSRange(location: insertLocation, length: 0),
+                             to: .body, cancelCenter: true)
             }
             if isMarked {
                 // Only strip a marker we can actually confirm exists at the line start.
@@ -448,29 +544,13 @@ final class RichEditorController {
                     attributed.replaceCharacters(in: NSRange(location: insertLocation, length: 1), with: "")
                 }
             } else {
-                let attachment = MarkerAttachment.attachment(kind: kind, typeSize: dynamicTypeSize)
+                let attachment = MarkerAttachment.attachment(kind: kind, typeSize: self.dynamicTypeSize)
                 attributed.insert(NSAttributedString(attachment: attachment), at: insertLocation)
             }
         }
 
         // Reset typing attributes to a plain block line.
-        tv.typingAttributes[.font] = EditorFont.font(EditorDesignSize.body, typeSize: dynamicTypeSize)
-        tv.typingAttributes[.diaryDesignSize] = NSNumber(value: Double(EditorDesignSize.body))
-        tv.typingAttributes[.backgroundColor] = UIColor.clear
-        if let style = tv.typingAttributes[.paragraphStyle] as? NSMutableParagraphStyle {
-            style.alignment = .left
-            style.lineSpacing = 2
-        } else if let style = tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle {
-            let mutable = style.mutableCopy() as! NSMutableParagraphStyle
-            mutable.alignment = .left
-            mutable.lineSpacing = 2
-            tv.typingAttributes[.paragraphStyle] = mutable
-        } else {
-            let style = NSMutableParagraphStyle()
-            style.alignment = .left
-            style.lineSpacing = 2
-            tv.typingAttributes[.paragraphStyle] = style
-        }
+        tv.typingAttributes = typingAttributes(for: .body)
     }
 
     func isListActive() -> Bool { currentMarkerKind() == "bullet" }
@@ -486,57 +566,18 @@ final class RichEditorController {
 
     func toggleQuote() {
         guard let tv = textView else { return }
-        let range = paragraphRange(around: tv.selectedRange)
-        let isQuote = isQuoteActive()
-
-        apply { attributed in
-            let para = paragraphRange(in: attributed, around: range.location)
-            if !isQuote {
-                // Turning on: cancel heading / list / todo / center first.
-                normalizeBlockStyle(attributed, lineStart: para.location, cancelCenter: true)
-            }
-            let para2 = paragraphRange(in: attributed, around: para.location)
-            let bg: UIColor = isQuote ? .clear : Theme.quoteBgUIColor()
-            attributed.enumerateAttribute(.paragraphStyle, in: para2) { value, r, _ in
-                let style = ((value as? NSParagraphStyle) ?? NSParagraphStyle()).mutableCopy() as! NSMutableParagraphStyle
-                style.lineSpacing = isQuote ? 0 : 7
-                attributed.addAttribute(.paragraphStyle, value: style, range: r)
-            }
-            attributed.enumerateAttribute(.font, in: para2) { value, r, _ in
-                guard let font = value as? UIFont else { return }
-                let traits = font.fontDescriptor.symbolicTraits
-                let weight: UIFont.Weight = traits.contains(.traitBold) ? .bold : .regular
-                let design = isQuote ? EditorDesignSize.body : EditorDesignSize.quote
-                let attrs = EditorFont.attributes(design, weight: weight,
-                                                  italic: traits.contains(.traitItalic),
-                                                  typeSize: dynamicTypeSize)
-                attributed.removeAttribute(.font, range: r)
-                attributed.removeAttribute(.diaryDesignSize, range: r)
-                for (key, value) in attrs {
-                    attributed.addAttribute(key, value: value, range: r)
+        let block: EditorBlockStyle = isQuoteActive() ? .body : .quote
+        let ranges = paragraphRanges(covering: tv.selectedRange)
+        if !ranges.isEmpty {
+            apply { attributed in
+                for range in ranges.reversed() {
+                    self.restyle(attributed, range: range, to: block, cancelCenter: true)
                 }
             }
-            attributed.addAttribute(.backgroundColor, value: bg, range: para2)
-        }
-
-        if let style = tv.typingAttributes[.paragraphStyle] as? NSMutableParagraphStyle {
-            style.lineSpacing = isQuote ? 0 : 7
-            style.alignment = .left
-        } else if let style = tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle {
-            let mutable = style.mutableCopy() as! NSMutableParagraphStyle
-            mutable.lineSpacing = isQuote ? 0 : 7
-            mutable.alignment = .left
-            tv.typingAttributes[.paragraphStyle] = mutable
         } else {
-            let style = NSMutableParagraphStyle()
-            style.lineSpacing = isQuote ? 0 : 7
-            style.alignment = .left
-            tv.typingAttributes[.paragraphStyle] = style
+            notifyFormatChange()
         }
-        tv.typingAttributes[.backgroundColor] = isQuote ? UIColor.clear : Theme.quoteBgUIColor()
-        let quoted = isQuote ? EditorDesignSize.body : EditorDesignSize.quote
-        tv.typingAttributes[.font] = EditorFont.font(quoted, typeSize: dynamicTypeSize)
-        tv.typingAttributes[.diaryDesignSize] = NSNumber(value: Double(quoted))
+        tv.typingAttributes = typingAttributes(for: block)
     }
 
     func isQuoteActive() -> Bool {
@@ -762,24 +803,16 @@ enum PartsCodec {
         let result = NSMutableAttributedString()
         for part in parts {
             switch part.type {
-            case ContentPartType.h1:
-                appendLine(part, to: result, size: EditorDesignSize.h1, typeSize: typeSize)
-            case ContentPartType.h2:
-                appendLine(part, to: result, size: EditorDesignSize.h2, typeSize: typeSize)
-            case ContentPartType.quote:
-                appendLine(part, to: result, size: EditorDesignSize.quote,
-                           background: Theme.quoteBgUIColor(), typeSize: typeSize)
             case ContentPartType.list:
                 for item in part.items ?? [] {
-                    appendMarkerLine(kind: "bullet", done: false, text: item, to: result,
-                                     size: EditorDesignSize.body, typeSize: typeSize)
+                    appendMarkerLine(kind: "bullet", done: false, text: item, to: result, typeSize: typeSize)
                 }
             case ContentPartType.todo:
                 let items = part.items ?? []
                 let done = part.done ?? Array(repeating: false, count: items.count)
                 for (i, item) in items.enumerated() {
                     appendMarkerLine(kind: "todo", done: done.indices.contains(i) && done[i],
-                                     text: item, to: result, size: EditorDesignSize.body, typeSize: typeSize)
+                                     text: item, to: result, typeSize: typeSize)
                 }
             case ContentPartType.image:
                 if let src = part.src {
@@ -799,18 +832,27 @@ enum PartsCodec {
                     }
                 }
             default:
-                appendLine(part, to: result, size: EditorDesignSize.body, typeSize: typeSize)
+                appendLine(part, to: result, block: EditorBlockStyle(persistedType: part.type),
+                           typeSize: typeSize)
             }
         }
         return result
     }
 
-    private static func appendMarkerLine(kind: String, done: Bool, text: String,
-                                         to result: NSMutableAttributedString, size: CGFloat,
-                                         typeSize: DynamicTypeSize) {
+    private static func paragraphStyle(_ block: EditorBlockStyle, center: Bool = false) -> NSMutableParagraphStyle {
         let style = NSMutableParagraphStyle()
-        style.lineSpacing = 2
-        var attrs = EditorFont.attributes(size, typeSize: typeSize)
+        style.alignment = center ? .center : .left
+        style.lineSpacing = block.lineSpacing
+        style.paragraphSpacing = block.paragraphSpacing
+        return style
+    }
+
+    private static func appendMarkerLine(kind: String, done: Bool, text: String,
+                                         to result: NSMutableAttributedString,
+                                         typeSize: DynamicTypeSize) {
+        let block = EditorBlockStyle.body
+        let style = paragraphStyle(block)
+        var attrs = EditorFont.attributes(block.designSize, block: block, typeSize: typeSize)
         attrs[.foregroundColor] = Theme.onSurfaceUIColor()
         attrs[.paragraphStyle] = style
         if kind == "todo", done {
@@ -818,35 +860,32 @@ enum PartsCodec {
             attrs[.foregroundColor] = Theme.onSurfaceUIColor().withAlphaComponent(0.45)
         }
         result.append(NSAttributedString(attachment: MarkerAttachment.attachment(kind: kind, done: done,
-                                                                              typeSize: typeSize)))
+                                                                               typeSize: typeSize)))
         result.append(NSAttributedString(string: text, attributes: attrs))
-        result.append(NSAttributedString(string: "\n", attributes: EditorFont.attributes(size, typeSize: typeSize)))
+        result.append(NSAttributedString(string: "\n", attributes: attrs))
     }
 
-    private static func appendLine(_ part: ContentPart, to result: NSMutableAttributedString, size: CGFloat,
-                                   background: UIColor? = nil, typeSize: DynamicTypeSize) {
+    private static func appendLine(_ part: ContentPart, to result: NSMutableAttributedString,
+                                   block: EditorBlockStyle, typeSize: DynamicTypeSize) {
         let runs = part.runs ?? []
+        let center = part.align == "center"
         if runs.isEmpty, let text = part.text {
-            appendLine([TextRun(text: text)], to: result, size: size, background: background,
-                       center: part.align == "center", typeSize: typeSize)
+            appendLine([TextRun(text: text)], to: result, block: block, center: center, typeSize: typeSize)
         } else {
-            appendLine(runs, to: result, size: size, background: background,
-                       center: part.align == "center", typeSize: typeSize)
+            appendLine(runs, to: result, block: block, center: center, typeSize: typeSize)
         }
     }
 
-    private static func appendLine(_ runs: [TextRun], to result: NSMutableAttributedString, size: CGFloat,
-                                   background: UIColor? = nil, center: Bool = false,
+    private static func appendLine(_ runs: [TextRun], to result: NSMutableAttributedString,
+                                   block: EditorBlockStyle, center: Bool = false,
                                    typeSize: DynamicTypeSize) {
         let line = NSMutableAttributedString()
-        let style = NSMutableParagraphStyle()
-        style.alignment = center ? .center : .left
-        style.lineSpacing = size == EditorDesignSize.quote ? 7 : 2
+        let style = paragraphStyle(block, center: center)
         for run in runs {
             // An imported run may carry its own design size; it is resolved the
             // same way as the block default so the two cannot drift apart.
-            let design = run.size.flatMap { $0 > 0 ? CGFloat($0) : nil } ?? size
-            var attrs = EditorFont.attributes(design,
+            let design = run.size.flatMap { $0 > 0 ? CGFloat($0) : nil } ?? block.designSize
+            var attrs = EditorFont.attributes(design, block: block,
                                               weight: run.bold == true ? .bold : .regular,
                                               italic: run.italic == true,
                                               typeSize: typeSize)
@@ -854,11 +893,19 @@ enum PartsCodec {
             attrs[.paragraphStyle] = style
             if run.strike == true { attrs[.strikethroughStyle] = 1 }
             if run.underline == true { attrs[.underlineStyle] = 1 }
-            if let bg = background { attrs[.backgroundColor] = bg }
+            if block == .quote { attrs[.backgroundColor] = Theme.quoteBgUIColor() }
             line.append(NSAttributedString(string: run.text, attributes: attrs))
         }
         result.append(line)
-        result.append(NSAttributedString(string: "\n", attributes: EditorFont.attributes(size, typeSize: typeSize)))
+        // The terminating newline carries the block's attributes too, so pressing
+        // return at the end of a paragraph keeps writing in the same style (the
+        // trailing empty line itself is skipped when the entry is parsed back).
+        result.append(NSAttributedString(string: "\n", attributes: [
+            .font: EditorFont.font(block.designSize, typeSize: typeSize),
+            .diaryDesignSize: NSNumber(value: Double(block.designSize)),
+            .diaryBlockStyle: block.rawValue,
+            .paragraphStyle: style
+        ]))
     }
 
     static func parts(from storage: NSAttributedString, typeSize: DynamicTypeSize = .large) -> [ContentPart] {
@@ -896,10 +943,19 @@ enum PartsCodec {
                 }
                 continue
             }
-            var isQuote = false
-            if let bg = storage.attribute(.backgroundColor, at: lineRange.location, effectiveRange: nil) as? UIColor,
-               !bg.isEqual(UIColor.clear) {
-                isQuote = true
+
+            let lineAttrs = storage.attributes(at: lineRange.location, effectiveRange: nil)
+            // The block type is stored explicitly. Size inference is only the
+            // fallback for runs that predate the attribute (imported content) or
+            // for characters UIKit re-attributed behind our back.
+            let block: EditorBlockStyle
+            if let explicit = EditorFont.blockStyle(of: lineAttrs) {
+                block = explicit
+            } else if let bg = lineAttrs[.backgroundColor] as? UIColor, !bg.isEqual(UIColor.clear) {
+                block = .quote
+            } else {
+                let size = EditorFont.designSize(of: lineAttrs, typeSize: typeSize) ?? EditorDesignSize.body
+                block = EditorDesignSize.blockStyle(for: size)
             }
             var align: String?
             if let style = storage.attribute(.paragraphStyle, at: lineRange.location, effectiveRange: nil) as? NSParagraphStyle {
@@ -930,29 +986,23 @@ enum PartsCodec {
                 // grows with the user's text-size setting, and writing it back
                 // would turn a paragraph into a heading on the next load.
                 let design = EditorFont.designSize(of: attrs, typeSize: typeSize)
+                // A size is stored only when the run genuinely differs from its
+                // block's default. `TextRun.size` is therefore unambiguously a
+                // *custom* size (an imported document), and a later change to
+                // the ladder cannot be mistaken for one.
+                let custom = design.flatMap { d -> Double? in
+                    abs(d - block.designSize) > 0.01 ? Double((d * 1000).rounded() / 1000) : nil
+                }
                 runs.append(TextRun(text: sub,
                                     bold: font?.fontDescriptor.symbolicTraits.contains(.traitBold) == true,
                                     italic: font?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true,
                                     strike: strike,
                                     underline: underline,
-                                    size: design.map { Double(($0 * 1000).rounded() / 1000) }))
+                                    size: custom))
                 cursor = effectiveEnd
             }
             if runs.isEmpty { continue }
-            if let first = runs.first {
-                let size = first.size ?? Double(EditorDesignSize.body)
-                let type: String
-                if isQuote {
-                    type = ContentPartType.quote
-                } else if size >= Double(EditorDesignSize.h1) {
-                    type = ContentPartType.h1
-                } else if size >= Double(EditorDesignSize.h2) {
-                    type = ContentPartType.h2
-                } else {
-                    type = ContentPartType.paragraph
-                }
-                parts.append(ContentPart(type: type, runs: runs, align: align))
-            }
+            parts.append(ContentPart(type: block.persistedType, runs: runs, align: align))
         }
         return parts
     }

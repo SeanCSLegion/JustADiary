@@ -17,7 +17,10 @@ struct DiaryPageView: View {
                 FontToolbar(controller: vm.controller, onTap: {
                     vm.controller.textView?.becomeFirstResponder()
                 })
-                .padding(.bottom, vm.keyboardHeight > 0 ? vm.keyboardHeight + 8 : 84)
+                // Above the keyboard when it is up, otherwise just above the home
+                // indicator. The bar sits over the content, so the ignored bottom
+                // safe area has to be added back here.
+                .padding(.bottom, vm.keyboardHeight > 0 ? vm.keyboardHeight + 8 : Screen.safeAreaBottom + 12)
                 .transition(.opacity)
             }
         }
@@ -55,7 +58,38 @@ struct DiaryPageView: View {
         .fullScreenCover(item: $vm.previewImage) { item in
             ImagePreviewView(item: item)
         }
+        .overlay(alignment: .topLeading) {
+            // UI-test-only probe, mirroring `RootView`'s `-ui-test-state`. It
+            // exposes the block types (and text) the editor would persist, so a
+            // test can assert the load → edit → save round trip without reading
+            // the app container's database.
+            if ProcessInfo.processInfo.arguments.contains("-ui-test-editor-state") {
+                Text(editorProbeText())
+                    .diaryFont(1)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.02)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("editor.state")
+            }
+        }
         .appAlert(item: $vm.alertItem)
+    }
+
+    /// UI-test-only: `"<block types>|<text>"` for the open editor, or
+    /// `"read:<block types>"` for the saved day.
+    private func editorProbeText() -> String {
+        // Reading the format tick here makes the probe re-evaluate on every
+        // edit / cursor move / format toggle, exactly like the format bar.
+        _ = vm.controller.formatTick
+        if vm.isRead {
+            let types = vm.blocks
+                .flatMap { ContentFlatten.parseContentCached($0.contentJson) }
+                .map(\.type)
+            return "read:" + types.joined(separator: ",")
+        }
+        let parts = vm.controller.currentParts()
+        let text = parts.map(ContentFlatten.flattenPart).joined()
+        return parts.map(\.type).joined(separator: ",") + "|" + text
     }
 
     // MARK: - Keyboard
@@ -177,11 +211,9 @@ struct DiaryPageView: View {
                                    accessibilityLabel: L10n.str("a11y_insert_image")) {
                     showPhotoPicker = true
                 }
-                PressableGlassIcon(systemName: "arrow.uturn.backward", size: 40,
-                                   accessibilityLabel: L10n.str("editor_redo")) {
-                    vm.loadParts = vm.editingOriginalParts
-                    vm.loadToken += 1
-                    vm.controller.refreshTypingAttributes()
+                PressableGlassIcon(systemName: "arrow.counterclockwise", size: 40,
+                                   accessibilityLabel: L10n.str("editor_discard")) {
+                    vm.confirmDiscardEditing()
                 }
                 PressableGlassIcon(systemName: "checkmark", size: 40, active: true,
                                    accessibilityLabel: L10n.str("save")) {
@@ -200,14 +232,37 @@ struct DiaryPageView: View {
                          trailing: {
             if vm.hits.count > 0 {
                 GlassCountBadge(text: "\(min(vm.hitIndex + 1, vm.hits.count))/\(vm.hits.count)")
-                GlassIconButton(systemName: "chevron.up", size: 26) {
+                searchStepButton("chevron.up", label: L10n.str("read_search_prev")) {
                     vm.stepHit(-1)
                 }
-                GlassIconButton(systemName: "chevron.down", size: 26) {
+                searchStepButton("chevron.down", label: L10n.str("read_search_next")) {
                     vm.stepHit(1)
                 }
             }
         })
+    }
+
+    /// Stepper for the in-entry search hits.
+    ///
+    /// Deliberately a plain button: it sits *inside* the search field's glass
+    /// capsule, and stacking Liquid Glass on Liquid Glass leaves nothing to
+    /// refract — the control would read as a muddy circle. It also carries a
+    /// real VoiceOver label, which the previous glass-button version lacked
+    /// (it announced the raw symbol name, "chevron.up").
+    private func searchStepButton(_ systemName: String, label: String,
+                                  action: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
+            Image(systemName: systemName)
+                .diaryFont(TypeSize.meta, weight: .semibold)
+                .foregroundStyle(Theme.onSurfaceVariant())
+                .frame(minWidth: Spacing.hitTarget, minHeight: Spacing.hitTarget)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     // MARK: - Read hero
@@ -382,7 +437,9 @@ struct DiaryPageView: View {
                          autoFocus: vm.autoFocusEditor,
                          loadToken: vm.loadToken,
                          loadParts: vm.loadParts)
-                .frame(minHeight: 160)
+                // No `minHeight` here: the representable reports its own minimum
+                // (160pt scaled by the body style's Dynamic Type factor). A fixed
+                // 160pt was mostly placeholder at accessibility sizes.
         }
         .padding(10)
         .diaryCard(cornerRadius: Radius.card, interactive: true)

@@ -490,6 +490,18 @@ nonisolated final class DiaryRepository {
         }
     }
 
+    /// Erases the entry for one day, cleaning up its blocks, index rows and any
+    /// images it no longer references.
+    ///
+    /// Used by the editor round-trip UI tests (`-ui-test-reset-data`) so a run
+    /// starts from a clean day without wiping the sample data that the home,
+    /// footprint and search screens' tests rely on.
+    func deleteDiaryByDay(_ dayKey: String) async {
+        guard let diary = await getDiaryByDay(dayKey) else { return }
+        let ids = await getBlocks(diaryId: diary.id).map(\.id)
+        try? await deleteBlocks(ids)
+    }
+
     private func touchDiaryTx(diaryId: Int64, updatedUtc: Int64) throws {
         guard let db else { return }
         try db.execute("""
