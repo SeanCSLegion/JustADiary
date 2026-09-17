@@ -111,34 +111,6 @@ nonisolated enum BackupService {
         }.value
     }
 
-    /// UI 测试自动化导入入口（通过启动参数 -ui-test-import <path> 触发）。
-    static func runAutoImport() async {
-        let args = ProcessInfo.processInfo.arguments
-        guard let idx = args.firstIndex(of: "-ui-test-import"), args.count > idx + 1 else { return }
-        var path = args[idx + 1]
-        let mode = args.contains("-ui-test-import-overwrite") ? "overwrite" : "skip"
-        if !FileManager.default.fileExists(atPath: path) {
-            let candidate = NSHomeDirectory() + "/Documents/" + (path as NSString).lastPathComponent
-            if FileManager.default.fileExists(atPath: candidate) { path = candidate }
-        }
-        Log.backup.info("auto import start: \(path, privacy: .public) mode=\(mode, privacy: .public)")
-        let resultLog = NSHomeDirectory() + "/Documents/import-result.log"
-        try? "start import \(path) mode=\(mode)\n".write(toFile: resultLog, atomically: true, encoding: .utf8)
-        do {
-            let stats = try await importBackup(fileURL: URL(fileURLWithPath: path), mode: mode)
-            let msg = """
-            OK importedDays=\(stats.importedDays) skippedDays=\(stats.skippedDays) overwrittenDays=\(stats.overwrittenDays) blocks=\(stats.importedBlocks) images=\(stats.importedImages) settings=\(stats.settingsRestored)
-            """
-            Log.backup.info("auto import done: \(msg, privacy: .public)")
-            try? msg.appendToFile2(resultLog)
-            try? msg.write(toFile: NSHomeDirectory() + "/Documents/import-ok.log", atomically: true, encoding: .utf8)
-        } catch {
-            Log.backup.error("auto import failed: \(String(describing: error), privacy: .public)")
-            try? "FAIL \(error)\n".write(toFile: NSHomeDirectory() + "/Documents/import-fail.log", atomically: true, encoding: .utf8)
-            try? "FAIL \(error)\n".appendToFile2(resultLog)
-        }
-    }
-
     static func importBackup(fileURL: URL, mode: String) async throws -> BackupStats {
         try await Task.detached(priority: .userInitiated) {
             let stamp = Int64(Date().timeIntervalSince1970 * 1000)

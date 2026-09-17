@@ -1,20 +1,6 @@
 import SwiftUI
 import os
 
-nonisolated extension String {
-    func appendToFile2(_ path: String) throws {
-        if let data = data(using: .utf8) {
-            let fm = FileManager.default
-            if !fm.fileExists(atPath: path) { fm.createFile(atPath: path, contents: nil) }
-            if let handle = try? FileHandle(forWritingTo: URL(fileURLWithPath: path)) {
-                defer { try? handle.close() }
-                handle.seekToEndOfFile()
-                handle.write(data)
-            }
-        }
-    }
-}
-
 @main
 struct JustDiaryApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate

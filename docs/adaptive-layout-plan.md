@@ -1,15 +1,18 @@
-# 横屏 / iPad / Mac 自适应布局方案（含 iPhone Duo 预留）
+# 手机横屏自适应布局方案（iPad / Mac 待重新设计）
 
-日期：2026-09-16 · 环境：Xcode 27.0 / iOS 27.0 SDK · 目标：iPhone + iPad + Mac（Designed for iPad）
-设计稿：`docs/design/landscape/index.html`（可交互）· `docs/design/landscape/screens/*.png`（16 张定稿图）
+日期：2026-09-16 · 更新：2026-09-17 · 环境：Xcode 27.0 / iOS 27.0 SDK · 目标：iPhone（竖屏 + 横屏）
+设计稿：`docs/design/landscape/index.html`（可交互）· `docs/design/landscape/screens/*.png`
 
-本文回答一件事：**同一套代码，怎么在手机竖屏、手机横屏、iPad 竖屏/横屏、Mac 窗口、
-以及展开后的 iPhone Duo 上都排得好看**。
+本文回答一件事：**同一套代码，怎么在手机竖屏和手机横屏上都排得好看**。
 
 > **当前状态（2026-09-17）**：手机端**已实现**（首页横屏分栏、日历密度降级、横屏上下
 > 滑动翻月、足迹/搜索/设置/阅读页的横屏版面、关键词栏），并有 `AdaptiveLayoutTests`、
-> `LandscapeLayoutUITests` 与 `MorphPerfUITests` 守住。iPad / Mac 的三栏版面仍是
-> 「骨架先行版」（`docs/design/landscape/wide.html`），按你的要求后续单独打磨。
+> `LandscapeLayoutUITests` 与 `MorphPerfUITests` 守住。
+>
+> **iPad / Mac 暂不做**：此前的多列卡片、足迹左右分栏等「骨架先行版」已经移除，
+> 等重新设计之后再实现。`docs/design/landscape/wide.html` 等宽屏设计稿保留作参考，
+> 本文中与 iPad / Mac 相关的段落也已删改；下面的 `Tier`（三档宽度）、`cardColumns`、
+> `splitsDashboard` / `splitsSearch` 都不在代码里了。
 >
 > 三个已确认的前提：
 > 1. **竖屏交互完全不动** —— 年历 / 月历 / 周历三态与之间的 morph 动画原样保留
@@ -28,52 +31,46 @@
 
 ## 一、结论摘要
 
-1. **只有一条判定规则**：版面按「当前可用宽度」分档，不看设备型号、不看
+1. **只有一条判定规则**：版面按「当前可用宽度/高度」判定，不看设备型号、不看
    `UIDevice.idiom`、不看 `UIDevice.orientation`、不读 `UIScreen.main`
    （这条直接来自 Apple 的 Duo 适配指南：Duo 展开后**仍然是 iPhone**，但宽高都是
    regular；按型号分支的代码在它上面必然错）。
 2. **导航交给系统**：`TabView` 加 `.sidebarAdaptable`。紧凑宽度是底部浮条，横屏/宽窗口
-   是侧边栏，Mac 上是原生侧边栏。**不自己写第二套导航**，也不为 iPad 单独做一套布局。
-3. **宽屏不是「把东西拉大」，是「把原来叠在一起的拆开」**：日历 ↔ 选中日、图表 ↔ 清单、
-   筛选 ↔ 结果、卡片列数。每一处分栏都对应一个最小宽度，宽度不够就老实退回单栏滚动。
-4. **正文永远单栏**：阅读页限制在 ≤660pt（约 60–75 字符）并居中。用户提的
+   是侧边栏，Mac 上是原生侧边栏。**不自己写第二套导航**。
+3. **正文永远单栏**：阅读页限制在 ≤660pt（约 60–75 字符）并居中。用户提的
    「日记页卡片左右双列交叉排列」在阅读场景会破坏阅读顺序，不采用（理由见 §6）。
-5. **砍掉两级整屏层级**：「年历」整屏视图与「月↔周整屏 morph」在横屏里是净负担。
-   年、月选择统一收敛到左上角入口 + 滚轴弹层（宽屏 popover / 窄屏 sheet），
-   交互层级从三级降到二级；月历的密度按可用高度自动决定（月格 ↔ 周条）。
+4. **砍掉两级整屏层级**：「年历」整屏视图与「月↔周整屏 morph」在横屏里是净负担。
+   年月选择收敛到左上角入口，横屏只上下滑切月；月历密度按可用高度自动决定
+   （月格 ↔ 周条）。
 
 ---
 
 ## 二、自适应系统
 
-### 2.1 三档宽度（唯一的判定规则）
+### 2.1 唯一的判定规则：手机横屏且宽度够 → 首页分栏
 
-| 档 | 可用宽度 | 导航形态 | 页面内含分栏 | 卡片列数 |
-|---|---|---|---|---|
-| **紧凑** | < 700pt | 底部浮条 | 无（单栏滚动） | 1 |
-| **中等** | 700 – 999pt | 底部浮条 / 顶部浮条（横屏） | 有：主栏 + 详情栏 | 1–2 |
-| **宽** | ≥ 1000pt | 系统侧边栏（≥1100pt 时） | 有：可到 3 区 | 2–3 |
+代码里只剩这一条判据（`AdaptiveLayout.splitsMasterDetail`）：
 
-分档的阈值不是拍脑袋：**月历 7 列至少需要 280pt（40pt/格）才有可用性，阅读栏至少需要
-320pt 才不至于每行折 3 次**，两者相加就是首页的分栏阈值 ≈ 700pt。其余屏的分栏阈值
-同理（足迹 900、搜索 800、设置列数 680/1000）。
+| 形态 | 可用宽度 | 导航形态 | 首页 |
+|---|---|---|---|
+| 手机竖屏 | < 700pt | 底部浮条 | 年 / 月 / 周三态 morph，单栏 |
+| 手机横屏 | ≥ 700pt 且 `width > height` | 底部浮条 | **左右分栏**：左月历 + 右选中日 |
+
+阈值不是拍脑袋：**月历 7 列至少需要 280pt（40pt/格）才有可用性，阅读栏至少需要
+320pt 才不至于每行折 3 次**，两者相加就是首页的分栏阈值 ≈ 700pt。手机横屏扣掉左右
+系统占位后正好 750pt，落在分栏一侧。
 
 落到具体设备：
 
-| 设备 / 形态 | 参考尺寸 (pt) | 档 | 首页 |
-|---|---|---|---|
-| iPhone 18 Pro 竖屏 | 402 × 874 | 紧凑 | 月历 + 下方日记（现状保留） |
-| iPhone 18 Pro 横屏 | 874 × 402 | 中等 | **左右分栏**（左月历 340 / 右日记） |
-| iPad Pro 13 竖屏 | 1032 × 1376 | 宽 | 分栏 340 / 692 |
-| iPad Pro 13 横屏 | 1376 × 1032 | 宽 | 分栏 400 / 976（右栏卡片两列） |
-| iPad mini 竖屏 | 744 × 1133 | 中等 | 分栏 300 / 444 |
-| iPad 分屏（1/3） | ~320 × 1032 | 紧凑 | 单栏 |
-| Mac 窗口 | 1432 × 900 | 宽 | 侧边栏 + 分栏 400 / 796 |
-| **iPhone Duo 内屏** | **≈664 × 750** | **紧凑** | **单栏（与手机竖屏同一套）** |
+| 设备 / 形态 | 参考尺寸 (pt) | 首页 |
+|---|---|---|
+| iPhone 18 Pro 竖屏 | 402 × 874 | 月历 + 下方日记（现状保留） |
+| iPhone 18 Pro 横屏 | 874 × 402 | **左右分栏**（左月历 340 / 右日记） |
+| iPhone Duo 内屏 | ≈664 × 750 | 单栏（与手机竖屏同一套） |
 
-> 关键点：**Duo 不需要任何专用代码**。664pt 落在「紧凑」档，走的就是手机竖屏那条路径
-> （单栏、月格更高）。iPad mini / iPad 分屏 / 横屏手机已经覆盖了它两侧的所有档位，
-> 所以这套方案不是在赌一个还没上市的设备。
+> 关键点：**不按机型分支**。只看可用宽度/高度，所以 Duo 这类还没上市的设备不需要
+> 任何专用代码；iPad / Mac 暂时沿用同一套手机规则（单栏 / 手机横屏分栏），等重新
+> 设计后再单独做宽屏版面。
 
 ### 2.2 导航：交给系统（`.sidebarAdaptable`），app 只负责避让
 
@@ -126,18 +123,16 @@
 
 **我们能做、也该做的只有一件事**：让内容避开左侧 `safeArea.leading`（横屏 62pt）。
 而几何原点已经在安全区内，所以**四屏只需要加自己的 16pt 页边距**
-（`.adaptivePagePadding()`，见 §5.4 第 8 条）；`AdaptiveLayout.contentInset` 只用于
+（`.adaptivePagePadding()`，见 §5.4 第 8 条）；`AdaptiveLayout.contentWidth` 只用于
 「可用内容宽度」这类计算，**不要**再叠进页边距，也不要 `MonthPane` / 分栏内各减一遍
 （见 §3.1.1）。
 
-### 2.3 页内分栏的三条约束
+### 2.3 页内分栏的两条约束（只用于首页横屏）
 
 1. **分栏用 `HStack` + 固定宽度的主栏**，详情栏 `frame(maxWidth:.infinity)`。
-   主栏不需要拖动分隔条 —— 它的宽度由内容决定（月历 7 列、筛选表单），不是用户偏好。
-2. **详情栏里的文字列必须限宽**（阅读 660 / 编辑 620 / 卡片流 480 每列）。
-   否则 1376pt 的窗口会把正文拉成一行 120 个字，这是宽屏最常见也最难看的错误。
-3. **分栏之后，顶部工具只属于详情栏**，不跨栏悬浮。跨栏的工具栏在大屏上和两栏都没有
-   归属关系。
+   主栏不需要拖动分隔条 —— 它的宽度由内容决定（月历 7 列），不是用户偏好。
+2. **详情栏里的文字列必须限宽**（阅读 660 / 编辑 620）。否则窗口一宽，正文就会被
+   拉成一行 100+ 个字。
 
 ---
 
@@ -154,7 +149,7 @@
 | 横屏・高度不足 | 左栏降级为**周条**（一行 7 天，横向翻周），右栏高度不变 |
 | 横屏・年份 | **不提供年份切换**：整块头部隐藏、右栏标题行也**没有年份胶囊**；上下滑跨月时自然跨年 |
 | 横屏・回到今日 | 「今天」放在**右栏标题行**（左栏整行留给月标题与日期格子） |
-| iPad / Mac | 三栏：导航轨 + 中栏 + 右栏（先行版，后续打磨） |
+| iPad / Mac | **暂不做**：沿用手机那套规则，等重新设计后再单独做宽屏版面 |
 
 **日历密度按高度自适应**，这是替代原来「月↔周整屏 morph」的关键：
 
@@ -229,39 +224,39 @@ y:  0 ────────────────────────�
   `contentWidth × 0.4`，夹在 240–320pt）。两块高度取
   `max(140, min(190, screenH − 262))`：标题 + 筛选 + 统计约占 200pt、底部浮条 64pt，
   再高首屏就会把图表的横轴压到浮条底下。清单在这块高度里内部滚动。
-- iPad / Mac：三栏（导航轨 + 统计图表 + 清单）。
+- iPad / Mac：**暂不做**（原来的左右分栏骨架已移除）。
 
 > 这里改过两次，原因值得记下来：横屏的**真实可用宽度是 750pt**（874 − 62 − 62），
-> 达不到足迹的分栏阈值 **900pt**，所以**做不了**左右分栏 —— 我之前说「两列不行」
+> 达不到 900pt 的分栏阈值，所以**做不了**左右分栏 —— 我之前说「两列不行」
 > 是因为没算对可用宽度，而后来改成两栏又是因为拿 874 当成了可用宽度。
 > 正确的做法就是这里写的：不分栏，但把两个块**并排**放进同一列里。
 
 ### 3.3 搜索 `ph-search-landscape.png`
 
-- 手机横屏（可用 750pt < 800 分栏阈值）：**条件压成一行** —— 搜索框一行，下面
+- 手机横屏（可用 750pt）：**条件压成一行** —— 搜索框一行，下面
   「时间范围 | 地点」两组筛选并排成一行（省下约 60pt 竖高留给结果）；
   **结果保持与竖屏一致的单栏纵向列表** —— 横屏每行更长、摘要多显示半行，扫读更快。
   之前那版「结果横向铺成 4 列」已改掉。
 - **新增关键词栏**：搜索框下方一行「关键词」，每个生效中的关键词是一个可单独点掉的胶囊
   （多个关键词时一眼看清在搜什么），右侧是「清除全部条件」。这一栏在竖屏也应该有，
   属于实现缺口（见 §5.3）。
-- iPad / Mac：三栏（条件 / 结果 / 预览）。
+- iPad / Mac：**暂不做**。
 
 > 多关键词的处理沿用实现里已有的 `activeFilterItems`（`SearchFilterItem`：keyword /
 > time / location 三类），不需要新模型 —— 只是把「关键词」这一类单独画成一行展示。
 
 ### 3.4 设置 `ph-settings-landscape.png`
 
-卡片式，列数只随宽度变：**1 列（<680）→ 2 列（≥680）→ 3 列（≥1000）**。
-卡片顺序不变，每张卡自我完整（通用 / 规则 / 提醒 / 数据 / 关于）。
-设置没有主从关系，所以不做「左列表右详情」。
+卡片式，**竖屏与横屏共用单列**。卡片顺序不变，每张卡自我完整
+（通用 / 规则 / 提醒 / 数据 / 关于）。设置没有主从关系，所以不做「左列表右详情」。
+（此前的 2 / 3 列宽屏骨架已移除，等 iPad 重新设计后再做。）
 
-### 3.5 日记页 `ph-read-landscape.png`（宽屏见 `wide-*.png`）
+### 3.5 日记页 `ph-read-landscape.png`
 
-- **阅读**：正文单栏限宽 **660pt** 居中；窗口 ≥1000pt 时左侧出现「本日片段」索引
-  （时间 + 首行），两侧留白。大标题 28 / 小标题 22 / 正文 17 / 引用 15 不变。
+- **阅读**：正文单栏限宽 **660pt** 居中（手机竖屏就是屏宽 − 左右各 16 的页边距）。
+  大标题 28 / 小标题 22 / 正文 17 / 引用 15 不变。
   图片与地图可以与正文并排 —— 那是「并排的介质」，不是「并排的文字」。
-- **编辑**：正文列宽 **≤620pt**；键盘弹起时把格式栏改成**竖向贴右侧**（宽屏），
+- **编辑**：正文列宽 **≤620pt**；宽窗口下键盘弹起时把格式栏改成**竖向贴右侧**，
   窄屏退回键盘上方的横向玻璃条。位置规则沿用 `docs/design-system.md` §5：
   键盘弹起时贴键盘上方 8pt，收起时贴 Home Indicator 上方。
 
@@ -304,26 +299,23 @@ Apple 的适配指南（[Design for iPhone Duo](https://developer.apple.com/vide
 一个环境值 + 一个容器视图，把 §2 的规则变成代码（**只这一处判定宽度**）：
 
 ```swift
-enum LayoutTier { case compact, medium, wide }
-
 struct AdaptiveLayout {           // EnvironmentValue
     var size: CGSize
-    var tier: LayoutTier          // <700 / 700..<1000 / ≥1000
-    var safeLeading: CGFloat      // 左右分别给（横屏时 leading 往往非 0）
-    var safeTrailing: CGFloat
-    var safeTop: CGFloat
-    var safeBottom: CGFloat
+    var safeArea: EdgeInsets      // 四边分别给（横屏时 leading 往往非 0）
 
-    /// 手机横屏：系统把导航换成左侧竖排胶囊，内容要让出的左边界
-    var contentInset: CGFloat     // = safeLeading（胶囊右边）+ 12
-    var gridInset: CGFloat        // 月格/列表左边界，比 contentInset 再多一点余量
-    var headInset: CGFloat        // 页面标题行左边界（整行避开系统硬件竖带）
+    /// 底部为系统浮条 / 指示条预留
+    var bottomInset: CGFloat
 
-    var splitsMasterDetail: Bool { size.width >= 700 }   // 首页（手机横屏）
-    var splitsDashboard: Bool    { size.width >= 900 }
-    var splitsSearch: Bool       { size.width >= 800 }
-    var cardColumns: Int         { size.width >= 1000 ? 3 : size.width >= 680 ? 2 : 1 }
-    var masterWidth: CGFloat     { min(340, (size.width - gridInset - 18) * 0.46) }
+    /// 可用内容宽度：扣掉左右安全区（横屏左侧 62pt 的导航胶囊）
+    var contentWidth: CGFloat
+
+    /// 首页（手机横屏）：宽度够 + 横屏 → 左右分栏
+    var splitsMasterDetail: Bool { contentWidth >= 700 && size.width > size.height }
+    /// 竖屏 / Duo 竖屏：保持单栏
+    var isPortrait: Bool { size.height >= size.width }
+    /// 首页分栏时左栏（月历）宽度
+    var masterWidth: CGFloat { min(440, max(280, (contentWidth * 0.46).rounded())) }
+
     /// 正文列宽上限：宽屏必须限宽，否则一行 100+ 字。
     /// 返回的是正文列本身，页面内边距（左右各 16）加在它外面。
     func contentColumn(_ max: CGFloat = 660) -> CGFloat {
@@ -332,10 +324,9 @@ struct AdaptiveLayout {           // EnvironmentValue
 }
 ```
 
-**实现时不要把这些写成常量**：`contentInset / gridInset / headInset` 要从
-`safeAreaInsets` 派生（横屏时 `leading` 就是导航胶囊那一条），这样 Duo 的折痕、
-左右不对称的安全区、未来的 `reservedRegion` 都能接上。设计稿里的 100 / 152 是
-iPhone 18 Pro 横屏实测出来的结果，不是应写死的值。
+**实现时不要把这些写成常量**：宽度/高度要从几何与 `safeAreaInsets` 派生（横屏时
+`leading` 就是导航胶囊那一条），这样 Duo 的折痕、左右不对称的安全区、未来的
+`reservedRegion` 都能接上。
 
 `RootView` 用一层 `GeometryReader` 读尺寸（不用 `UIScreen`），下发给整棵树：
 
@@ -369,17 +360,17 @@ GeometryReader { geo in
 | 文件 | 改动 |
 |---|---|
 | `Views/RootView.swift` | `TabView` 加 `.sidebarAdaptable`；注入 `AdaptiveLayout`；`fullScreenCover` 里同样注入 |
-| `Views/Components/Components.swift` | `Screen.size/height` 降级为「仅编辑器键盘判定」内部使用（或改成从几何读）；`TabBarClearance` 在宽档且无 tab bar 时返回 0，并补一个顶部留白（横屏浮条在顶部） |
-| `Views/Home/HomeView.swift` | 拆成 `HomeLayout`（判定档位）+ `CalendarPane` + `DayPane`（复用现有 `DayContentView`）。**竖屏保持 `mode/zoom/expand` 三个 morph 状态与 `YearPageView` 不变**；只在横屏走分栏分支，不引入新的年份入口 |
+| `Views/Components/Components.swift` | `Screen.size/height` 降级为「仅编辑器键盘判定」内部使用（或改成从几何读）；`TabBarClearance` 在横屏浮条悬底时留出高度 |
+| `Views/Home/HomeView.swift` | 拆成判定 + `MonthPane` + `DayPane`（复用现有 `DayContentView`）。**竖屏保持 `mode/zoom/expand` 三个 morph 状态与 `YearPageView` 不变**；只在横屏走分栏分支，不引入新的年份入口 |
 | `Views/Home/CalendarLayout.swift` | 新增 `density(areaH:)` 返回 `.month(lunar:)` / `.month` / `.weekStrip`（**只在横屏/高度不足时降级**；竖屏仍按现有 `monthCellH`）|
 | `Views/Home/CalendarGrids.swift` | `MonthCanvas` 支持 `rowOnly`（周条）绘制；`weekdayFontSize` 上限随格子宽度走 |
-| `Views/Home/DayContentView.swift` | 宽档时限宽 660 并居中；卡片流两列交给外层 `HStack`，不在卡内做 |
+| `Views/Home/DayContentView.swift` | 正文明细列限宽 660 并居中 |
 | `Views/Home/MorphViews.swift` | **保留**（竖屏 morph 要用）。横屏分支不创建它们即可 |
-| `Views/Footprint/FootprintView.swift` | 按 `splitsDashboard` 分栏；图表卡 `minHeight 180` |
-| `Views/Search/SearchView.swift` | 按 `splitsSearch` 分栏；新增右栏预览（复用 `HighlightedText` + `DiaryPartsView` 只读渲染）；**补一行「当前关键词」栏**（`activeFilterItems` 里 `kind == .keyword` 的那些，画成可单独点掉的胶囊）—— 这是现有实现的缺口，竖屏也缺 |
-| `Views/Settings/SettingsView.swift` | `LazyVGrid`（`alignment: .top`），列数取 `cardColumns`；**卡片保持自然高度，不要 `Grid` 等高** |
-| `Views/Diary/DiaryPageView.swift` | 阅读列限宽 660；编辑列限宽 620；宽屏格式栏竖排贴右 |
-| `Services/L10n.swift` + `Localizable.xcstrings` | 新增：`home_year_month_picker`、`a11y_prev_year`、`a11y_next_year`、`search_preview_hint`、`read_segments_index`；删除随年历一起下线的键 |
+| `Views/Footprint/FootprintView.swift` | 竖屏单栏；手机横屏把「趋势图 / 地点清单」并排 |
+| `Views/Search/SearchView.swift` | 手机横屏把「时间 / 地点」两组条件并排；**补一行「当前关键词」栏**（`activeFilterItems` 里 `kind == .keyword` 的那些，画成可单独点掉的胶囊）|
+| `Views/Settings/SettingsView.swift` | 竖屏 / 横屏共用单列卡片 |
+| `Views/Diary/DiaryPageView.swift` | 阅读列限宽 660；编辑列限宽 620；宽窗口格式栏竖排贴右；顶栏悬浮在正文之上 |
+| `Services/L10n.swift` + `Localizable.xcstrings` | 新增：`home_year_month_picker`、`a11y_prev_year`、`a11y_next_year`、`read_segments_index` |
 | `README.md` / `docs/design-system.md` | 补「自适应版面」一节，指向本文 |
 
 ### 5.4 实施进度
@@ -418,9 +409,9 @@ GeometryReader { geo in
    参数（字号 11 vs 11、行高、间距），过渡到一半会突变。现在统一走
    `CalendarLayout.miniMetrics(in:)`；并把 morph 里的 `MonthBigTitle` 放进固定高度的
    `ZStack`，字号生长不再推动下面的星期栏与网格。
-8. **四屏宽度不统一** —— 每屏各写一套 `padding(.leading, 16 + contentInset)`。现在统一走
+8. **四屏宽度不统一** —— 每屏各写一套 `padding(.leading, 16 + 安全区)`。现在统一走
    `.adaptivePagePadding()`。
-   > **2026-09-17 修正**：`contentInset`（横屏 62）**不能**再加进去 —— 几何原点已经在安全区内，
+   > **2026-09-17 修正**：横屏的 62pt 安全区**不能**再加进去 —— 几何原点已经在安全区内，
    > 第一版加上之后，横屏页头在 x = 78、卡片却在 x = 140，左半屏白掉一条 62pt。
    > 现在 `leadingPagePadding = trailingPagePadding = 16`，四屏内容与页头同一条左边线。
    > 首页的横屏分栏与 `MonthPane` 也犯过同一个错，一并修掉（§3.1.1）。
@@ -429,28 +420,26 @@ GeometryReader { geo in
 （`miniDayFont(cellW:cellH:)`，3 列下约 12–14pt，原为固定 11pt），迷你月标题 13 → 15pt，
 选中圆直径 `contentH + 14`（并且仍被格宽/格高夹住，不会与相邻日期重叠）。
 
-### 5.5 实施顺序（原始计划，保留备查）
+### 5.5 实施顺序（原始计划，保留备查；其中 iPad/Mac 部分已作废）
 
-1. **`AdaptiveLayout` + `.sidebarAdaptable`**：先只做外壳，不改任何页面 —— iPad/Mac 上
-   导航形态立刻正确，页面还是旧的（此时横屏仍会重叠）。
-2. **首页横屏分栏**（本方案价值最大的一处）：左边界让到 `gridInset`，`CalendarPane` /
-   `DayPane` 并排；**竖屏路径一行代码不动**。
+1. **`AdaptiveLayout` + `.sidebarAdaptable`**：先只做外壳，不改任何页面。
+2. **首页横屏分栏**（本方案价值最大的一处）：`MonthPane` / `DayPane` 并排；
+   **竖屏路径一行代码不动**。
 3. **横屏日历密度**：高度不足时月格 → 周条。竖屏的年历/整屏 morph 保持原样。
-4. **足迹 / 搜索 / 设置**三屏宽档版面。
+4. **足迹 / 搜索 / 设置**三屏横屏版面。
 5. **日记页**限宽与竖向格式栏。
 6. **Duo 预留**：安全区左右分离 + `FoldAvoidance` 钩子 + 删掉基于 `UIScreen` 的判定。
-7. **回归**：`MorphPerfUITests` 重写为「密度切换」用例；补 iPad 横屏与 320pt 分屏的 UI 用例。
+7. **回归**：`LandscapeLayoutUITests` 守住手机横屏分栏与翻月。
 
 ### 5.6 验收口径
 
-- 在 **402×874 / 874×402 / 744×1133 / 1032×1376 / 1376×1032 / 320×1032 / 1432×900**
-  七种尺寸下，五个页面都无重叠、无截断、无横向溢出（`ScrollView(.horizontal)` 除外）。
-- 已用真机（模拟器）截图核对：竖屏单入口、横屏首页左右分栏 + 左栏 390pt、
-  横屏足迹图表吃满宽度、横屏设置两列卡片、横屏搜索条件一行。
+- 在 **402×874 / 874×402 / 320×1032** 三种尺寸下，五个页面都无重叠、无截断、
+  无横向溢出（`ScrollView(.horizontal)` 除外）。
+- 已用模拟器截图核对：竖屏单入口、横屏首页左右分栏、横屏足迹图表吃满宽度、
+  横屏设置单列卡片、横屏搜索条件一行。
 - 最大辅助功能字号（AX5）下，日历格子、统计行、设置行、编辑格式栏仍然可用
   （沿用 `docs/design-system.md` §6 的溢出规则）。
-- 分屏 1/3（320pt）不出现分栏；窗口从 1432 拖到 320 的过程中，界面按档位逐级回落，
-  不出现「半栏」。
+- 分屏 1/3（320pt）不出现分栏：只有「横屏且可用宽度 ≥ 700」才分栏。
 
 ---
 
@@ -463,11 +452,11 @@ GeometryReader { geo in
 | 月历上下滑动切换月份 | **采纳** | 竖滑翻月在窄栏里手势冲突最小 |
 | 左上角年份弹滚轴切年 | **采纳** | 年滚轴 + 月份网格，宽屏 popover、窄屏 sheet（见 `year-picker.png`） |
 | 右上角回到今日 | **采纳** | 所有档位位置一致 |
-| 足迹：左图表、右统计 | **调整** | 统计只有 5 个数字，独占一栏太空。改为「左统计+图表 / 右地点清单」，按「两件事」而不是「两种控件」分栏 |
-| 搜索：左搜索、右结果 | **调整** | 补第三区「预览」，否则每条结果都要进出日记页 |
-| 设置：卡片式 + 左右两页 | **采纳为「卡片 + 按宽度分 1/2/3 列」** | 设置项之间没有主从关系，硬做「左右两页」会把顺序读成两列语义；按列流动更稳 |
+| 足迹：左图表、右统计 | **调整** | 统计只有 5 个数字，独占一栏太空。手机横屏改为「趋势图 / 地点清单」并排；iPad 的左右分栏已移除、待重设计 |
+| 搜索：左搜索、右结果 | **调整** | 手机横屏把条件压成一行、结果保持单栏；iPad 三栏待重设计 |
+| 设置：卡片式 + 左右两页 | **手机端采纳为单列卡片** | 设置项之间没有主从关系，硬做「左右两页」会把顺序读成两列语义；iPad 的多列卡片已移除、待重设计 |
 | 日记页卡片化左右双列交叉 | **不采纳，改为限宽单栏** | 正文分两列会破坏阅读顺序（眼睛要在两列间来回跳），长句尤其难受；Apple 自己的备忘录/图书/News 在 Mac 上也是单栏限宽。宽屏真正该换来的是**两侧留白 + 片段索引 + 介质并排** |
-| 「一套设计兼顾手机和平板」 | **修订：手机端先做完，宽屏单独设计** | 手机端竖屏 / 横屏共用一套版面（只按宽度分档）；iPad / Mac **另做三栏版面**，因为宽屏的目标不是「排得下」而是「用宽度换密度」。两者共用同一套设计令牌与卡片组件 |
+| 「一套设计兼顾手机和平板」 | **修订：手机端先做完，宽屏重新设计后再做** | 手机端竖屏 / 横屏共用一套版面（只按宽度判定）；iPad / Mac 的三栏版面**先移除骨架**，等重新设计后再实现。两者共用同一套设计令牌与卡片组件 |
 
 ---
 
@@ -476,8 +465,8 @@ GeometryReader { geo in
 ```bash
 # 交互浏览
 open docs/design/landscape/phone.html   # 手机端（竖屏 / 横屏）
-open docs/design/landscape/wide.html    # iPad / Mac 三栏（先行版）
-open docs/design/landscape/gallery.html # 全部 13 张总览
+open docs/design/landscape/wide.html    # iPad / Mac 三栏（待重新设计的参考稿）
+open docs/design/landscape/gallery.html # 全部总览
 
 # 重新导出 PNG（2×）
 node tools/capture_design_mockups.mjs              # 全部
@@ -493,11 +482,11 @@ node tools/capture_design_mockups.mjs ph-home      # 只 id 含 ph-home 的
 | `engine.js` | 图标、文案数据、通用绘制函数、`layoutFor()` 版面判定、渲染入口 |
 | `frames-phone.js` | 手机**横屏**每一张稿 |
 | `frames-phone-portrait.js` | 手机**竖屏**每一张稿（1:1 复刻当前实现） |
-| `frames-wide.js` | iPad / Mac 三栏（先行版） |
+| `frames-wide.js` | iPad / Mac 三栏（**待重新设计的参考稿**，暂不实现） |
 | `mockup.css` | 设计令牌（与 `Assets.xcassets`、`DesignSystem.swift` 一一对应） |
 
-`layoutFor()` 就是 §2.1 那张表的代码版 —— 实现 `AdaptiveLayout` 时直接对照，两边数
-不应该有第二个来源。
+`layoutFor()` 里手机那部分就是 §2.1 那张表的代码版 —— 实现 `AdaptiveLayout` 时直接对照，
+两边数不应该有第二个来源。
 
 **手机端（已定稿）**
 
@@ -523,12 +512,12 @@ node tools/capture_design_mockups.mjs ph-home      # 只 id 含 ph-home 的
 | 日记阅读 · 手机横屏 | `screens/ph-read-landscape.png` |
 | 年月滚轴（仅竖屏备选） | `screens/ph-yearmonth-overlay.png` |
 
-**iPad / Mac（三栏先行版）**
+**iPad / Mac（三栏先行版，待重新设计后再实现）**
 
 | 稿件 | 文件 |
 |---|---|
 | 首页 / 足迹 / 搜索 / 设置 | `screens/wide-home.png` · `wide-footprint.png` · `wide-search.png` · `wide-settings.png` |
 | iPhone Duo 内屏 | `screens/wide-duo-inner.png` |
 
-> 设计稿是**可执行的规范**：`mockups.js` 里的 `layoutFor()` 就是 §2.1 那张表的代码版，
-> 实现 `AdaptiveLayout` 时可以直接对照着写，两边数不应该有第二个来源。
+> 设计稿是**可执行的规范**：`mockups.js` 里的 `layoutFor()` 里手机那部分是 §2.1 的代码版，
+> 实现 `AdaptiveLayout` 时可以直接对照；宽屏那部分暂时只作参考，等 iPad 重新设计后再用。

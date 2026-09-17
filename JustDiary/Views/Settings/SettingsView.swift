@@ -2,24 +2,17 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
-    @Environment(\.adaptiveLayout) private var layout
     @State private var vm = SettingsViewModel()
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 12) {
-                if layout.cardColumns > 1 {
-                    // 宽屏：两列卡片。用 LazyVGrid + `.top` 对齐 —— 各卡按内容自然高度，
-                    // 不强行拉平（短卡里留白比拉齐更自然）。
-                    cardGrid
-                } else {
-                    header
-                    generalCard
-                    rulesCard
-                    reminderCard
-                    dataCard
-                    aboutCard
-                }
+                header
+                generalCard
+                rulesCard
+                reminderCard
+                dataCard
+                aboutCard
                 TabBarClearance()
             }
             // 四屏统一的页面边距（左侧让开系统占位）
@@ -107,27 +100,6 @@ struct SettingsView: View {
 
     private var header: some View {
         PageHeader(title: L10n.str("settings_title"))
-    }
-
-    /// 宽屏：标题单独一行，卡片按列数排布、保持自然高度。
-    ///
-    /// 标题放在 `LazyVGrid` **外面**：`gridCellColumns(_:)` 只对 `Grid` 生效，
-    /// 在 `LazyVGrid` 里是空操作 —— 之前标题只占一列，第一张卡（通用）被挤到
-    /// 标题右边同一行，两列布局看起来像错位。用 VStack 包一层才是真的整行标题。
-    private var cardGrid: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
-                                     count: layout.cardColumns),
-                      alignment: .leading,
-                      spacing: 12) {
-                generalCard
-                rulesCard
-                reminderCard
-                dataCard
-                aboutCard
-            }
-        }
     }
 
     // MARK: - Cards

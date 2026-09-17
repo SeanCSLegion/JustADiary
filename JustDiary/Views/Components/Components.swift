@@ -294,10 +294,17 @@ struct GlassIconButton: View {
 
 struct PressableGlassIcon: View {
     var systemName: String
-    var size: CGFloat = 40
+    /// 玻璃圆的直径（视觉尺寸）。44 是 Apple HIG 的最小点击目标，也是系统
+    /// 圆形玻璃按钮的常规尺寸；配套图标走 body 字号 17pt。
+    var size: CGFloat = 44
     var active = false
     var accessibilityLabel: String? = nil
     var action: () -> Void
+
+    /// `.glass` 按钮样式会在标签外再补 4pt/边，所以标签盒子要相应缩小，最终
+    /// 可见的圆才是 `size`。此前标签固定 44pt，圆被撑到 52pt，于是「按钮偏大、
+    /// 里面的图标偏小」。
+    private var labelSide: CGFloat { max(28, size - 8) }
 
     var body: some View {
         Button {
@@ -305,10 +312,10 @@ struct PressableGlassIcon: View {
             action()
         } label: {
             Image(systemName: systemName)
-                .diaryFont(16, weight: .medium)
+                .diaryFont(17, weight: .medium)
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(active ? AnyShapeStyle(Theme.primary()) : AnyShapeStyle(Theme.onSurface()))
-                .frame(minWidth: 44, minHeight: 44)
+                .frame(minWidth: labelSide, minHeight: labelSide)
                 .contentShape(Circle())
         }
         .buttonStyle(.glass)

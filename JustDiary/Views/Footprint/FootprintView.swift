@@ -33,13 +33,7 @@ struct FootprintView: View {
 
             ScrollView(showsIndicators: false) {
                 Group {
-                    if layout.splitsDashboard {
-                        // 宽屏：三栏骨架里的「中栏 = 统计 + 趋势图」那一栏
-                        VStack(spacing: 12) {
-                            statsCard
-                            if vm.yearly.count > 1 { trendCard() }
-                        }
-                    } else if layout.isPortrait {
+                    if layout.isPortrait {
                         // 竖屏：统计 → 趋势 → 清单，单栏纵向（保持现状）
                         VStack(spacing: 12) {
                             statsCard
@@ -148,7 +142,7 @@ struct FootprintView: View {
                     AxisValueLabel()
                 }
             }
-            .frame(height: chartHeight ?? (layout.splitsDashboard ? 200 : 132))
+            .frame(height: chartHeight ?? 132)
             // Axis labels are drawn by Charts from the environment font; without
             // this they stayed at the system default while the rest of the card
             // followed the user's text size.

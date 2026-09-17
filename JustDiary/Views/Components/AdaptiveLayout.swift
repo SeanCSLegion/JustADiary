@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 版面判定：整套自适应设计的**唯一**判据。
+/// 版面判定：整套设计的**唯一**判据。
 ///
 /// 关键约束（来自 Apple 的 iPhone Duo 适配指南与 HIG Layout）：
 /// - 只看**当前可用宽度/高度**，不看 `UIDevice.idiom`、不看 orientation、
@@ -9,35 +9,15 @@ import SwiftUI
 /// - 左右安全区**分别**读取（横屏时 `leading` 往往非 0）。
 /// - 数值都要能从 `safeAreaInsets` 派生，不要写死设备常量。
 ///
-/// 三档宽度（对应 docs/adaptive-layout-plan.md §2.1）：
-///
-/// | 档 | 宽度 | 导航 | 页内分栏 | 卡片列数 |
-/// |---|---|---|---|---|
-/// | compact | < 700 | 底部浮条 | 无 | 1 |
-/// | medium  | 700–999 | 底部浮条 | 有 | 1–2 |
-/// | wide    | ≥ 1000 | 系统侧边栏（≥1100 时） | 有 | 2–3 |
+/// 当前只做**手机竖屏 / 手机横屏**两套版面：横屏且内容宽度够时首页左右分栏。
+/// iPad / Mac 的分栏与多列卡片是未定稿的「骨架先行版」，已按需求移除，等
+/// 重新设计后再做（设计稿仍在 `docs/design/`）。
 struct AdaptiveLayout: Equatable {
-    enum Tier: Equatable {
-        case compact
-        case medium
-        case wide
-    }
-
     var size: CGSize
     /// 四边安全区，分别保存（横屏时 leading / trailing 常不相等）。
     var safeArea: EdgeInsets
 
-    var tier: Tier {
-        if size.width >= 1000 { return .wide }
-        if size.width >= 700 { return .medium }
-        return .compact
-    }
-
     // MARK: 内容边距
-
-    /// 内容区的水平边距，直接采用系统的 layout margin（已包含安全区）。
-    var contentInset: CGFloat { max(0, safeArea.leading) }
-    var trailingInset: CGFloat { max(0, safeArea.trailing) }
 
     /// 底部为系统浮条 / 指示条预留的高度。
     ///
@@ -51,23 +31,21 @@ struct AdaptiveLayout: Equatable {
     ///
     /// 横屏时左侧那条系统浮条（`leading = 62`）不参与分栏计算 —— 否则
     /// 「874 够宽」会得出一个实际只有 750 能用的结论。
-    var contentWidth: CGFloat { max(0, size.width - contentInset - trailingInset) }
+    var contentWidth: CGFloat {
+        max(0, size.width - max(0, safeArea.leading) - max(0, safeArea.trailing))
+    }
 
-    /// 首页：左月历 + 右选中日。
+    /// 首页：左月历 + 右选中日（手机横屏）。
     ///
     /// **必须同时**满足「宽度够」与「横屏」两个条件：
-    /// - 竖屏即使够宽（iPad 竖屏 1032pt）也保持原来的年/月/周三态 morph —— 竖屏交互不动。
+    /// - 竖屏即使够宽也保持原来的年/月/周三态 morph —— 竖屏交互不动。
     /// - 横屏的可用宽度要扣掉左侧系统占位（750pt），所以阈值按内容宽度算。
     var splitsMasterDetail: Bool {
         contentWidth >= 700 && size.width > size.height
     }
 
-    /// iPad 竖屏、Duo 竖屏这类「宽但不矮」的尺寸：保持单栏。
+    /// 「宽但不矮」的尺寸（竖屏、Duo 竖屏）：保持单栏。
     var isPortrait: Bool { size.height >= size.width }
-    /// 足迹：左统计 + 图表 / 右地点清单。
-    var splitsDashboard: Bool { contentWidth >= 900 }
-    /// 搜索：条件/结果分栏。
-    var splitsSearch: Bool { contentWidth >= 800 }
 
     /// 主栏（月历）宽度。
     ///
@@ -75,13 +53,6 @@ struct AdaptiveLayout: Equatable {
     /// 280…440 之间；比这更宽只是在拉大格子，并不会让内容更好读。
     var masterWidth: CGFloat {
         min(440, max(280, (contentWidth * 0.46).rounded()))
-    }
-
-    /// 卡片列数（设置页、宽屏卡片流）。
-    var cardColumns: Int {
-        if size.width >= 1000 { return 3 }
-        if size.width >= 680 { return 2 }
-        return 1
     }
 
     /// 正文列宽上限。宽屏必须限宽，否则一行 100+ 字。
@@ -98,26 +69,13 @@ struct AdaptiveLayout: Equatable {
     ///
     /// 四屏（首页 / 足迹 / 搜索 / 设置）都用这一组数字，宽度才不会各页不同。
     ///
-    /// **不要在这里再加 `contentInset`**：`adaptiveLayoutReader()` 读的是容器的
+    /// **不要在这里再加安全区**：`adaptiveLayoutReader()` 读的是容器的
     /// 几何，页面内容本身已经落在安全区里（横屏的原点就是 x = 62）。第一版把
     /// `safeArea.leading` 又加了一遍，于是横屏所有页面的内容相对标题栏右移 62pt
     /// （页头在 78、卡片在 140），左半屏白掉一条 —— 和首页分栏那次是同一个错误。
     static let pagePadding: CGFloat = 16
     var leadingPagePadding: CGFloat { Self.pagePadding }
     var trailingPagePadding: CGFloat { Self.pagePadding }
-
-    /// 日历密度：高度不足时从「月格」降级为「周条」。
-    ///
-    /// 一屏放得下几周，由可用高度决定；每行至少 44pt 才放得下 20pt 日号 +
-    /// 农历行 + 选中圆。
-    var calendarRows: Int {
-        max(1, min(6, Int(availableCalendarHeight / 44)))
-    }
-
-    /// 日历可用高度：扣掉顶部标题行与底部预留。
-    private var availableCalendarHeight: CGFloat {
-        max(80, size.height - bottomInset - 20)
-    }
 
     /// 兜底值只用于「还没读到几何」的一瞬间（例如预览）；真实布局由
     /// `.adaptiveLayoutReader()` 注入。
@@ -170,7 +128,6 @@ private struct AdaptiveLayoutReader: ViewModifier {
                 let next = AdaptiveLayoutReader.resolve(geometry)
                 guard next != layout else { return }
                 layout = next
-                AdaptiveLayoutReader.log(next)
             }
             .environment(\.adaptiveLayout, layout)
     }
@@ -204,23 +161,6 @@ private struct AdaptiveLayoutReader: ViewModifier {
             insets.bottom = max(insets.bottom, dh - insets.top)
         }
         return AdaptiveLayout(size: bounds, safeArea: insets)
-    }
-
-    /// TEMP: 只在带 `-dump-chrome` 启动时写日志，用来核对真实安全区。
-    nonisolated static func log(_ layout: AdaptiveLayout) {
-        guard ProcessInfo.processInfo.arguments.contains("-dump-chrome") else { return }
-        let s = layout.safeArea
-        let line = "size=\(Int(layout.size.width))x\(Int(layout.size.height)) "
-            + "tier=\(layout.tier) "
-            + "T\(Int(s.top)) L\(Int(s.leading)) B\(Int(s.bottom)) R\(Int(s.trailing)) "
-            + "master=\(Int(layout.masterWidth))\n"
-        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("chrome.log")
-        if let h = try? FileHandle(forWritingTo: url) {
-            h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close()
-        } else {
-            try? line.write(to: url, atomically: true, encoding: .utf8)
-        }
     }
 }
 

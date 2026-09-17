@@ -118,73 +118,77 @@ struct DiaryPageView: View {
     // MARK: - Content
 
     private var content: some View {
-        VStack(spacing: 0) {
-            topBar
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
-            ScrollViewReader { proxy in
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 12) {
-                        if vm.isRead {
-                            if vm.showSearch {
-                                readSearchBar
-                            }
-                            readHero
-                            ForEach(vm.blocks.indices, id: \.self) { i in
-                                blockCard(vm.blocks[i], index: i)
-                                    .id("block-\(vm.blocks[i].id)")
-                            }
-                        } else {
-                            editorCard
-                                .id("editor-card")
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 12) {
+                    if vm.isRead {
+                        if vm.showSearch {
+                            readSearchBar
                         }
-                        if vm.keyboardHeight > 0 {
-                            Color.clear.frame(height: vm.keyboardHeight + 160)
-                        } else {
-                            TabBarClearance(base: 140)
+                        readHero
+                        ForEach(vm.blocks.indices, id: \.self) { i in
+                            blockCard(vm.blocks[i], index: i)
+                                .id("block-\(vm.blocks[i].id)")
                         }
+                    } else {
+                        editorCard
+                            .id("editor-card")
                     }
-                    .padding(.top, 10)
-                    // 限宽只作用于正文列本身；页面内边距加在外面，窄屏才不会被
-                    // `contentColumn` 和 `adaptivePagePadding` 叠着缩两遍。
-                    .frame(maxWidth: layout.contentColumn(vm.isRead ? 660 : 620))
-                    .adaptivePagePadding()
-                    .frame(maxWidth: .infinity)
-                    .animation(.diaryStandard, value: vm.blocks.map(\.id))
-                }
-                .onChange(of: vm.scrollTarget) { _, target in
-                    guard let target else { return }
-                    withAnimation(.diaryStandard) {
-                        proxy.scrollTo(target, anchor: .center)
-                    }
-                    vm.scrollTarget = nil
-                }
-                .onChange(of: vm.isRead) { _, read in
-                    if !read {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            withAnimation(.diaryStandard) {
-                                proxy.scrollTo("editor-card", anchor: .center)
-                            }
-                        }
+                    if vm.keyboardHeight > 0 {
+                        Color.clear.frame(height: vm.keyboardHeight + 160)
+                    } else {
+                        TabBarClearance(base: 140)
                     }
                 }
-                .onChange(of: vm.keyboardHeight) { _, height in
-                    if !vm.isRead, height > 0 {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                            withAnimation(.diaryStandard) {
-                                proxy.scrollTo("editor-card", anchor: .center)
-                            }
+                .padding(.top, 10)
+                // 限宽只作用于正文列本身；页面内边距加在外面，窄屏才不会被
+                // `contentColumn` 和 `adaptivePagePadding` 叠着缩两遍。
+                .frame(maxWidth: layout.contentColumn(vm.isRead ? 660 : 620))
+                .adaptivePagePadding()
+                .frame(maxWidth: .infinity)
+                .animation(.diaryStandard, value: vm.blocks.map(\.id))
+            }
+            // 顶栏是**悬浮**在内容之上的：用 `safeAreaInset` 只给滚动内容留出
+            // 起始让位，不占一条实心横带 —— 日记上滑时会从玻璃按钮后面穿过去。
+            // 系统在顶边（状态栏那一条）保留默认的 scroll edge effect，避免正文
+            // 压到时间/电量；按钮之间透出的仍是正文。
+            .safeAreaInset(edge: .top, spacing: 0) {
+                topBar
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                    .padding(.bottom, 6)
+            }
+            .onChange(of: vm.scrollTarget) { _, target in
+                guard let target else { return }
+                withAnimation(.diaryStandard) {
+                    proxy.scrollTo(target, anchor: .center)
+                }
+                vm.scrollTarget = nil
+            }
+            .onChange(of: vm.isRead) { _, read in
+                if !read {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation(.diaryStandard) {
+                            proxy.scrollTo("editor-card", anchor: .center)
+                        }
+                    }
+                }
+            }
+            .onChange(of: vm.keyboardHeight) { _, height in
+                if !vm.isRead, height > 0 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        withAnimation(.diaryStandard) {
+                            proxy.scrollTo("editor-card", anchor: .center)
                         }
                     }
                 }
             }
         }
-        .padding(.top, 6)
     }
 
     private var topBar: some View {
         HStack(spacing: 8) {
-            PressableGlassIcon(systemName: "chevron.left", size: 40,
+            PressableGlassIcon(systemName: "chevron.left",
                                accessibilityLabel: L10n.str("a11y_back")) {
                 vm.handleBack()
             }
@@ -196,7 +200,7 @@ struct DiaryPageView: View {
                     vm.confirmDeleteSelected()
                 }
             } else if vm.isRead {
-                PressableGlassIcon(systemName: "magnifyingglass", size: 40, active: vm.showSearch,
+                PressableGlassIcon(systemName: "magnifyingglass", active: vm.showSearch,
                                    accessibilityLabel: L10n.str("search_title")) {
                     withAnimation(.diaryQuick) {
                         vm.showSearch.toggle()
@@ -204,25 +208,25 @@ struct DiaryPageView: View {
                     }
                 }
                 if vm.canEditToday {
-                    PressableGlassIcon(systemName: "square.and.pencil", size: 40,
+                    PressableGlassIcon(systemName: "square.and.pencil",
                                        accessibilityLabel: L10n.str("index_write")) {
                         vm.enterWrite()
                     }
                 }
-                PressableGlassIcon(systemName: "square.and.arrow.up", size: 40,
+                PressableGlassIcon(systemName: "square.and.arrow.up",
                                    accessibilityLabel: L10n.str("a11y_share")) {
                     vm.shareDiary()
                 }
             } else {
-                PressableGlassIcon(systemName: "photo", size: 40,
+                PressableGlassIcon(systemName: "photo",
                                    accessibilityLabel: L10n.str("a11y_insert_image")) {
                     showPhotoPicker = true
                 }
-                PressableGlassIcon(systemName: "arrow.counterclockwise", size: 40,
+                PressableGlassIcon(systemName: "arrow.counterclockwise",
                                    accessibilityLabel: L10n.str("editor_discard")) {
                     vm.confirmDiscardEditing()
                 }
-                PressableGlassIcon(systemName: "checkmark", size: 40, active: true,
+                PressableGlassIcon(systemName: "checkmark", active: true,
                                    accessibilityLabel: L10n.str("save")) {
                     vm.saveEditor()
                 }
