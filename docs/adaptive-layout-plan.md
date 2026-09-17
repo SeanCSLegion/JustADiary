@@ -1,7 +1,7 @@
 # 手机横屏自适应布局方案（iPad / Mac 待重新设计）
 
 日期：2026-09-16 · 更新：2026-09-17 · 环境：Xcode 27.0 / iOS 27.0 SDK · 目标：iPhone（竖屏 + 横屏）
-设计稿：`docs/design/landscape/index.html`（可交互）· `docs/design/landscape/screens/*.png`
+设计稿：`docs/design/landscape/phone.html`（手机端，可交互）· `wide.html`（宽屏参考稿）· `screens/*.png`
 
 本文回答一件事：**同一套代码，怎么在手机竖屏和手机横屏上都排得好看**。
 

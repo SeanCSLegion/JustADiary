@@ -46,8 +46,8 @@ JustDiary/
 ├── Models/        # 数据模型、日期工具
 └── Resources/     # String Catalog、图标、动态色板
 
-JustDiaryTests/      # 单元测试（宿主为 App）：content_json 编解码与编辑器往返不变量
-JustDiaryUITests/    # UI 测试：导入、morph 动画、足迹、编辑器、设置行
+JustDiaryTests/      # 单元测试（宿主为 App）：content_json 编解码、编辑器往返不变量、日记列宽
+JustDiaryUITests/    # UI 测试：morph 动画、足迹、编辑器、语言/主题、手机横屏版面、冒烟
 ```
 
 关键设计：
@@ -72,8 +72,9 @@ python3 generate_project.py
 xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform=iOS Simulator,name=iPhone 18 Pro' build
 ```
 
-- 运行测试（单元测试覆盖 `content_json` 编解码与编辑器往返不变量；UI 测试覆盖导入、
-  morph 动画、足迹页、编辑器字号往返与「放弃修改」、设置行可点击）：
+- 运行测试（单元测试覆盖 `content_json` 编解码、编辑器往返不变量与日记列宽；
+  UI 测试覆盖 morph 动画、足迹页、编辑器字号往返与「放弃修改」、语言/主题、
+  手机横屏分栏与翻月、冒烟）：
 
 ```bash
 xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -parallel-testing-enabled NO test
