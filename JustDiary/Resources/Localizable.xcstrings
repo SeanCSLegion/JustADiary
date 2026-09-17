@@ -1724,23 +1724,6 @@
         }
       }
     },
-    "search_filter_keyword" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keyword"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关键词"
-          }
-        }
-      }
-    },
     "search_filter_loc" : {
       "extractionState" : "stale",
       "localizations" : {

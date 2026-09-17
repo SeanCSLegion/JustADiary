@@ -47,14 +47,6 @@ struct SearchView: View {
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            // 当前关键词：单独一行，多关键词时能一眼看清「在搜什么」，每个都能单独点掉。
-            // 竖屏与横屏共用同一行（横屏的搜索框更宽，这一行仍然需要）。
-            if !vm.keywords.isEmpty {
-                keywordChipsRow
-                    .adaptivePagePadding()
-                    .padding(.top, 8)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
             if vm.hasAnyCondition {
                 filterSummary
                     .adaptivePagePadding()
@@ -76,67 +68,8 @@ struct SearchView: View {
         }
     }
 
-    /// 当前生效的关键词。每个胶囊可单独移除，右侧是「清除全部条件」。
-    private var keywordChipsRow: some View {
-        HStack(spacing: 8) {
-            Text(L10n.str("search_filter_keyword"))
-                .diaryFont(TypeSize.caption)
-                .foregroundStyle(Theme.onSurfaceVariant())
-                .lineLimit(1)
-                .fixedSize()
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(vm.keywords, id: \.self) { term in
-                        Button {
-                            Haptics.tap()
-                            vm.removeKeyword(term)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(term)
-                                    .diaryFont(TypeSize.badge, weight: .medium)
-                                    .lineLimit(1)
-                                Image(systemName: "xmark")
-                                    .diaryFont(9, weight: .semibold)
-                            }
-                            .foregroundStyle(Theme.primary())
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background {
-                                Capsule().fill(Theme.primaryContainer())
-                            }
-                            .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(term)
-                        .accessibilityHint(L10n.str("search_clear_all"))
-                    }
-                }
-            }
-            Button {
-                Haptics.tap()
-                searchFocused = false
-                vm.clearAll()
-            } label: {
-                Text(L10n.str("search_clear_all"))
-                    .diaryFont(TypeSize.badge, weight: .medium)
-                    .foregroundStyle(Theme.primary())
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 40)
-        .background {
-            RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-                .overlay {
-                    RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
-                        .stroke(Theme.outlineVariant().opacity(0.45), lineWidth: 0.5)
-                }
-        }
-    }
-
+    /// 当前生效的全部搜索条件（关键词 / 时间 / 地点），每项都能单独点掉，
+    /// 右侧是「清除全部条件」。这是唯一的条件栏 —— 关键词不再另起一行。
     private var filterSummary: some View {
         HStack(spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
