@@ -1,2 +1,3 @@
 "NSLocationWhenInUseUsageDescription" = "Used to record your location automatically when writing";
+"NSPhotoLibraryAddUsageDescription" = "Used to save the diary image you export to your photo library";
 "NSUserNotificationsUsageDescription" = "Used to remind you when you haven't written yet";

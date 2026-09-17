@@ -303,7 +303,9 @@ nonisolated enum ShareRenderer {
     }
 
     private static func drawFooter(_ c: CGContext, y: Double, palette: Palette) {
-        let text = "· \(L10n.str("module_desc")) ·"
+        // 水印用应用名。这里原来读 `module_desc`（鸿蒙迁移过来的占位键，值只是
+        // “模块描述”，后来又被清理掉），于是导出的图片底部直接印着 `module_desc`。
+        let text = "· \(L10n.str("EntryAbility_label")) ·"
         let font = UIFont.systemFont(ofSize: 24, weight: .regular)
         let totalWidth = Double(text.count) * 6 + (text as NSString).size(withAttributes: [.font: font]).width
         var cx = (width - totalWidth) / 2
