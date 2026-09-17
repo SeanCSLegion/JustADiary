@@ -144,9 +144,11 @@ struct DiaryPageView: View {
                             TabBarClearance(base: 140)
                         }
                     }
-                    .adaptivePagePadding()
                     .padding(.top, 10)
+                    // 限宽只作用于正文列本身；页面内边距加在外面，窄屏才不会被
+                    // `contentColumn` 和 `adaptivePagePadding` 叠着缩两遍。
                     .frame(maxWidth: layout.contentColumn(vm.isRead ? 660 : 620))
+                    .adaptivePagePadding()
                     .frame(maxWidth: .infinity)
                     .animation(.diaryStandard, value: vm.blocks.map(\.id))
                 }

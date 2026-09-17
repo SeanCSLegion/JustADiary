@@ -179,9 +179,7 @@
 `weekdayHeaderH(30)`，横屏 34 + 26）**必须**与 morph 里的槽位用同一组常量，
 否则动画收尾、真实图层接上时会整体跳一下。竖屏这条曾因为横屏引入紧凑标题行时
 把默认值也改成了 32 而复发（morph 按 72 算，收尾上跳 40pt），现由
-`MonthPane.portraitGridOriginY` / `CalendarLayout.fullMonthGridRect` 共用同源常量，
-并由 `AdaptiveLayoutTests` 与
-`MorphPerfUITests.testYearToMonthMorphEndsWhereMonthLayerStarts` 守住。
+`MonthPane.portraitGridOriginY` / `CalendarLayout.fullMonthGridRect` 共用同源常量。
 年历迷你月的日期字号也必须由 `CalendarLayout.miniMetrics` 统一提供 —— 年历页与
 morph 起点各算一遍时，收尾会出现字号跳变。
 
@@ -326,8 +324,11 @@ struct AdaptiveLayout {           // EnvironmentValue
     var splitsSearch: Bool       { size.width >= 800 }
     var cardColumns: Int         { size.width >= 1000 ? 3 : size.width >= 680 ? 2 : 1 }
     var masterWidth: CGFloat     { min(340, (size.width - gridInset - 18) * 0.46) }
-    /// 正文列宽上限：宽屏必须限宽，否则一行 100+ 字
-    func contentColumn(_ max: CGFloat = 660) -> CGFloat { min(max, size.width - 80) }
+    /// 正文列宽上限：宽屏必须限宽，否则一行 100+ 字。
+    /// 返回的是正文列本身，页面内边距（左右各 16）加在它外面。
+    func contentColumn(_ max: CGFloat = 660) -> CGFloat {
+        min(max, size.width - 2 * pagePadding)
+    }
 }
 ```
 
@@ -393,7 +394,7 @@ GeometryReader { geo in
 | 6. 搜索「当前关键词」栏（补齐原有缺口） | ✅ 完成 |
 | 7. 日记页限宽 + 竖向格式栏 | ✅ 完成 |
 | 8. Duo 预留（安全区左右分离，禁用 `UIScreen` 判定） | ✅ 完成（`AdaptiveLayout` 只从几何/场景读） |
-| 9. 回归测试 | ✅ `AdaptiveLayoutTests`（10 例）+ `LandscapeLayoutUITests`（3 例）|
+| 9. 回归测试 | ✅ `AdaptiveLayoutTests`（只测日记列宽）+ `LandscapeLayoutUITests`（3 例）|
 
 **实现中陆续修掉的 bug**（都是用户先发现的）：
 

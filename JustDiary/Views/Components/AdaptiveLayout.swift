@@ -85,8 +85,13 @@ struct AdaptiveLayout: Equatable {
     }
 
     /// 正文列宽上限。宽屏必须限宽，否则一行 100+ 字。
+    ///
+    /// 返回的是**去掉页面内边距后的正文列**宽度：调用方把它套在内层 `frame`
+    /// 上，再把 `.adaptivePagePadding()`（左右各 16）加在外面。窄屏不能在这里
+    /// 再缩一圈 —— 原来的 `size.width - 80` 和页面自己的 16 叠在一起后，竖屏
+    /// 日记页的正文列只剩 290pt，顶部的卡片因此比下面的卡片明显偏小。
     func contentColumn(_ maxWidth: CGFloat = 660) -> CGFloat {
-        min(maxWidth, max(240, size.width - 80))
+        min(maxWidth, max(240, size.width - 2 * Self.pagePadding))
     }
 
     /// 页面统一的水平内边距。

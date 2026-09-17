@@ -25,7 +25,7 @@ struct MonthPane: View {
     /// 之前横屏引入紧凑标题行时把这里的默认值也改成了 32，竖屏于是也用了紧凑行，
     /// 而 morph 仍按 72 计算 —— 这就是「年历切回月历时月历突然上跳」的根因。
     /// 所以默认值只能引用 `portraitTitleHeight` / `portraitWeekdayHeight`，
-    /// 由 `AdaptiveLayoutTests` 钉死它们等于 `CalendarLayout` 里 morph 用的那组。
+    /// 它们就是 `CalendarLayout` 里 morph 用的那组常量。
     var titleHeight: CGFloat = MonthPane.portraitTitleHeight
     var weekdayHeight: CGFloat = MonthPane.portraitWeekdayHeight
     var titleFont: CGFloat = TypeSize.display
