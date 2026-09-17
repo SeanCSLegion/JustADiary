@@ -75,9 +75,15 @@ struct YearMonthMorphView: View, Animatable {
                         onTapDay: nil)
                 .frame(width: grid.width, height: grid.height)
                 .offset(x: grid.minX, y: grid.minY)
+            // 源头月份的迷你月标题，必须与 `YearPageView.miniMonth` 用**同一个**
+            // `miniTitleRect` 和同一种写法（`frame(width:height:alignment: .leading)`
+            // + `offset`）。之前这里用 `.position` 把视图中心对到卡片中心，算出来的
+            // 原点是 `midX - width/2`，与年历页的取整差 1/3pt；morph 被移除、真实年历
+            // 接上的那一帧，月份数字会「啪」地挪一下（x/y 各 1px @3x）。
+            let title = CalendarLayout.miniTitleRect(month: monthNum, in: size)
             MiniMonthLabel(year: year, month: monthNum)
-                .frame(width: card.width - CalendarLayout.miniPad * 2, alignment: .leading)
-                .position(x: card.midX, y: card.minY + CalendarLayout.miniPad + CalendarLayout.miniTitleH / 2)
+                .frame(width: title.width, height: title.height, alignment: .leading)
+                .offset(x: title.minX, y: title.minY)
                 .opacity(labelOpacity)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)

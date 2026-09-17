@@ -200,6 +200,28 @@ enum CalendarLayout {
                       height: card.height - miniPad * 2 - miniTitleH)
     }
 
+    /// 迷你月标题在容器里的矩形（**绝对坐标**，含卡片原点）。
+    ///
+    /// 年历页与「月→年」morph 都**必须**用这一个矩形来摆标题：两侧各写一套时，
+    /// `.position`（按中心对位）与 VStack 的取整会差 1/3pt，morph 收尾换回真实
+    /// 年历那一帧，月份数字会「啪」地挪一下。现在两边都用
+    /// `frame(width:height:alignment: .leading)` + `offset`。
+    ///
+    /// 「月→年」morph 的 ZStack 就是整块容器，直接用这个绝对矩形；年历页的 ZStack
+    /// 是**卡片本身**，要用下面的卡片内偏移（`miniTitleInCard` / `miniGridInCard`），
+    /// 再套绝对坐标就会把迷你月推出去、和隔壁月叠在一起。
+    static func miniTitleRect(month: Int, in size: CGSize) -> CGRect {
+        let card = yearCardRect(month: month, in: size)
+        return CGRect(x: card.minX + miniPad,
+                      y: card.minY + miniPad,
+                      width: card.width - miniPad * 2,
+                      height: miniTitleH)
+    }
+
+    /// 卡片内偏移：标题在左上角内缩 `miniPad`，网格紧接标题下方。
+    static let miniTitleInCard = CGPoint(x: miniPad, y: miniPad)
+    static var miniGridInCard: CGPoint { CGPoint(x: miniPad, y: miniPad + miniTitleH) }
+
     /// 年历迷你月的绘制参数 —— 年历页与「月→年」morph 的起点必须完全一致，
     /// 否则过渡到一半会出现字号/间距的跳变（之前月份数字会「跳一下」）。
     static func miniMetrics(in size: CGSize) -> DayMetrics {

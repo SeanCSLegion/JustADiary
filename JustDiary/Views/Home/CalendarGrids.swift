@@ -399,11 +399,18 @@ struct YearPageView: View {
         comps.day = 1
         let monthDate = DateUtil.calendar.date(from: comps) ?? Date()
         let grid = CalendarLayout.miniGridRect(month: month, in: containerSize)
+        let title = CalendarLayout.miniTitleRect(month: month, in: containerSize)
+        let card = CalendarLayout.yearCardRect(month: month, in: containerSize)
         let weeks = CalendarLayout.weeks(inMonth: monthDate, ws: weekStart)
-        return VStack(alignment: .leading, spacing: 0) {
+        // 标题与网格都用**显式矩形 + offset**（而不是让 VStack 去居中分配）：
+        // 「月→年」morph 里的同一张迷你月必须用同样的写法，否则两侧的取整差
+        // 1/3pt，morph 收尾换回真实年历时月份数字会挪一下。
+        // 这里的 ZStack 是**卡片**，所以用卡片内偏移，不能套容器绝对坐标。
+        return ZStack(alignment: .topLeading) {
             MiniMonthLabel(year: year, month: month)
-                .frame(height: CalendarLayout.miniTitleH, alignment: .leading)
-                .padding(.horizontal, CalendarLayout.miniPad)
+                .frame(width: title.width, height: title.height, alignment: .leading)
+                .offset(x: CalendarLayout.miniTitleInCard.x,
+                        y: CalendarLayout.miniTitleInCard.y)
             MonthCanvas(weeks: weeks,
                         anchorMonth: monthDate,
                         // 用与「月→年」morph 起点**同一份**参数：此前这里写死
@@ -415,11 +422,13 @@ struct YearPageView: View {
                         showAdjacent: false,
                         onTapDay: nil)
                 .frame(width: grid.width, height: grid.height)
-                .padding(.horizontal, CalendarLayout.miniPad)
+                .offset(x: CalendarLayout.miniGridInCard.x,
+                        y: CalendarLayout.miniGridInCard.y)
                 .allowsHitTesting(false)
         }
-        .frame(width: grid.width + CalendarLayout.miniPad * 2,
-               height: grid.height + CalendarLayout.miniPad * 2 + CalendarLayout.miniTitleH)
+        // 外层 frame 必须显式 `alignment: .topLeading`：ZStack 的自然尺寸比卡片小，
+        // 默认居中会把它整体推下去（实测纵向偏 7.5pt），miniPad 偏移就白算了。
+        .frame(width: card.width, height: card.height, alignment: .topLeading)
         // The mini months are only a tap gesture, so without this they are
         // invisible to VoiceOver; exposing them also lets UI tests address a
         // specific month deterministically instead of tapping coordinates.

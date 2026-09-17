@@ -213,6 +213,36 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCTAssertEqual(m.dividerAlpha, 0, "迷你月不画分隔线")
     }
 
+    /// 迷你月标题的矩形是年历页与「月→年」morph 的**唯一**来源。
+    ///
+    /// 回归点：morph 里曾用 `.position` 按中心对位、年历页用 VStack 分配，
+    /// 两侧取整差 1/3pt，收尾换回真实年历那一帧「月份数字」会挪一下。
+    func testMiniTitleRectIsSharedAndSitsAboveTheGrid() {
+        let size = CGSize(width: 402, height: 810)
+        // 卡片内偏移就是年历页 ZStack 用的那组（标题左上内缩 miniPad，网格紧接标题）。
+        XCTAssertEqual(CalendarLayout.miniTitleInCard.x, CalendarLayout.miniPad, accuracy: 0.001)
+        XCTAssertEqual(CalendarLayout.miniTitleInCard.y, CalendarLayout.miniPad, accuracy: 0.001)
+        XCTAssertEqual(CalendarLayout.miniGridInCard.x, CalendarLayout.miniPad, accuracy: 0.001)
+        XCTAssertEqual(CalendarLayout.miniGridInCard.y,
+                       CalendarLayout.miniPad + CalendarLayout.miniTitleH, accuracy: 0.001)
+
+        for month in [1, 5, 9, 12] {
+            let card = CalendarLayout.yearCardRect(month: month, in: size)
+            let title = CalendarLayout.miniTitleRect(month: month, in: size)
+            let grid = CalendarLayout.miniGridRect(month: month, in: size)
+            XCTAssertEqual(title.minX, card.minX + CalendarLayout.miniPad, accuracy: 0.001)
+            XCTAssertEqual(title.minY, card.minY + CalendarLayout.miniPad, accuracy: 0.001)
+            XCTAssertEqual(title.width, grid.width, accuracy: 0.001,
+                           "标题与网格同宽（都内缩 miniPad）")
+            XCTAssertEqual(title.maxY, grid.minY, accuracy: 0.001, "标题下方紧接网格")
+            XCTAssertEqual(title.height, CalendarLayout.miniTitleH, accuracy: 0.001)
+            XCTAssertEqual(title.midX, card.midX, accuracy: 0.001)
+            // 卡片内偏移 + 卡片原点 == 绝对矩形，年历页与 morph 才对得上。
+            XCTAssertEqual(card.minX + CalendarLayout.miniTitleInCard.x, title.minX, accuracy: 0.001)
+            XCTAssertEqual(card.minY + CalendarLayout.miniGridInCard.y, grid.minY, accuracy: 0.001)
+        }
+    }
+
     // MARK: 横屏分栏的垂直预算
 
     /// 横屏日历区（标题 + 星期栏 + 六行）必须在底部系统浮条之上结束，
