@@ -101,6 +101,21 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCTAssertEqual(portrait.bottomInset, 34)
     }
 
+    /// 页面自己的水平边距**不能**再加一遍安全区。
+    ///
+    /// 几何原点已经在安全区内（横屏 x = 62），`adaptiveLayoutReader()` 读到的
+    /// 就是那个原点。第一版把 `safeArea.leading` 又加进 `leadingPagePadding`，
+    /// 于是横屏所有页面的内容相对页头右移 62pt（页头 78、卡片 140），左半屏白掉。
+    func testPagePaddingDoesNotDoubleCountTheSafeArea() {
+        let landscape = layout(874, 402, leading: 62, bottom: 20, trailing: 62)
+        XCTAssertEqual(landscape.leadingPagePadding, AdaptiveLayout.pagePadding,
+                       "横屏页面边距只应是 16，安全区已经由几何原点承担")
+        XCTAssertEqual(landscape.trailingPagePadding, AdaptiveLayout.pagePadding)
+
+        let portrait = layout(402, 874, top: 62, bottom: 34)
+        XCTAssertEqual(portrait.leadingPagePadding, AdaptiveLayout.pagePadding)
+    }
+
     // MARK: 日历密度
 
     func testCalendarDensityFallsBackWhenHeightIsTight() {

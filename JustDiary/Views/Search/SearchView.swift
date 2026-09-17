@@ -222,6 +222,26 @@ struct SearchView: View {
     }
 
     private var filterPanel: some View {
+        // 横屏只有 402pt 高：时间与地点两组条件并排成一行，竖向省下约 60pt
+        // 留给结果列表（docs/adaptive-layout-plan.md §3.3）。竖屏仍上下两行。
+        Group {
+            if layout.isPortrait {
+                VStack(alignment: .leading, spacing: 6) {
+                    timeFilterGroup
+                    locFilterGroup
+                }
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    timeFilterGroup
+                    locFilterGroup
+                }
+            }
+        }
+        .padding(10)
+        .diaryCard(cornerRadius: Radius.card)
+    }
+
+    private var timeFilterGroup: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(L10n.str("search_filter_time"))
                 .diaryFont(TypeSize.caption)
@@ -235,10 +255,15 @@ struct SearchView: View {
                     timeChip(vm.timeRangeLabel, kind: .custom)
                 }
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var locFilterGroup: some View {
+        VStack(alignment: .leading, spacing: 6) {
             Text(L10n.str("search_filter_loc"))
                 .diaryFont(TypeSize.caption)
                 .foregroundStyle(Theme.onSurfaceVariant())
-                .padding(.top, 4)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     locChip(L10n.str("search_all_loc"),
@@ -248,8 +273,7 @@ struct SearchView: View {
                 }
             }
         }
-        .padding(10)
-        .diaryCard(cornerRadius: Radius.card)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func timeChip(_ label: String, kind: TimeRangeKind) -> some View {

@@ -109,18 +109,24 @@ struct SettingsView: View {
         PageHeader(title: L10n.str("settings_title"))
     }
 
-    /// 宽屏：标题跨两列，卡片保持自然高度。
+    /// 宽屏：标题单独一行，卡片按列数排布、保持自然高度。
+    ///
+    /// 标题放在 `LazyVGrid` **外面**：`gridCellColumns(_:)` 只对 `Grid` 生效，
+    /// 在 `LazyVGrid` 里是空操作 —— 之前标题只占一列，第一张卡（通用）被挤到
+    /// 标题右边同一行，两列布局看起来像错位。用 VStack 包一层才是真的整行标题。
     private var cardGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
-                                 count: layout.cardColumns),
-                  alignment: .leading,
-                  spacing: 12) {
-            header.gridCellColumns(layout.cardColumns)
-            generalCard
-            rulesCard
-            reminderCard
-            dataCard
-            aboutCard
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
+                                     count: layout.cardColumns),
+                      alignment: .leading,
+                      spacing: 12) {
+                generalCard
+                rulesCard
+                reminderCard
+                dataCard
+                aboutCard
+            }
         }
     }
 

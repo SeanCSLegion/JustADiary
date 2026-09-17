@@ -91,10 +91,14 @@ struct AdaptiveLayout: Equatable {
 
     /// 页面统一的水平内边距。
     ///
-    /// 四屏（首页 / 足迹 / 搜索 / 设置）都用这一组数字，宽度才不会各页不同：
-    /// 左侧 = 系统占位 + 16，右侧 = 16。竖屏系统占位是 0，于是就是 16 / 16。
+    /// 四屏（首页 / 足迹 / 搜索 / 设置）都用这一组数字，宽度才不会各页不同。
+    ///
+    /// **不要在这里再加 `contentInset`**：`adaptiveLayoutReader()` 读的是容器的
+    /// 几何，页面内容本身已经落在安全区里（横屏的原点就是 x = 62）。第一版把
+    /// `safeArea.leading` 又加了一遍，于是横屏所有页面的内容相对标题栏右移 62pt
+    /// （页头在 78、卡片在 140），左半屏白掉一条 —— 和首页分栏那次是同一个错误。
     static let pagePadding: CGFloat = 16
-    var leadingPagePadding: CGFloat { contentInset + Self.pagePadding }
+    var leadingPagePadding: CGFloat { Self.pagePadding }
     var trailingPagePadding: CGFloat { Self.pagePadding }
 
     /// 日历密度：高度不足时从「月格」降级为「周条」。

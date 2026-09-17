@@ -128,4 +128,30 @@ final class LandscapeLayoutUITests: XCTestCase {
         XCTAssertNotEqual(headingAfter, headingBefore,
                           "翻月后右栏选中日要跟着进入新月份（否则日历上没有选中项）")
     }
+
+    /// 其余三屏横屏时，页头也必须紧贴左侧内容边。
+    ///
+    /// 回归点：`leadingPagePadding` 曾把安全区又加了一遍，横屏页头在 x = 78、
+    /// 卡片却在 x = 140，左半屏白掉一条 62pt（和首页分栏是同一个错误）。
+    func testOtherTabsContentSitsAtTheSafeAreaEdge() throws {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(2)
+        for (tab, title) in [("footprint", "足迹"), ("search", "搜索"), ("settings", "设置")] {
+            app?.terminate()
+            app = XCUIApplication()
+            app.launchArguments = ["-ui-test-tab", tab]
+            app.launch()
+
+            // 页头在屏幕顶部；同名的 tab 条目在底部，按纵坐标过滤掉。
+            let candidates = app.staticTexts.matching(NSPredicate(format: "label == %@", title))
+            let header = candidates.allElementsBoundByIndex.first { $0.frame.minY < 160 }
+            guard let header else {
+                XCTFail("\(tab)：找不到页头「\(title)」")
+                continue
+            }
+            XCTAssertLessThan(header.frame.minX, 130,
+                              "\(tab) 页头应贴近左侧内容边（安全区只避让一次）")
+            app.terminate()
+        }
+    }
 }

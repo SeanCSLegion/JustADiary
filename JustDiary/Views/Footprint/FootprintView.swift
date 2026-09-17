@@ -32,28 +32,45 @@ struct FootprintView: View {
             }
 
             ScrollView(showsIndicators: false) {
-                if layout.splitsDashboard {
-                    // 宽屏：三栏骨架里的「中栏 = 统计 + 趋势图」那一栏
-                    VStack(spacing: 12) {
-                        statsCard
-                        if vm.yearly.count > 1 { trendCard }
-                    }
-                    .adaptivePagePadding()
-                    .padding(.top, 10)
-                    // 底部要给系统浮条留位置（横屏 64pt）
-                    .padding(.bottom, max(24, layout.bottomInset + 40))
-                } else {
-                    VStack(spacing: 12) {
-                        statsCard
-                        if vm.yearly.count > 1 {
-                            trendCard
+                Group {
+                    if layout.splitsDashboard {
+                        // 宽屏：三栏骨架里的「中栏 = 统计 + 趋势图」那一栏
+                        VStack(spacing: 12) {
+                            statsCard
+                            if vm.yearly.count > 1 { trendCard() }
                         }
-                        listCard
+                    } else if layout.isPortrait {
+                        // 竖屏：统计 → 趋势 → 清单，单栏纵向（保持现状）
+                        VStack(spacing: 12) {
+                            statsCard
+                            if vm.yearly.count > 1 { trendCard() }
+                            listCard(scrollable: false)
+                        }
+                    } else {
+                        // 手机横屏：只有 402pt 高，清单排在趋势图下面会被浮条压掉，
+                        // 改成「趋势图 flex + 地点清单固定宽」并排（docs/adaptive-layout-plan.md
+                        // §3.2）。标题 + 筛选 + 统计约占 200pt、底部浮条占 64pt，
+                        // 剩下的高度才是这两块，否则首屏就会把横轴压到浮条底下。
+                        let blockH = max(140, min(190, layout.size.height - 262))
+                        VStack(spacing: 12) {
+                            statsCard
+                            HStack(alignment: .top, spacing: 12) {
+                                if vm.yearly.count > 1 {
+                                    trendCard(chartHeight: max(72, blockH - 58))
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                                               alignment: .topLeading)
+                                }
+                                listCard(scrollable: true)
+                                    .frame(width: listPaneWidth)
+                            }
+                            .frame(height: blockH)
+                        }
                     }
-                    .adaptivePagePadding()
-                    .padding(.top, 10)
-                    .padding(.bottom, 24)
                 }
+                .adaptivePagePadding()
+                .padding(.top, 10)
+                // 底部要给横屏那枚悬在屏幕底部的系统浮条留位置（实测 y 338–402）
+                .padding(.bottom, max(24, layout.bottomInset + 44))
             }
         }
         .padding(.top, 12)
@@ -111,7 +128,7 @@ struct FootprintView: View {
 
     // MARK: - Yearly trend
 
-    private var trendCard: some View {
+    private func trendCard(chartHeight: CGFloat? = nil) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(L10n.str("footprint_trend_title"))
                 .diaryFont(TypeSize.sectionTitle, weight: .medium)
@@ -131,7 +148,7 @@ struct FootprintView: View {
                     AxisValueLabel()
                 }
             }
-            .frame(height: layout.splitsDashboard ? 200 : 132)
+            .frame(height: chartHeight ?? (layout.splitsDashboard ? 200 : 132))
             // Axis labels are drawn by Charts from the environment font; without
             // this they stayed at the system default while the rest of the card
             // followed the user's text size.
@@ -145,7 +162,14 @@ struct FootprintView: View {
 
     // MARK: - Footprint list
 
-    private var listCard: some View {
+    /// 横屏并排时地点清单那一栏的宽度（趋势图拿走剩下的）。
+    private var listPaneWidth: CGFloat {
+        min(320, max(240, layout.contentWidth * 0.4))
+    }
+
+    /// - Parameter scrollable: 横屏并排时清单被限制在固定高度里，需要在卡片内部滚动，
+    ///   否则长清单会把卡片顶出可视区。
+    private func listCard(scrollable: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(L10n.str("footprint_list_title"))
                 .diaryFont(TypeSize.sectionTitle, weight: .medium)
@@ -153,14 +177,20 @@ struct FootprintView: View {
                 .padding(.bottom, 8)
 
             if vm.hasPlaces {
-                FootprintNodeList(nodes: vm.nodes, depth: 0, expanded: $vm.expanded)
+                if scrollable {
+                    ScrollView(showsIndicators: false) {
+                        FootprintNodeList(nodes: vm.nodes, depth: 0, expanded: $vm.expanded)
+                    }
+                } else {
+                    FootprintNodeList(nodes: vm.nodes, depth: 0, expanded: $vm.expanded)
+                }
             } else {
                 GlassEmptyState(systemImage: "mappin.slash",
                                 text: L10n.str("footprint_empty"))
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: scrollable ? .infinity : nil, alignment: .topLeading)
         .diaryCard(cornerRadius: Radius.card)
     }
 
