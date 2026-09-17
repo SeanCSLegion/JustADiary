@@ -10,7 +10,7 @@ import UIKit
 // rule for rounded shapes inside rounded shapes: the inner radius is the outer
 // radius minus the inset. Matching radii instead of subtracting produces the
 // "pinched corner" look on the inner shape.
-enum Radius {
+nonisolated enum Radius {
     /// Content cards, list rows, hero panels.
     static let card: CGFloat = 20
     /// Floating control surfaces: the editor toolbar, sheets, popovers.
@@ -37,7 +37,7 @@ enum Radius {
 //
 // Only the values that were already repeated across screens; this is not an
 // attempt to re-space the app, just to stop the same layout from drifting.
-enum Spacing {
+nonisolated enum Spacing {
     static let card: CGFloat = 12
     /// Gap between a card's icon badge and its text.
     static let rowIcon: CGFloat = 12
@@ -52,7 +52,7 @@ enum Spacing {
 // Apple's type ladder (34 / 28 / 22 / 20 / 17 / 16 / 15 / 13 / 12 / 11), which
 // is what makes `DynamicTypeMetrics` able to scale each role on Apple's own
 // curve for that style.
-enum TypeSize {
+nonisolated enum TypeSize {
     /// Home calendar month/year title.
     static let display: CGFloat = 32
     /// Page title in `PageHeader`.

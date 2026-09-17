@@ -139,15 +139,19 @@ private struct AdaptiveLayoutReader: ViewModifier {
     /// 并把「内容尺寸 → 界面尺寸」的差值当作安全区。若读不到场景（预览等），
     /// 就退回内容尺寸 + 0 安全区 —— 那条路径只影响预览，不影响真机。
     nonisolated static func resolve(_ geometry: LayoutGeometry) -> AdaptiveLayout {
-        guard let scene = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .first(where: { $0.activationState == .foregroundActive })
-            ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
-        else {
-            return AdaptiveLayout(size: geometry.size, safeArea: geometry.safe)
+        // 几何回调由 SwiftUI 在主线程上触发，所以 UIKit 的读取可以安全地圈进
+        // `MainActor.assumeIsolated`；只把 Sendable 的 `CGSize` 带出这个作用域。
+        // 不把整个函数标成 `@MainActor`：`onGeometryChange` 的 action 是
+        // nonisolated 的，那样会在调用处换成另一个警告。
+        let screenSize = MainActor.assumeIsolated { () -> CGSize? in
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+            guard let size = scene?.screen.bounds.size, size.width > 0, size.height > 0 else {
+                return nil
+            }
+            return size
         }
-        let bounds = scene.screen.bounds.size
-        guard bounds.width > 0, bounds.height > 0 else {
+        guard let bounds = screenSize else {
             return AdaptiveLayout(size: geometry.size, safeArea: geometry.safe)
         }
         let dw = max(0, bounds.width - geometry.size.width)

@@ -208,7 +208,7 @@ final class EditorTypeSizeUITests: XCTestCase {
     }
 
     func testDiscardChangesRestoresSavedContent() throws {
-        var app = launchApp(resetData: true)
+        let app = launchApp(resetData: true)
 
         openWriteMode(app)
         var editor = app.textViews.firstMatch
