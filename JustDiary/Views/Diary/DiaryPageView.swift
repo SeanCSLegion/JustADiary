@@ -299,9 +299,13 @@ struct DiaryPageView: View {
             VStack(alignment: .leading, spacing: 4) {
                 if let first = vm.blocks.first {
                     HStack(spacing: 8) {
-                        Text(L10n.timeOf(first.startTimeUtc))
-                            .diaryFont(TypeSize.meta)
-                            .foregroundStyle(Theme.onSurfaceVariant())
+                        // `auto_time` 关闭时只隐藏开始时间；`start_time_utc` 仍照常记录
+                        // （`day_key` / `created_utc` / 排序依赖它，不能写 0）。
+                        if vm.showsTime {
+                            Text(L10n.timeOf(first.startTimeUtc))
+                                .diaryFont(TypeSize.meta)
+                                .foregroundStyle(Theme.onSurfaceVariant())
+                        }
                         Text(L10n.fmt("read_hero_segments", vm.blocks.count))
                             .diaryFont(TypeSize.meta)
                             .foregroundStyle(Theme.onSurfaceVariant())
@@ -340,9 +344,12 @@ struct DiaryPageView: View {
                         .padding(.top, 1)
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(L10n.timeOf(block.startTimeUtc))
-                        .diaryFont(TypeSize.meta, weight: .bold)
-                        .foregroundStyle(Theme.primary())
+                    // 关闭 `auto_time` 时隐藏块时间；地点 Label 仍独立显示。
+                    if vm.showsTime {
+                        Text(L10n.timeOf(block.startTimeUtc))
+                            .diaryFont(TypeSize.meta, weight: .bold)
+                            .foregroundStyle(Theme.primary())
+                    }
                     if !block.locText.isEmpty {
                         Label(block.locText, systemImage: "location.fill")
                             .diaryFont(TypeSize.caption)
@@ -399,14 +406,17 @@ struct DiaryPageView: View {
     private var editorCard: some View {
         VStack(alignment: .leading, spacing: 4) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(L10n.timeOf(vm.startUtc))
-                    .diaryFont(TypeSize.meta, weight: .bold)
-                    .foregroundStyle(Theme.primary())
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background {
-                        Capsule().fill(Theme.primaryContainer())
-                    }
+                // 关闭 `auto_time` 时不显示编辑器时间胶囊；`vm.startUtc` 仍照常保存。
+                if vm.showsTime {
+                    Text(L10n.timeOf(vm.startUtc))
+                        .diaryFont(TypeSize.meta, weight: .bold)
+                        .foregroundStyle(Theme.primary())
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background {
+                            Capsule().fill(Theme.primaryContainer())
+                        }
+                }
                 locationRow
             }
             RichTextView(controller: vm.controller,

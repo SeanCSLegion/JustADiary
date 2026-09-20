@@ -388,7 +388,9 @@ struct HomeView: View {
                     bottomInset: layout.bottomInset,
                     maxColumnWidth: 560,
                     headingHeight: 44,
-                    onTodayTap: todayAction)
+                    onTodayTap: todayAction,
+                    // `auto_time` 关闭时不显示开始时间（仅显示层，数据照常记录）。
+                    showTime: vm.settings.autoTime)
                 .frame(width: dayW, height: paneH)
                 .clipped()
         }
@@ -573,7 +575,9 @@ struct HomeView: View {
                            isFuture: dayKey > DateUtil.dayKeyOf(Date()),
                            openEditor: openEditor,
                            openDiary: openEditor,
-                           showFutureToast: showFutureDateToast)
+                           showFutureToast: showFutureDateToast,
+                           // `auto_time` 关闭时不显示开始时间（仅显示层，数据照常记录）。
+                           showTime: vm.settings.autoTime)
         }
         .frame(width: w, height: h - stripBottom)
     }

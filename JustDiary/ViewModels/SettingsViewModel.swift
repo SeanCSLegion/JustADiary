@@ -60,6 +60,10 @@ final class SettingsViewModel {
     func setAutoTime(_ value: Bool) {
         settings.autoTime = value
         save()
+        // `auto_time` 现在决定开始时间是否显示（编辑器 / 阅读页 / 首页 / 分享长图），
+        // 必须和其他显示类设置一样广播 UI tick，否则常驻的首页会保持旧值。
+        // 注意：这里只刷新显示，`start_time_utc` 的记录与存储完全不受影响。
+        DiaryRepository.shared.bumpUiTick()
     }
 
     func setAutoLoc(_ value: Bool) {

@@ -128,6 +128,8 @@ struct DayPane: View {
     var headingHeight: CGFloat = CalendarLayout.dayTitleH
     /// 「回到今日」。横屏分栏时放在右栏标题行（左栏整条留给了日期格子）。
     var onTodayTap: (() -> Void)? = nil
+    /// 是否显示「开始时间」，由调用方从 `AppSettings.autoTime` 透传给 `DayContentView`。
+    var showTime: Bool = true
 
     @State private var previewImage: PreviewItem?
 
@@ -140,7 +142,8 @@ struct DayPane: View {
                            openEditor: openEditor,
                            openDiary: openEditor,
                            showFutureToast: {},
-                           bottomPadding: 24)
+                           bottomPadding: 24,
+                           showTime: showTime)
                 .frame(maxWidth: maxColumnWidth)
                 .frame(maxWidth: .infinity)
                 // 系统浮条悬在内容之上；横屏时它高 64pt，用 safeArea.bottom 就够。

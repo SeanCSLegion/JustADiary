@@ -51,16 +51,21 @@ nonisolated enum ShareRenderer {
         var partRects: [[CGRect]]
     }
 
-    static func layout(dateText: String, startLine: String, blocks: [ShareBlock]) -> Layout {
+    /// `showTime == false`（`auto_time` 关闭）时，只为**隐藏**时间行而压缩版面，
+    /// 不改动任何数据：`ShareBlock.time` 仍照常传入，`layout` 与 `render` 必须
+    /// 用同一个 `showTime`，否则绘制与排版会错位。
+    static func layout(dateText: String, startLine: String, blocks: [ShareBlock], showTime: Bool = true) -> Layout {
         var y = dateY
         y += 70
-        y += startLineHeight(startLine)
+        // 关闭时不绘制首块起始行，也就不能为它保留高度。
+        if showTime { y += startLineHeight(startLine) }
         y += 2 + 24
         var blockRects: [CGRect] = []
         var partRects: [[CGRect]] = []
         for block in blocks {
             let blockTop = y
-            y += 36
+            // 36pt 是每块的开始时间行；仅在显示时间时保留。
+            if showTime { y += 36 }
             y += 20
             y += 34
             var parts: [CGRect] = []
@@ -209,12 +214,15 @@ nonisolated enum ShareRenderer {
         return UIImage(contentsOfFile: path)
     }
 
-    static func render(dayKey: String, blocks: [ShareBlock], isDark: Bool) -> UIImage? {
+    /// `showTime == false` 时隐藏首块起始行与每块的开始时间行（仅显示；
+    /// `ShareBlock.time` 的数据仍来自 `start_time_utc`，备份/排序不受影响）。
+    static func render(dayKey: String, blocks: [ShareBlock], isDark: Bool, showTime: Bool = true) -> UIImage? {
         let palette = isDark ? Palette.dark() : Palette.light()
         let dateText = L10n.dateOnly(DateUtil.parseDayKey(dayKey) ?? Date())
         let firstBlock = blocks.first
-        let startLine = L10n.startLine(firstBlock?.time ?? 0, locText: firstBlock?.loc ?? "")
-        let layout = layout(dateText: dateText, startLine: startLine, blocks: blocks)
+        // 关闭时连起始行文本也不构造，避免任何时间文案进入图片。
+        let startLine = showTime ? L10n.startLine(firstBlock?.time ?? 0, locText: firstBlock?.loc ?? "") : ""
+        let layout = layout(dateText: dateText, startLine: startLine, blocks: blocks, showTime: showTime)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 2
         format.opaque = true
@@ -226,17 +234,25 @@ nonisolated enum ShareRenderer {
             drawText(dateText, x: blockLeft, y: y, font: .systemFont(ofSize: 62, weight: .bold),
                      color: palette.text)
             y += 70
-            drawWrapped(startLine, x: blockLeft, y: y, width: contentWidth, font: .systemFont(ofSize: 28),
-                        lineHeight: 40, color: palette.sub)
-            y += startLineHeight(startLine)
+            if showTime {
+                drawWrapped(startLine, x: blockLeft, y: y, width: contentWidth, font: .systemFont(ofSize: 28),
+                            lineHeight: 40, color: palette.sub)
+                y += startLineHeight(startLine)
+            }
             drawHairline(c, y: y, palette: palette)
             y += 24 + 2
             drawTimeline(c, from: y, to: layout.height - footerH - 20, palette: palette)
             for (bi, block) in blocks.enumerated() {
-                drawNode(c, x: tlLineX, y: y + 36 + 20 - 20, palette: palette)
-                drawText(L10n.timeOf(block.time), x: blockLeft, y: y + 36, font: .systemFont(ofSize: 26, weight: .bold),
-                         color: palette.accentA)
-                y += 36 + 20
+                if showTime {
+                    drawNode(c, x: tlLineX, y: y + 36 + 20 - 20, palette: palette)
+                    drawText(L10n.timeOf(block.time), x: blockLeft, y: y + 36, font: .systemFont(ofSize: 26, weight: .bold),
+                             color: palette.accentA)
+                    y += 36 + 20
+                } else {
+                    // 时间行不绘制；时间轴节点锚到该块第一条可见内容上。
+                    drawNode(c, x: tlLineX, y: y + 20, palette: palette)
+                    y += 20
+                }
                 drawWrapped(block.loc, x: blockLeft, y: y, width: contentWidth, font: .systemFont(ofSize: 24),
                             lineHeight: 34, color: palette.sub)
                 y += 34

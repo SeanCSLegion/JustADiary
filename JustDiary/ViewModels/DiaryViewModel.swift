@@ -36,6 +36,11 @@ final class DiaryViewModel {
 
     private var searchGen = 0
 
+    /// 是否显示「开始时间」。
+    /// `auto_time` 关闭时只影响**显示**：`start_time_utc` 仍必须记录，
+    /// 因为 `day_key` / `created_utc` / 排序都依赖它（跨端契约，不能写 0）。
+    var showsTime: Bool { settings.autoTime }
+
     var canEditToday: Bool {
         actualDayKey == DateUtil.dayKeyOf(Date())
     }
@@ -511,8 +516,12 @@ final class DiaryViewModel {
         }
         let isDark = UITraitCollection.current.userInterfaceStyle == .dark
         let dayKey = actualDayKey
+        // `auto_time` 只是显示开关：`ShareBlock.time` 仍照常带上 `startUtc`，
+        // 这里只决定长图是否绘制时间行（数据层与备份格式不受影响）。
+        let showTime = showsTime
         Task.detached(priority: .userInitiated) {
-            let image = ShareRenderer.render(dayKey: dayKey, blocks: shareBlocks, isDark: isDark)
+            let image = ShareRenderer.render(dayKey: dayKey, blocks: shareBlocks,
+                                             isDark: isDark, showTime: showTime)
             await MainActor.run {
                 if let image {
                     self.shareImage = image

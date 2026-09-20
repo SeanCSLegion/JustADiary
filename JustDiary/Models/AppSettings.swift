@@ -2,6 +2,12 @@ import Foundation
 
 nonisolated struct AppSettings: Codable, Equatable {
     var dayStartHour: Int = 4
+    /// 是否自动记录并**显示**「开始时间」（对应设置项 `settings_auto_time`）。
+    ///
+    /// 这是**显示开关**：关闭时只隐藏编辑器时间胶囊、阅读页时间、首页时间行
+    /// 与分享长图时间行。`start_time_utc` **始终照常记录**，不能写 0 ——
+    /// `day_key`（`DateUtil.dayKeyForUtc`）、`created_utc` / `updated_utc` 与排序
+    /// 都依赖它，且它是与 Android 端共享的 `.jdiary` / SQLite 冻结契约。
     var autoTime: Bool = true
     var autoLoc: Bool = true
     var allowHistoryEdit: Bool = false

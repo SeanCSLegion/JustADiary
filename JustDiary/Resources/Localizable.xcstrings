@@ -2172,13 +2172,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto-insert time"
+            "value" : "Auto-record time"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自动插入时间"
+            "value" : "自动记录时间"
           }
         }
       }
@@ -2189,13 +2189,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Record start time when the editor opens"
+            "value" : "Record and show the start time; hide it when off"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "打开编辑器时自动记录开始时间"
+            "value" : "自动记录并显示开始时间；关闭后不显示"
           }
         }
       }
