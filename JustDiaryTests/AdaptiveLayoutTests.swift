@@ -28,17 +28,15 @@ final class AdaptiveLayoutTests: XCTestCase {
         }
     }
 
-    /// 手机横屏 / iPad / Mac：屏宽够宽时，阅读列按 660、编辑列按 620 截断。
+    /// 手机横屏：屏宽够宽时，阅读列按 660、编辑列按 620 截断。
     func testWideScreensAreCappedAtTheColumnLimit() {
         XCTAssertEqual(layout(874, 402).contentColumn(), 660, "手机横屏阅读列")
         XCTAssertEqual(layout(874, 402).contentColumn(620), 620, "手机横屏编辑列")
-        XCTAssertEqual(layout(1032, 1376).contentColumn(), 660, "iPad 竖屏")
-        XCTAssertEqual(layout(1376, 1032).contentColumn(), 660, "iPad 横屏 / Mac 窗口")
     }
 
-    /// 极窄（iPad 分屏）时列宽仍然为正，且不会掉到兜底下限以下。
+    /// 极窄时列宽仍然为正，且不会掉到兜底下限以下。
     func testVeryNarrowScreensKeepAUsableMinimum() {
-        XCTAssertEqual(layout(320, 1032).contentColumn(), 320 - 2 * AdaptiveLayout.pagePadding)
-        XCTAssertEqual(layout(200, 1000).contentColumn(), 240, "兜底宽度")
+        XCTAssertEqual(layout(320, 874).contentColumn(), 320 - 2 * AdaptiveLayout.pagePadding)
+        XCTAssertEqual(layout(200, 874).contentColumn(), 240, "兜底宽度")
     }
 }

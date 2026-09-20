@@ -2,7 +2,12 @@
 
 > 状态：**待确认（第 2 轮）**
 > 基线环境（已实测）：Xcode 27.0 (27A266a)、iOS 27.0 SDK (24A430)、macOS 27.0 (26A428)、Swift 6.4
-> 已确认：部署目标 → **iOS 27.0**；支持 **「Designed for iPad」**；改造深度 **激进**
+> 已确认（当时）：部署目标 → **iOS 27.0**；改造深度 **激进**
+>
+> ⚠️ **后续变更（2026-09）**：应用改为**只做 iPhone**，P4 的 iPad / Mac 支持已全部回退 ——
+> `TARGETED_DEVICE_FAMILY = "1"`、删除 `UISupportedInterfaceOrientations_iPad`、
+> 设置 `SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`。本文保留当时的决策与实施记录，
+> 凡与 iPad / Mac 相关的段落均按**已作废**阅读；当前版面规范见 `docs/adaptive-layout-plan.md`。
 
 ---
 
@@ -18,7 +23,7 @@
 | iOS 27 新增废弃 API | ✅ 需要用的一个都没踩到 |
 | Liquid Glass API 本身 | ✅ iOS 27 未改也未废弃，签名不变 |
 
-**项目本身没坏。** 这次的价值在目标对齐、工程现代化、iPad/Mac 支持、采纳新能力，以及下面这个新增的**地图页重设计**。
+**项目本身没坏。** 这次的价值在目标对齐、工程现代化、采纳新能力，以及下面这个新增的**地图页重设计**。
 
 ---
 
@@ -122,7 +127,7 @@ Xcode 27 新建工程时会**默认打开**两个 Swift 编译器开关。它们
 
 ---
 
-## 5. P4 / P5 · iPad·Mac 支持与新 API 采纳
+## 5. P4 / P5 · iPad·Mac 支持（**已作废**）与新 API 采纳
 
 ### 5.1 顶栏改造范围（**需你确认**）
 
@@ -147,14 +152,21 @@ WWDC26 session 8120 明确建议**内容区不要用 Liquid Glass**（下方没�
 - **`textInputBorderShape(_:)`**：应用到搜索框与编辑器输入区。
 - **`@ContentBuilder`**：统一现有的 `@ViewBuilder` 命名。
 
-### 5.4 iPad / Mac「Designed for iPad」
+### 5.4 iPad / Mac「Designed for iPad」（**已作废**）
 
-1. `TARGETED_DEVICE_FAMILY`：`1` → **`"1,2"`**（现状 `UIDeviceFamily = [1]`，是 iPhone-only，只能算「Designed for iPhone」）
-2. 补齐 `UISupportedInterfaceOrientations_iPhone/_iPad` 键（现状一个都没有）
-3. **可调整尺寸适配**（真正的工作量）：iOS 27 / macOS 27 下 App 完全可缩放，"方向"退化为偏好且在缩放时被忽略。
+> ⚠️ **本节已作废**：应用后来确定只做 iPhone，以下三项已全部回退 ——
+> `TARGETED_DEVICE_FAMILY` 回到 `"1"`、`UISupportedInterfaceOrientations_iPad` 已删除、
+> `SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`。保留原文仅供追溯。
+
+1. `TARGETED_DEVICE_FAMILY`：`1` → **`"1,2"`**（当时现状 `UIDeviceFamily = [1]`）
+2. 补齐 `UISupportedInterfaceOrientations_iPhone/_iPad` 键
+3. **可调整尺寸适配**：iOS 27 / macOS 27 下 App 完全可缩放，"方向"退化为偏好且在缩放时被忽略。
    - `Views/Components/Components.swift` 的 `Screen` 目前 fallback 硬编码 `393×852` → 改为基于 window scene 几何的自适应兜底
    - `MapViewModel.fitZoom` / `zoomRange` 用固定尺寸估算 → 见 §6，这些代码会被删除
    - 逐个核对 `GeoMapCanvas` / `CalendarGrids` / `DiaryPageView` 键盘避让的尺寸假设
+
+   > 其中「`Screen` 改为按 window scene 几何取尺寸」这一项**保留**：它是「不要写死设备尺寸」
+   > 的通用修正，与是否支持 iPad / Mac 无关。
 
 ⚠️ 这是**风险最高**的一段：单列 iPhone 布局变成任意尺寸，必须逐屏看截图。发现问题我会报告，不会自行"顺手改设计"。
 
@@ -224,10 +236,10 @@ WWDC26 session 8120 明确建议**内容区不要用 Liquid Glass**（下方没�
 1. `xcodebuild build`（Debug + Release）→ **0 error / 0 warning**
 2. UI 测试全绿（含新增/更新的足迹页断言）
 3. 运行日志核对：无新告警、无废弃 API 运行时提示
-4. **多尺寸截图核对**：iPhone 17 / iPhone 17e（小屏）/ iPad Pro 13" / iPad 分屏 / 宽窗口，覆盖首页日历（月/年）、日记编辑与阅读、**足迹页**、搜索、设置
+4. **多尺寸截图核对**：iPhone 17 / iPhone 17e（小屏）等手机尺寸，覆盖首页日历（月/年）、日记编辑与阅读、**足迹页**、搜索、设置
 5. **备份导入导出往返测试**（P2 动了并发标注，`BackupService` 是重点回归对象）
 6. 包体积对比：改前 / 改后 `.app` 实测大小
-7. 「Designed for iPad」核查：产物 `UIDeviceFamily` 含 2、方向键齐备、无 iPhone-only 硬依赖
+7. ~~「Designed for iPad」核查~~（**已作废**：应用为 iPhone-only，产物 `UIDeviceFamily` 只应含 1）
 
 > 运行 UI 测试需要伪终端，在我的沙箱里需要一次授权；**代码修改本身不需要**。
 
@@ -237,7 +249,7 @@ WWDC26 session 8120 明确建议**内容区不要用 Liquid Glass**（下方没�
 
 ```
 P1 目标版本/元数据  →  P2 构建设置+并发（可选）  →  P3 MapKit
-   →  P4 iPad/Mac 支持  →  P5 新 API 采纳 + 内容区去玻璃
+   →  ~~P4 iPad/Mac 支持~~（已作废）  →  P5 新 API 采纳 + 内容区去玻璃
    →  P6 地图页重设计  →  P7 全量回归
 ```
 
@@ -267,11 +279,11 @@ P1 目标版本/元数据  →  P2 构建设置+并发（可选）  →  P3 MapK
 | P2 构建设置 | 对齐 Xcode 27 模板（约 20 项 Clang/GCC 开关、`LOCALIZATION_PREFERS_STRING_CATALOGS`、`ENABLE_USER_SCRIPT_SANDBOXING`、资源符号生成） |
 | P2 并发 | `SWIFT_DEFAULT_ACTOR_ISOLATION=MainActor` + `SWIFT_APPROACHABLE_CONCURRENCY` + `MEMBER_IMPORT_VISIBILITY`；9 个文件补 `import os`、`SettingsView` 补 `import UniformTypeIdentifiers`；数据/服务层 25 处类型标注 `nonisolated` |
 | P3 MapKit | `@diagnose` 精准抑制 `placemark` 废弃告警；`MKReverseGeocodingRequest.preferredLocale` |
-| P4 iPad/Mac | `TARGETED_DEVICE_FAMILY = "1,2"`、方向键齐备；`Screen` 改为按 window scene 取尺寸。Xcode 已把 `My Mac (Designed for [iPad,iPhone])` 列为可用目标 |
+| P4 iPad/Mac | ~~`TARGETED_DEVICE_FAMILY = "1,2"`、方向键齐备、`My Mac (Designed for [iPad,iPhone])` 可用目标~~ —— **2026-09 已回退为 iPhone-only**；其中 `Screen` 改为按 window scene 取尺寸的修正保留 |
 | P5 内容区去玻璃 | `diaryGlassCard` → `diaryCard`（系统分组背景 + 细描边 + 阴影）；编辑器面板、`GlassIconBadge`、`GlassCountBadge` 及 7 处内容胶囊去玻璃；删除已无用的 `GlassCapsule`。Liquid Glass 只保留在控件层 |
 | P5 `appAlert` | 从废弃的 `Alert` 迁移到 item 版 `alert` |
 | P6 足迹页 | 删除自绘地图引擎 + 全部 GeoJSON；新增 `FootprintDataService` / `FootprintViewModel` / `FootprintView`；类型改名 `MapPointRow`→`FootprintRow` 等 |
-| P7 验证 | Debug + Release **0 error / 0 source warning**；UI 测试 **6/6 通过**；iPhone 与 iPad 截图核对 |
+| P7 验证 | Debug + Release **0 error / 0 source warning**；UI 测试 **6/6 通过**；iPhone 截图核对 |
 
 **包体积**：Release `.app` **11 MB → 7.8 MB（−29%）**；打包资源 **3.1 MB → 200 KB**；26 个地图 JSON 全部移除；Swift 行数 11213 → 10277。
 

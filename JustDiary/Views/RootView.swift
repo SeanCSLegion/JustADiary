@@ -53,9 +53,9 @@ struct RootView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
-        // 导航形态交给系统：紧凑宽度是底部浮条，iPad 横屏 / 宽窗口自动变侧边栏。
-        // 实测（见 docs/adaptive-layout-plan.md §2.2）系统在 iPhone 横屏仍把浮条留在
-        // 底部居中，所以横屏不需要我们做任何导航侧的改动。
+        // 导航形态交给系统：iPhone 上是底部浮条。实测（见
+        // docs/adaptive-layout-plan.md §2.2）系统在横屏仍把浮条留在底部居中，
+        // 所以横屏不需要我们做任何导航侧的改动。
         .tabViewStyle(.sidebarAdaptable)
         .tint(Theme.primary())
         .preferredColorScheme(AppConfigService.colorScheme)

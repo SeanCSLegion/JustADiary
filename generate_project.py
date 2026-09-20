@@ -146,13 +146,12 @@ project_settings = {
     },
 }
 
-# iPhone + iPad. Device family 2 is what makes the app eligible to ship as a
-# "Designed for iPad" app that runs natively on Apple-silicon Macs.
-_device_family = '"1,2"'
+# iPhone only. Device family 2 (iPad) is deliberately dropped: the app targets
+# the phone form factor, so there is no iPad orientation key and the build opts
+# out of "Designed for iPad" on Apple-silicon Macs as well.
+_device_family = '"1"'
 _oriented_phone = ('"UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft '
                   'UIInterfaceOrientationLandscapeRight"')
-_oriented_pad = ('"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown '
-                'UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"')
 
 app_common_settings = {
     "ASSETCATALOG_COMPILER_APPICON_NAME": '"JustDiary"',
@@ -171,13 +170,14 @@ app_common_settings = {
     "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
     "INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents": "YES",
     "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
-    "INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad": _oriented_pad,
     "INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone": _oriented_phone,
     "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/Frameworks"],
     "MARKETING_VERSION": "1.0",
     "PRODUCT_BUNDLE_IDENTIFIER": "com.cov.justdiary",
     "PRODUCT_NAME": '"$(TARGET_NAME)"',
     "SUPPORTED_PLATFORMS": "\"iphoneos iphonesimulator\"",
+    # iPhone-only app: do not offer it as a "Designed for iPad" download on Mac.
+    "SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD": "NO",
     "SWIFT_EMIT_LOC_STRINGS": "YES",
     "SWIFT_VERSION": "5.0",
     "TARGETED_DEVICE_FAMILY": _device_family,

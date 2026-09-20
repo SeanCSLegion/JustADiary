@@ -31,7 +31,6 @@
 
 > 界面规范（设计令牌、动态字体与上限、编辑器往返不变量、日期格式、玻璃边界、溢出处理）见 `docs/design-system.md`。
 > 手机竖屏 / 横屏的自适应版面（判定规则、逐屏版面、设计稿）见 `docs/adaptive-layout-plan.md`。
-> iPad / Mac 的宽屏版面**暂未实现**（骨架已移除，等重新设计后再做；设计稿保留在 `docs/design/landscape/wide.html`）。
 
 ## 架构
 
@@ -64,7 +63,8 @@ JustDiaryUITests/    # UI 测试：morph 动画、足迹、编辑器、语言/�
 ## 构建
 
 - 部署目标：**iOS 27.0**
-- 设备族：**iPhone + iPad**（`TARGETED_DEVICE_FAMILY = "1,2"`），可作为「Designed for iPad」在 Apple 芯片 Mac 上运行
+- 设备族：**iPhone**（`TARGETED_DEVICE_FAMILY = "1"`）——不含 iPad，也未开启 Mac 上的
+  「Designed for iPad」（`SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`）
 - 项目由 `generate_project.py` 生成（PBXFileSystemSynchronizedRootGroup）——**所有构建设置都改这个脚本再重新生成**，不要手改 `project.pbxproj`。新增/删除文件后重新运行：
 
 ```bash
@@ -89,15 +89,14 @@ xcodebuild ... -only-testing:JustDiaryUITests test        # 需要中文模拟�
 
 ## 设计稿
 
-手机端设计稿已定稿；iPad / Mac 的宽屏版面待重新设计：
+手机端设计稿已定稿：
 
 - `docs/design/landscape/phone.html`：手机端。**竖屏 7 张是当前实现的 1:1 复刻**（含年历 / 周历 morph 的目标形态），横屏 6 张是已实现的版面
-- `docs/design/landscape/wide.html`：iPad / Mac 三栏版面（**参考稿，暂未实现**）
 - `docs/design/landscape/gallery.html`：设计稿总览
 
 设计稿的唯一定义在 `docs/design/landscape/`：`devices.js`（参考设备 + **手机横屏系统占位常量**）、
 `engine.js`（图标/数据/绘制函数/`layoutFor()` 版面判定）、`frames-phone.js`（横屏）、
-`frames-phone-portrait.js`（竖屏复刻）、`frames-wide.js`（iPad / Mac 参考稿）；
+`frames-phone-portrait.js`（竖屏复刻）；
 令牌在 `mockup.css`，与 `Assets.xcassets`、`DesignSystem.swift` 一一对应。改完执行：
 
 ```bash

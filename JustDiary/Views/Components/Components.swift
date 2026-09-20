@@ -20,11 +20,11 @@ enum Screen {
 
     /// Size of the scene the app is actually presenting in.
     ///
-    /// This must not be a hard-coded device size: from iOS 27 the app is fully
-    /// resizable (iPad windowing, iPhone Mirroring, and "Designed for iPad" on
-    /// Mac), so a fixed fallback would silently lay out for the wrong size. The
-    /// key window's bounds track resizing; the scene's screen is the next best
-    /// source, and the final fallback only applies before any scene exists.
+    /// This must not be a hard-coded device size: from iOS 27 a scene can be
+    /// resized at runtime, so a fixed fallback would silently lay out for the
+    /// wrong size. The key window's bounds track resizing; the scene's screen
+    /// is the next best source, and the final fallback only applies before any
+    /// scene exists.
     private static var currentSize: CGSize {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first

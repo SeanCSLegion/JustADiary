@@ -296,8 +296,7 @@ iOS 默认值：
 
 完整的方案、设计稿与改动清单见 `docs/adaptive-layout-plan.md`。这一节只记与设计令牌有关的约定。
 
-> **范围**：只做手机竖屏 / 横屏（竖屏交互完全不动；横屏首页左右分栏）。iPad / Mac 的
-> 多列 / 分栏骨架已移除，等重新设计后再做；设计稿仍保留在 `docs/design/landscape/wide.html`。
+> **范围**：只做手机竖屏 / 横屏（竖屏交互完全不动；横屏首页左右分栏）。
 
 **唯一的判定依据是「当前可用宽度 / 高度」**，不看 `UIDevice.idiom`、不看 orientation、不读
 `UIScreen.main`。手机端只有两种形态：
@@ -310,19 +309,16 @@ iOS 默认值：
 导航形态交给系统：`TabView` + `.tabViewStyle(.sidebarAdaptable)`。**不要自己画第二套导航**，
 也不要在 `TabView` 里再套 `NavigationSplitView`（会和页内已有的主从结构叠成两层导航）。
 
-**手机横屏的系统占位是实测的**（真机 UI 测试探针，三种方向各测一次）：
+**手机横屏的系统占位是实测的**（真机 UI 测试探针）：
 
 | 方向 | `safeAreaInsets` | 系统占位 |
 |---|---|---|
 | 竖屏 | T62 L0 B34 R0 | 浮条在底部；灵动岛在顶部居中 |
-| 横屏 | T0 L62 B20 R62 | **浮条变左侧竖排胶囊**（`leading = 62`）；灵动岛在同一侧的竖直中部 |
+| 横屏 | T0 L62 B20 R62 | 浮条仍在**底部居中**（`tabBars` frame 实测 `(0, 338, 874, 64)`）；灵动岛转 90° 贴左边缘 |
 
-所以横屏可用内容宽度是 `874 − 62 − 62 = 750pt`，内容要右移 `safeArea.leading`。
+所以横屏可用内容宽度是 `874 − 62 − 62 = 750pt`；几何原点**已经在安全区内**，
+页面只加自己的 16pt 页边距，**不要再右移 `safeArea.leading`**。
 这些值**必须从 `safeAreaInsets` 派生，不要写死**（见 `AdaptiveLayout`）。
-
-> 判断「系统条在哪一侧」时，`Frame` 仍以竖屏坐标系报告，肉眼旋转截图很容易看反
-> （本项目为此反复了两次）。用方向无关的度量：把元素中心与屏幕中心的距离分别在
-> 横竖两个方向算一遍，只有一侧会贴边。
 
 **正文列的硬约束**：
 
@@ -334,11 +330,11 @@ iOS 默认值：
 3. 左右安全区**分别**读取（`safeAreaInsets.leading` / `.trailing`），不假设对称；
    折痕的「避免区」留一个环境值钩子，等 iOS 27.1 的 `reservedRegion` 再接。
 
-`TabBarClearance` 只在浮条位于底部时留白；横屏浮条在顶部时同样需要顶部留白
-（现在缺这一项，内容会钻到浮条下面）。
+`TabBarClearance` 在浮条悬底时留出底部空间：横屏两栏的最后一行不能被浮条压住。
 
-**设计稿即规范**：`docs/design/landscape/mockups.js` 里的 `layoutFor()` 就是上表的代码版，
-`mockup.css` 顶部的令牌与 `DesignSystem.swift` / `Assets.xcassets` 一一对应。改令牌要两边同步。
+**设计稿即规范**：`docs/design/landscape/engine.js` 里的 `layoutFor()` 就是上表的代码版，
+`devices.js` 记录手机横屏的系统占位常量，`mockup.css` 顶部的令牌与 `DesignSystem.swift` /
+`Assets.xcassets` 一一对应。改令牌要两边同步。
 
 **不要提前用的 API**（iOS 27.1 才有，Xcode 27.0 SDK 中确认不存在）：
 `ArrangementView` / `UIArrangementViewController` / `onHingeChange` / `UIHingeInteraction` /

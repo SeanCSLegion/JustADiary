@@ -10,8 +10,6 @@ import SwiftUI
 /// - 数值都要能从 `safeAreaInsets` 派生，不要写死设备常量。
 ///
 /// 当前只做**手机竖屏 / 手机横屏**两套版面：横屏且内容宽度够时首页左右分栏。
-/// iPad / Mac 的分栏与多列卡片是未定稿的「骨架先行版」，已按需求移除，等
-/// 重新设计后再做（设计稿仍在 `docs/design/`）。
 struct AdaptiveLayout: Equatable {
     var size: CGSize
     /// 四边安全区，分别保存（横屏时 leading / trailing 常不相等）。
