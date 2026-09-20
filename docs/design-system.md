@@ -94,6 +94,22 @@ iOS 默认值：
 行距与段后距按字号比例计算，只影响绘制、不落库（读取时由块类型重新推导）。
 设计意图与决策记录见 `docs/editor-typography.md`。
 
+> **平台分工（2026-09-20 确认）**：iOS 版按 **Apple HIG**，Android 版（`../JustGDiary`）
+> 按 **Material 3**，两端的阅读排版**有意不同**：
+>
+> | 段落样式 | iOS（Apple HIG） | Android（Material 3） |
+> | --- | --- | --- |
+> | 大标题 | Title 1 = **28** | `headlineMedium` = **28** |
+> | 小标题 | Title 2 = **22** | `titleLarge` = **22** |
+> | 正文 | Body = **17** | `bodyLarge` = **16** |
+> | 引用 | Subheadline = **15** | `bodyMedium` = **14** |
+>
+> 这**不影响互通**：`content_json` 存的是**语义样式**（`title` / `heading` / `body` / `quote`）
+> 与行内标志，**字号从不落库**，由各端在渲染时按自己的规范推导。
+> 两端的 golden 字节级断言（`JustDiaryTests/ContentFormatTests` 与 Android 的
+> `app/src/test/resources/golden/`）因此仍然成立。
+> **不要**为了让两端"看起来一样"而把字号写进存储或改掉某一端的梯级。
+
 ### 3.2 块类型与字号解耦
 
 改造前 `parts(from:)` 是**从字号反推块类型**的（`>= 22` → h1、`>= 18` → h2），
