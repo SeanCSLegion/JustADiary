@@ -306,7 +306,7 @@ iOS 默认值：
 | 竖屏 | `height >= width` | 单栏（年 / 月 / 周三态 morph） |
 | 横屏且可用宽 ≥ 700pt | `contentWidth >= 700 && width > height` | 左右分栏：左月历 + 右选中日 |
 
-导航形态交给系统：`TabView` + `.tabViewStyle(.sidebarAdaptable)`。**不要自己画第二套导航**，
+导航形态用系统默认的底部浮条（`TabView` 不加额外样式）。**不要自己画第二套导航**，
 也不要在 `TabView` 里再套 `NavigationSplitView`（会和页内已有的主从结构叠成两层导航）。
 
 **手机横屏的系统占位是实测的**（真机 UI 测试探针）：

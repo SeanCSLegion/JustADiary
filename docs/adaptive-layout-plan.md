@@ -25,7 +25,7 @@
    `UIDevice.idiom`、不看 `UIDevice.orientation`、不读 `UIScreen.main`
    （这条直接来自 Apple 的 Duo 适配指南：Duo 展开后**仍然是 iPhone**，但宽高都是
    regular；按型号分支的代码在它上面必然错）。
-2. **导航交给系统**：`TabView` 加 `.sidebarAdaptable`，iPhone 上就是底部浮条。
+2. **导航用系统默认的底部浮条**：`TabView` 不加额外样式，就是 iPhone 原生的底部浮条。
    **不自己写第二套导航**。
 3. **正文永远单栏**：阅读页限制在 ≤660pt（约 60–75 字符）并居中。用户提的
    「日记页卡片左右双列交叉排列」在阅读场景会破坏阅读顺序，不采用（理由见 §6）。
@@ -61,14 +61,14 @@
 > 关键点：**不按机型分支**。只看可用宽度/高度，所以 Duo 这类还没上市的设备不需要
 > 任何专用代码。
 
-### 2.2 导航：交给系统（`.sidebarAdaptable`），app 只负责避让
+### 2.2 导航：系统默认的底部浮条，app 只负责避让
 
 **真机实测**（iPhone 18 Pro / iOS 27，UI 测试读 accessibility frame）：
 
 | 形态 | 系统导航的实际位置 |
 |---|---|
-| 竖屏 | 底部浮条，`y = 338…402`（表观为一枚胶囊，按钮 36pt 高） |
-| 横屏 | **同样在底部居中**：`app.tabBars` 的 frame 实测 `(0, 338, 874, 402)`，同时 `safeArea.leading = 62` |
+| 竖屏 | 底部浮条：`app.tabBars` frame `(0, 791, 402, 83)`，按钮 54pt 高 |
+| 横屏 | **同样在底部居中**：`app.tabBars` frame `(0, 338, 874, 64)`，按钮 36pt 高；同时 `safeArea.leading = 62` |
 
 所以首页横屏除了避让左侧 `leading` 之外，**还要在底部为浮条留出空间**，否则两栏的
 最后一行会被压住，见 §3.1.1。
@@ -77,8 +77,8 @@
 会和内容打架。
 
 **为什么不用 `NavigationSplitView` 当外壳**：那是「列表 → 详情」的容器，会把 4 个 tab
-降级成侧边栏里的一层列表，还会和页内已有的主从结构（日历→日记、结果→预览）套成两层
-嵌套导航。页内分栏用普通 `HStack` 就够，不需要第二个导航容器。
+降级成一层列表，还会和页内已有的主从结构（日历→日记、结果→预览）套成两层嵌套导航。
+页内分栏用普通 `HStack` 就够，不需要第二个导航容器。
 
 **我们能做、也该做的只有一件事**：让内容避开左侧 `safeArea.leading`（横屏 62pt）。
 而几何原点已经在安全区内，所以**四屏只需要加自己的 16pt 页边距**
@@ -154,7 +154,7 @@ y:  0 ────────────────────────�
 - 顶部没有安全区（`T0`），标题行由页面自己留 8pt；底部 `bottomInset(20) + 44`
   是给那枚悬在底部的系统浮条让位（浮条上沿实测 y = 338，`tabBars` frame 为
   `(0, 338, 874, 64)`）。
-- 导航形态交给系统（`TabView(.sidebarAdaptable)`），app 不自己画第二条导航；
+- 导航形态交给系统（`TabView` 默认样式），app 不自己画第二条导航；
   这些数值都从 `safeAreaInsets` 派生，Duo 折痕、左右不对称安全区、未来 27.1 的
   `reservedRegion` 都能直接接上。
 
@@ -277,7 +277,7 @@ struct AdaptiveLayout {           // EnvironmentValue
 
 | 文件 | 改动 |
 |---|---|
-| `Views/RootView.swift` | `TabView` 加 `.sidebarAdaptable`；注入 `AdaptiveLayout`；`fullScreenCover` 里同样注入 |
+| `Views/RootView.swift` | 注入 `AdaptiveLayout`；`fullScreenCover` 里同样注入 |
 | `Views/Components/Components.swift` | `Screen.size/height` 降级为「仅编辑器键盘判定」内部使用；`TabBarClearance` 在横屏浮条悬底时留出高度 |
 | `Views/Home/HomeView.swift` | 拆成判定 + `MonthPane` + `DayPane`（复用现有 `DayContentView`）。**竖屏保持 `mode/zoom/expand` 三个 morph 状态与 `YearPageView` 不变**；只在横屏走分栏分支，不引入新的年份入口 |
 | `Views/Home/CalendarLayout.swift` | `density(areaH:)` 返回 `.month(lunar:)` / `.month` / `.weekStrip`（**只在横屏/高度不足时降级**；竖屏仍按现有 `monthCellH`）|

@@ -53,10 +53,9 @@ struct RootView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
-        // 导航形态交给系统：iPhone 上是底部浮条。实测（见
+        // 导航形态用系统默认的底部浮条，不引入第二套导航。实测（见
         // docs/adaptive-layout-plan.md §2.2）系统在横屏仍把浮条留在底部居中，
         // 所以横屏不需要我们做任何导航侧的改动。
-        .tabViewStyle(.sidebarAdaptable)
         .tint(Theme.primary())
         .preferredColorScheme(AppConfigService.colorScheme)
         // Publish the system text-size category so the explicit design sizes can
