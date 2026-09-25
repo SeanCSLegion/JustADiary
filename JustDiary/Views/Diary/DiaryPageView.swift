@@ -51,12 +51,14 @@ struct DiaryPageView: View {
             }
         }
         .sheet(isPresented: $vm.showShareSheet) {
-            if let image = vm.shareImage {
-                ShareLink(item: Image(uiImage: image), preview: SharePreview(L10n.formatDayKey(vm.actualDayKey), image: Image(uiImage: image)))
-                    .buttonStyle(.glassProminent)
-                    .padding(24)
-                    .presentationDetents([.height(170)])
+            ShareSheetView(image: vm.shareImage,
+                           fileURL: vm.shareFileURL,
+                           title: L10n.formatDayKey(vm.actualDayKey)) {
+                vm.showShareSheet = false
             }
+            // 预览 + 系统动作需要整屏高度；与「照片」App 的分享面板一致。
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .fullScreenCover(item: $vm.previewImage) { item in
             ImagePreviewView(item: item)

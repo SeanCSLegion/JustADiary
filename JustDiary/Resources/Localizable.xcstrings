@@ -3203,6 +3203,40 @@
         }
       }
     },
+    "share_preview_title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share preview"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享预览"
+          }
+        }
+      }
+    },
+    "share_rendering" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generating the image…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在生成分享图…"
+          }
+        }
+      }
+    },
     "time_label_afternoon" : {
       "extractionState" : "stale",
       "localizations" : {

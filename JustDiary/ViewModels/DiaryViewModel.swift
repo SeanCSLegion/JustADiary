@@ -27,6 +27,12 @@ final class DiaryViewModel {
     var loadParts: [ContentPart] = []
     var autoFocusEditor = false
     var shareImage: UIImage?
+    /// 分享给系统的文件（`Documents/…` 之外，写进临时目录）。
+    ///
+    /// 给系统一个**文件 URL** 而不是 `UIImage`：分享面板头部会显示文件名
+    /// （`2026-09-08.png`）与真实缩略图，而不是「图片」+ 占位图，也多出
+    /// 「存储到“文件”」这类只接受文件 URL 的动作。渲染失败时退回 `UIImage`。
+    var shareFileURL: URL?
     var showShareSheet = false
     var settings = SettingsStore.load()
     var editingOriginalParts: [ContentPart] = []
@@ -510,6 +516,8 @@ final class DiaryViewModel {
     // MARK: - Share
 
     func shareDiary() {
+        // 面板已经开着时不再重复渲染（否则预览会闪回进度圈）。
+        guard !showShareSheet else { return }
         let shareBlocks = blocks.map { block in
             ShareBlock(time: block.startTimeUtc, loc: block.locText,
                        parts: ContentFlatten.parseContentCached(block.contentJson))
@@ -519,18 +527,44 @@ final class DiaryViewModel {
         // `auto_time` 只是显示开关：`ShareBlock.time` 仍照常带上 `startUtc`，
         // 这里只决定长图是否绘制时间行（数据层与备份格式不受影响）。
         let showTime = showsTime
+        // 先把面板拉起来（里面显示「正在生成分享图…」），渲染完再把预览填进去，
+        // 这样点按立刻有反馈，而不是等一两秒才「啪」地弹出一个面板。
+        let previousFile = shareFileURL
+        shareImage = nil
+        shareFileURL = nil
+        showShareSheet = true
         Task.detached(priority: .userInitiated) {
+            // 上一张分享图已经用不上了（面板早已收起），顺手删掉，临时目录不留垃圾。
+            if let previousFile { try? FileManager.default.removeItem(at: previousFile) }
             let image = ShareRenderer.render(dayKey: dayKey, blocks: shareBlocks,
                                              isDark: isDark, showTime: showTime)
+            let fileURL = image.flatMap { Self.writeShareFile($0, dayKey: dayKey) }
             await MainActor.run {
-                if let image {
+                if let image, self.showShareSheet {
                     self.shareImage = image
-                    self.showShareSheet = true
-                } else {
+                    self.shareFileURL = fileURL
+                } else if image == nil {
+                    self.showShareSheet = false
                     self.alertItem = .info(title: L10n.str("read_share_failed_title"),
                                            message: L10n.str("read_share_failed_msg"))
                 }
             }
+        }
+    }
+
+    /// 把分享长图写成临时文件（PNG，文字边缘不会被压糊）。
+    ///
+    /// 文件名用 day_key：系统分享面板直接把文件名当标题显示，`2026-09-08.png`
+    /// 比默认的「图片」清楚；同一天重复分享会覆盖同一个文件，不会越攒越多。
+    private nonisolated static func writeShareFile(_ image: UIImage, dayKey: String) -> URL? {
+        guard let data = image.pngData() else { return nil }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(dayKey).png")
+        do {
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            Log.app.error("share: write temp image failed: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 }
