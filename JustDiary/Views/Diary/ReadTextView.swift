@@ -50,6 +50,29 @@ struct ReadTextView: UIViewRepresentable {
         context.coordinator.rebuild()
     }
 
+    /// 让 UITextView 老老实实按**被提议的宽度**排版。
+    ///
+    /// 不实现这个方法时，SwiftUI 走的是 UIView 的 intrinsic size，而这个尺寸来自
+    /// `FittedTextView.intrinsicContentSize` —— 首次测量时 `bounds.width` 还是 0，
+    /// 于是退回兜底值 320：文本按 320pt 折行，视图也就要了 320pt 宽。
+    /// 竖屏（屏宽 − 页边距 ≥ 343）看不出来，但 **iPhone SE 横屏的右栏只有
+    /// 311.5pt**，减掉页边距与卡片内边距只剩 ~240pt：卡片于是比栏还宽，
+    /// 外层 `frame(maxWidth:.infinity)` 再把它居中，左半边压住月历、
+    /// 右半边被栏裁掉（正文看起来「比栏宽、右边被切」）。
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: FittedTextView, context: Context) -> CGSize? {
+        let width: CGFloat
+        if let proposed = proposal.width, proposed.isFinite, proposed > 0 {
+            width = proposed
+        } else if uiView.bounds.width > 0 {
+            width = uiView.bounds.width
+        } else {
+            // 连宽度都没有（未指定尺寸的测量）：交给 SwiftUI 用 intrinsic size。
+            return nil
+        }
+        let measured = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: ceil(measured.height))
+    }
+
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var parent: ReadTextView
         weak var textView: FittedTextView?

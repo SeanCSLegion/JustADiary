@@ -9,6 +9,14 @@ import XCTest
 /// - 上下滑可翻月；
 /// - 点某一天只换右栏，不改月历宽度（两栏宽度固定）。
 ///
+/// 判定按**可用宽度**而不是机型，所以这套断言在宽窄两种横屏上都成立，
+/// **两档都要跑**（2026-09 实测）：
+/// - iPhone 18 Pro（874×402，左右各 62 安全区 → 可用 750）：左栏 345 / 右栏 356.5；
+/// - iPhone SE（667×375，无安全区 → 可用 667）：左栏 307 / 右栏 311.5，六行月格
+///   刚好在系统浮条（y 311）之上结束。
+/// 之前的 `contentWidth >= 700` 阈值只让 18 Pro 分栏，SE 会退回「竖屏版面横向拉长」，
+/// 于是「横屏首页必须是左右双列」这条需求在真机 SE 上不成立。
+///
 /// 需要中文模拟器（元素按中文标签查找），与其它 UI 测试一致。
 final class LandscapeLayoutUITests: XCTestCase {
 
@@ -56,8 +64,8 @@ final class LandscapeLayoutUITests: XCTestCase {
         let headerBack = app.buttons["home.header.back"]
         XCTAssertFalse(headerBack.exists, "横屏分栏时整块头部应隐藏")
 
-        // 左栏日历紧贴左侧内容边：iPhone 18 Pro 横屏安全区 leading = 62，
-        // 加上 16pt 页面边距与 20pt 标题内边距，标题应在 x ≈ 98。
+        // 左栏日历紧贴左侧内容边：内容边 = 安全区 + 16pt 页面边距 + 20pt 标题内边距。
+        // 18 Pro 横屏安全区 leading = 62 → 标题在 x ≈ 98；SE 没有安全区 → x ≈ 36。
         // 之前重复避让了一次 62pt + 78pt，标题被推到 x ≈ 222，屏幕左半白白浪费。
         let title = monthTitleElement()
         XCTAssertLessThan(title.frame.minX, 130,
@@ -153,5 +161,67 @@ final class LandscapeLayoutUITests: XCTestCase {
                               "\(tab) 页头应贴近左侧内容边（安全区只避让一次）")
             app.terminate()
         }
+    }
+
+    /// 右栏有日记时，正文也必须按**右栏宽度**排版。
+    ///
+    /// 回归点：`ReadTextView` 里的 UITextView 首次测量时 `bounds.width` 还是 0，
+    /// intrinsic size 于是退回兜底值 320pt，SwiftUI 就按 320 排了整张卡片 ——
+    /// SE 横屏右栏只有 311.5pt，扣掉页边距与卡片内边距正文列只剩 ~247pt。
+    /// 卡片因此比栏还宽，外层 `frame(maxWidth:.infinity)` 再把它居中：
+    /// 左边压住月历、右边被裁掉（2026-09 实测正文右边界到过 807pt，而整屏只有 667）。
+    ///
+    /// 用例先竖屏写一段足够长的日记，再转横屏量右栏正文的实际排版宽度 ——
+    /// 只靠「空状态」或竖屏是发现不了的。
+    func testDayPaneWithDiaryFitsThePaneWidth() throws {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        // 明确从竖屏开始（上一个用例可能刚转过屏，旋转要等它落定再启动）。
+        XCUIDevice.shared.orientation = .portrait
+        sleep(2)
+        app = XCUIApplication()
+        app.launchArguments = ["-ui-test-open-day", df.string(from: Date()),
+                               "-ui-test-reset-data", "-ui-test-no-autoloc"]
+        app.launch()
+
+        // 1) 给「今天」写一段足够长的日记（编辑器 → 保存 → 返回首页）。
+        // 同一文案在「日记页」和它后面被盖住的首页上各有一个，所以取真正可点的那一个。
+        let writes = app.buttons.matching(NSPredicate(format: "label == %@", "写日记"))
+        let write = writes.allElementsBoundByIndex.first(where: { $0.isHittable }) ?? writes.firstMatch
+        XCTAssertTrue(write.waitForExistence(timeout: 15), "空日记页应提供「写日记」")
+        write.tap()
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "编辑器的正文输入区")
+        editor.tap()
+        editor.typeText("横屏右栏的正文列宽必须跟着右栏走，不能按输入区自己的兜底宽度排版，"
+                        + "否则整张卡片会比栏还宽，左边压住月历、右边被裁掉。")
+        let save = app.buttons["保存"]
+        XCTAssertTrue(save.waitForExistence(timeout: 6), "保存按钮")
+        save.tap()
+        let back = app.buttons["返回"]
+        XCTAssertTrue(back.waitForExistence(timeout: 8), "从日记页返回首页")
+        back.tap()
+        sleep(2)
+
+        // 2) 转横屏：首页分栏，右栏显示刚写的这段日记。
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(3)
+
+        let win = app.windows.firstMatch.frame
+        let heading = app.staticTexts["home.dayHeading"].firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 8), "横屏右栏的标题行")
+        // 右栏边界：标题行有 20pt 内边距；页面左右各留 16pt。
+        let paneLeft = heading.frame.minX - 20
+        let paneRight = win.maxX - 16
+
+        let text = app.textViews.firstMatch
+        XCTAssertTrue(text.waitForExistence(timeout: 6), "右栏的正文")
+        XCTAssertGreaterThanOrEqual(text.frame.minX, paneLeft - 0.5,
+                                    "右栏正文不能越过栏边界压到月历上")
+        XCTAssertLessThanOrEqual(text.frame.maxX, paneRight + 0.5,
+                                 "右栏正文不能超出右栏")
+        // 页边距 20×2 + 卡片内边距 12×2 = 64，留 2pt 余量。
+        XCTAssertLessThanOrEqual(text.frame.width, paneRight - paneLeft - 62,
+                                 "正文列宽必须跟着右栏宽度走，不能按 UITextView 的兜底宽度排版")
     }
 }

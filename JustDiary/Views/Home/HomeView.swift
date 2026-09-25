@@ -316,20 +316,19 @@ struct HomeView: View {
 
     // MARK: - Calendar area
 
-    /// 横屏（宽度足够）走「左月历 + 右选中日」的静态分栏。
+    /// 横屏（两栏放得下）走「左月历 + 右选中日」的静态分栏。
     ///
     /// 竖屏**不经过这里** —— 年 ↔ 月 ↔ 周三态与 morph 动画保持原样。
     private func splitCalendarArea(size: CGSize) -> some View {
-        // `size` 已经是**扣掉左右安全区**的内容尺寸（横屏 874×402 → 宽 750；
-        // 高度因为 `.ignoresSafeArea(.bottom)` 仍是 402）：左侧那 62pt 系统占位已经
-        // 在几何原点里，这里再减一次就是重复避让 —— 第一版在 HomeView 与 MonthPane
-        // 各避让一次，日历被推到 x ≈ 222，左半屏白白空着，正是「没有充分利用屏幕」的根因。
-        let pagePad: CGFloat = 16
-        let topPad: CGFloat = 8
-        // 底部为横屏那枚悬在屏幕底部的系统浮条（实测 `y 338…402`，会盖住两栏最后
-        // 一行）让位：日历区在浮条之上结束。
-        let bottomClearance = layout.bottomInset + 44
-        let paneH = max(220, size.height - topPad - bottomClearance)
+        // `size` 已经是**扣掉左右安全区**的内容尺寸（18 Pro 横屏 874×402 → 宽 750；
+        // SE 横屏 667×375 → 宽 667；高度因为 `.ignoresSafeArea(.bottom)` 仍是屏高）：
+        // 左侧那 62pt 系统占位已经在几何原点里，这里再减一次就是重复避让 ——
+        // 第一版在 HomeView 与 MonthPane 各避让一次，日历被推到 x ≈ 222，左半屏白白空着。
+        let topPad = AdaptiveLayout.splitTopPadding
+        // 底部为横屏那枚悬在屏幕底部的系统浮条让位（实测 64pt，且紧贴屏底）：
+        // 日历区在浮条之上结束。这里**不能**用 `bottomInset + 44`：SE 横屏没有
+        // home indicator（`bottomInset = 0`），那样只让出 44pt，最后一行会被压住。
+        let paneH = layout.splitPaneHeight(containerHeight: size.height)
 
         let headerH = CalendarLayout.compactMonthTitleH + CalendarLayout.compactWeekdayHeaderH
         let weeks = CalendarLayout.displayedWeeks(inMonth: vm.monthPage, ws: weekStart).count
@@ -337,14 +336,15 @@ struct HomeView: View {
                                                rows: weeks,
                                                wantsLunar: showsLunar)
         let rows = density.rows(monthWeeks: weeks)
-        let cellH = max(CalendarDensity.minimumRowHeight,
-                        ((paneH - headerH) / CGFloat(rows)).rounded())
+        let cellH = density.rowHeight(availableHeight: paneH - headerH, rows: rows)
 
-        // 主栏固定 345（可用宽的 46%），其余全部给右栏；除去 16pt 页面边距与
-        // 16pt 栏间距，iPhone 18 Pro 横屏右栏约 356pt，正文一行 ~20 汉字。
-        let calendarW = min(layout.masterWidth, max(260, size.width - pagePad * 2 - 260))
-        let gutter: CGFloat = 16
-        let dayW = max(240, size.width - pagePad * 2 - calendarW - gutter - 0.5)
+        // 主栏固定为容器宽的一部分，其余全部给右栏；两栏之和 + 页边距 + 分隔线
+        // 正好等于容器宽，所以 18 Pro 横屏是 345 / 356.5，SE 横屏是 307 / 311.5，
+        // 都不会溢出（见 `AdaptiveLayout.splitColumns`）。
+        let columns = layout.splitColumns(containerWidth: size.width)
+        let calendarW = columns.master
+        let dayW = columns.detail
+        let gutter = AdaptiveLayout.splitGutter
         let todayAction = todayTapped
 
         return HStack(alignment: .top, spacing: 0) {
@@ -394,8 +394,8 @@ struct HomeView: View {
                 .frame(width: dayW, height: paneH)
                 .clipped()
         }
-        .padding(.leading, pagePad)
-        .padding(.trailing, pagePad)
+        .padding(.leading, AdaptiveLayout.pagePadding)
+        .padding(.trailing, AdaptiveLayout.pagePadding)
         .padding(.top, topPad)
         .frame(width: size.width, height: size.height, alignment: .topLeading)
     }

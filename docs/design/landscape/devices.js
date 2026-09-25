@@ -28,7 +28,8 @@ const DEVICES = {
 const PHONE_CHROME = {
   navBarH: 20,         /* 底部 home indicator（横屏 safe.bottom = 20） */
   contentInset: 62,    /* 左侧系统占位：横屏浮条 + 灵动岛所在的那一条（safe.leading） */
-  /* 实现里左栏取可用宽的 52%：750 × 0.52 = 390pt（见 HomeView.splitCalendarArea） */
+  /* 实现里左栏取**容器宽**的 46%：750 × 0.46 ≈ 345pt，右栏吃剩下的 356.5pt
+     （见 AdaptiveLayout.splitColumns）。SE 横屏同一条规则：667 × 0.46 ≈ 307pt。 */
   trailingInset: 62,   /* 右侧对称安全区（safe.trailing） */
   gridInset: 62,       /* 月格/列表左边界 = contentInset */
   headInset: 62,       /* 标题行左边界同上 */

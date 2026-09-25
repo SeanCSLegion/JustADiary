@@ -17,8 +17,34 @@ enum CalendarDensity: Equatable {
     /// 只剩一行的周条（横向翻周）。
     case weekStrip
 
-    /// 每行至少这么高，才放得下 20pt 日号 + 11pt 农历 + 选中圆。
-    static let minimumRowHeight: CGFloat = 44
+    /// 带农历行时每行至少这么高，才放得下 20pt 日号 + 11pt 农历 + 选中圆。
+    static let lunarRowHeight: CGFloat = 44
+
+    /// **不带**农历行时每行至少这么高：只剩日号与选中圆。
+    ///
+    /// 比 44 低是有意的：iPhone SE 横屏只有 375pt 高，扣掉顶部留白、标题/星期栏
+    /// 与底部系统浮条（64pt）后，六行只剩 ~40pt。若这里坚持 44，SE 横屏会被降级成
+    /// 周条 —— 左右分栏的左栏就只剩一行日期，横屏首页等于没有月历。
+    /// 40pt 的格子放 ~14pt 日号 + ~32pt 选中圆仍然宽裕（日号字号本来也由格高推导）。
+    static let dayRowHeight: CGFloat = 38
+
+    /// 本密度下每行的最小高度（低于它就必须降级）。
+    var minimumRowHeight: CGFloat {
+        switch self {
+        case .month(lunar: true): return Self.lunarRowHeight
+        case .month(lunar: false): return Self.dayRowHeight
+        case .weekStrip: return Self.dayRowHeight
+        }
+    }
+
+    /// 每行实际分到的高度。
+    ///
+    /// 可用高度平均分给 `rows` 行，**向下取整** —— 向上取整会让网格比日历区还高，
+    /// 最后一行被裁掉；但不低于本密度的下限。
+    func rowHeight(availableHeight: CGFloat, rows: Int) -> CGFloat {
+        guard rows > 0 else { return minimumRowHeight }
+        return max(minimumRowHeight, (availableHeight / CGFloat(rows)).rounded(.down))
+    }
 
     /// 由可用高度与**实际需要画的行数**决定密度。
     ///
@@ -31,11 +57,15 @@ enum CalendarDensity: Equatable {
         let needed = max(1, rows)
         // 行高随可用高度分配，并夹在 [最小行高, 舒适上限]：
         // 扣掉农历行需要的空间后，剩下的每行还不到最小行高，才放弃农历。
-        let perRow = (availableHeight / CGFloat(needed)).rounded()
-        if perRow >= minimumRowHeight + 16 {
+        //
+        // 这里**向下取整**，与 `rowHeight(availableHeight:rows:)` 保持一致：
+        // 若这里向上取整，会出现「判定说放得下、实际每行却高出 1pt」的组合，
+        // 网格于是比日历区高，最后一行被裁掉半行。
+        let perRow = (availableHeight / CGFloat(needed)).rounded(.down)
+        if perRow >= lunarRowHeight + 16 {
             return .month(lunar: wantsLunar)
         }
-        if perRow >= minimumRowHeight {
+        if perRow >= dayRowHeight {
             return .month(lunar: false)
         }
         return .weekStrip

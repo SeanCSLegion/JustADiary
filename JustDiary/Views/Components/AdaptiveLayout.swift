@@ -7,9 +7,12 @@ import SwiftUI
 ///   不读 `UIScreen.main` —— Duo 展开后仍是 iPhone 但宽高都是 regular，
 ///   任何按机型分支的代码在它上面都会错。
 /// - 左右安全区**分别**读取（横屏时 `leading` 往往非 0）。
-/// - 数值都要能从 `safeAreaInsets` 派生，不要写死设备常量。
+/// - 数值优先从几何 / `safeAreaInsets` 派生，不要写死设备常量。唯一的例外是底部
+///   系统浮条的高度：浮条由系统绘制，安全区里推不出来（SE 横屏 `bottomInset = 0`
+///   但浮条照样占 64pt），所以按方向取实测值，见 `tabBarClearance`。
 ///
-/// 当前只做**手机竖屏 / 手机横屏**两套版面：横屏且内容宽度够时首页左右分栏。
+/// 当前只做**手机竖屏 / 手机横屏**两套版面：横屏首页左右分栏（两栏都放得下时），
+/// 其余页面仍是单栏。
 struct AdaptiveLayout: Equatable {
     var size: CGSize
     /// 四边安全区，分别保存（横屏时 leading / trailing 常不相等）。
@@ -27,30 +30,97 @@ struct AdaptiveLayout: Equatable {
 
     /// 可用于放内容、且不会被系统占位吃掉的宽度。
     ///
-    /// 横屏时左侧那条系统浮条（`leading = 62`）不参与分栏计算 —— 否则
+    /// 横屏时左侧那条系统占位（`leading = 62`）不参与分栏计算 —— 否则
     /// 「874 够宽」会得出一个实际只有 750 能用的结论。
     var contentWidth: CGFloat {
         max(0, size.width - max(0, safeArea.leading) - max(0, safeArea.trailing))
     }
 
-    /// 首页：左月历 + 右选中日（手机横屏）。
-    ///
-    /// **必须同时**满足「宽度够」与「横屏」两个条件：
-    /// - 竖屏即使够宽也保持原来的年/月/周三态 morph —— 竖屏交互不动。
-    /// - 横屏的可用宽度要扣掉左侧系统占位（750pt），所以阈值按内容宽度算。
-    var splitsMasterDetail: Bool {
-        contentWidth >= 700 && size.width > size.height
-    }
-
     /// 「宽但不矮」的尺寸（竖屏、Duo 竖屏）：保持单栏。
     var isPortrait: Bool { size.height >= size.width }
 
-    /// 主栏（月历）宽度。
+    // MARK: 分栏的两栏尺寸（判定与分配共用同一组数字）
+
+    /// 主栏（月历）最窄宽度：7 列每格还有 ~37pt，日期才点得准。
+    static let minMasterWidth: CGFloat = 260
+    /// 主栏（月历）最宽宽度：比这更宽只是在拉大格子，并不会让内容更好读。
+    static let maxMasterWidth: CGFloat = 440
+    /// 详情栏（选中日日记）最窄宽度：再窄正文就每行只折 3–4 个字。
+    static let minDetailWidth: CGFloat = 240
+    /// 两栏之间的空隙：分隔线左右各一半。
+    static let splitGutter: CGFloat = 16
+    /// 分隔线本身 0.5pt；两栏之外的横向开销就是「页边距 ×2 + 栏间距 + 细线」。
+    static let splitSeparatorWidth: CGFloat = splitGutter + 0.5
+    /// 分栏区块距页面顶部的留白。
+    static let splitTopPadding: CGFloat = 8
+
+    /// 首页分栏所需的**最小内容宽度**：260 + 240 + 16×2 + 16.5 = 548.5pt。
     ///
-    /// 月历 7 列每格至少 ~40pt 才好点，所以主栏取「可用宽度的 46%」并夹在
-    /// 280…440 之间；比这更宽只是在拉大格子，并不会让内容更好读。
-    var masterWidth: CGFloat {
-        min(440, max(280, (contentWidth * 0.46).rounded()))
+    /// 注意这不是「手机横屏」的下限：最窄的横屏 iPhone（SE 667×375，无安全区）
+    /// 有 667pt，18 Pro（874×402，左右各 62 安全区）有 750pt，两者都在它之上。
+    /// 这个下限只用来挡住「横屏但容器窄得放不下两栏」的窗口（分屏 / 折叠态）。
+    static let minSplitContentWidth: CGFloat =
+        2 * pagePadding + splitSeparatorWidth + minMasterWidth + minDetailWidth
+
+    /// 首页：左月历 + 右选中日。
+    ///
+    /// 判据只有两条：**横屏** + **两栏都放得下**。
+    /// - 竖屏即使够宽也保持原来的年/月/周三态 morph —— 竖屏交互不动。
+    /// - 横屏的可用宽度按 `contentWidth` 算（扣掉左右系统占位）。
+    ///
+    /// 旧实现要求 `contentWidth >= 700`，本意是「月历 280 + 正文 320 + 边距」，
+    /// 但那个阈值把 iPhone SE 横屏（667pt，无左右安全区）挡在门外：同样是横屏，
+    /// 18 Pro 分栏、SE 却只是把竖屏版面横向拉长，两栏都读不了。现在改为按
+    /// **两栏各自的最低可用宽度**判定，任何横屏 iPhone 都能拿到左右双列。
+    var splitsMasterDetail: Bool {
+        size.width > size.height && contentWidth >= Self.minSplitContentWidth
+    }
+
+    /// 分栏时两栏各自的宽度。
+    ///
+    /// 主栏先按容器宽的 46% 取（夹在 `minMasterWidth…maxMasterWidth`），但必须给
+    /// 详情栏留够 `minDetailWidth`，所以上界再夹一次；详情栏吃掉剩下的宽度。
+    /// 两栏之和 + 页边距 + 分隔线**正好**等于容器宽，横屏任何宽度都不会横向溢出
+    /// （由 `SplitLayoutTests` 在阈值以上的每一档宽度上守住）。
+    ///
+    /// 传容器宽（页面几何），不要传 `contentWidth`：这里算的是**实际排版**，
+    /// 必须和真正可用的容器对齐。
+    func splitColumns(containerWidth: CGFloat) -> (master: CGFloat, detail: CGFloat) {
+        let available = max(0, containerWidth - 2 * Self.pagePadding - Self.splitSeparatorWidth)
+        let preferred = min(Self.maxMasterWidth,
+                            max(Self.minMasterWidth, (containerWidth * 0.46).rounded()))
+        let master = min(preferred, max(Self.minMasterWidth, available - Self.minDetailWidth))
+        return (master, max(Self.minDetailWidth, available - master))
+    }
+
+    /// 分栏时两栏共同的高度（日历区与详情区同高，底部让出系统浮条）。
+    ///
+    /// 下限 220 是「再矮也没有内容可放」的兜底：到那一步日历密度会自己降级成
+    /// 周条，不会把日期压扁。
+    func splitPaneHeight(containerHeight: CGFloat) -> CGFloat {
+        max(220, containerHeight - Self.splitTopPadding - tabBarClearance)
+    }
+
+    // MARK: 底部系统浮条
+
+    /// 底部浮条（tab bar）在两种方向上的实测高度：竖屏 83 / 横屏 64。
+    ///
+    /// 浮条由系统绘制，**两种形态在同一方向上一样高**，与机型、有没有 home
+    /// indicator 都无关（UI 测试读 `app.tabBars` frame 实测）：
+    /// - iPhone 18 Pro 竖屏 `(0, 791, 402, 83)`、横屏 `(0, 338, 874, 64)`；
+    /// - iPhone SE 竖屏 `(0, 584, 375, 83)`、横屏 `(0, 311, 667, 64)`。
+    /// 两条都是**紧贴屏幕底边**的，所以要让出的高度就是浮条自身的高度。
+    static let tabBarHeightPortrait: CGFloat = 83
+    static let tabBarHeightLandscape: CGFloat = 64
+
+    /// 内容忽略底部安全区（`.ignoresSafeArea(edges: .bottom)`）时底部要让出的高度。
+    ///
+    /// 旧写法是 `bottomInset + 44`：它在有 home indicator 的机型上（横屏
+    /// `bottomInset = 20`）碰巧等于 64，于是 18 Pro 上看起来是对的；但 iPhone SE
+    /// 横屏 `bottomInset = 0`，只让出 44pt，最后一行日期会被浮条压住。浮条高度本来
+    /// 就与 home indicator 无关，所以这里直接按方向取，不再叠加 `bottomInset`。
+    var tabBarClearance: CGFloat {
+        isPortrait ? Self.tabBarHeightPortrait : Self.tabBarHeightLandscape
     }
 
     /// 正文列宽上限。宽屏必须限宽，否则一行 100+ 字。

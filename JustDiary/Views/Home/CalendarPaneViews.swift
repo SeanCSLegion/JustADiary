@@ -169,6 +169,11 @@ struct DayPane: View {
                     .diaryFont(TypeSize.caption)
                     .foregroundStyle(Theme.onSurfaceVariant().opacity(0.8))
                     .lineLimit(1)
+                    // 窄栏（iPhone SE 横屏右栏 311pt）里「丙午年八月初四」放不下，
+                    // 直接截断会变成「丙午年八月…」。这里的日期是完整的公历日期，
+                    // 农历年份本来就是冗余信息，缩一点比截断好读。
+                    .minimumScaleFactor(0.75)
+                    .allowsTightening(true)
             }
             Spacer(minLength: 8)
             if let onTodayTap {
