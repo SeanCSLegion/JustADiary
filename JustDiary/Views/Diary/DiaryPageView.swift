@@ -51,9 +51,7 @@ struct DiaryPageView: View {
             }
         }
         .sheet(isPresented: $vm.showShareSheet) {
-            ShareSheetView(image: vm.shareImage,
-                           fileURL: vm.shareFileURL,
-                           title: L10n.formatDayKey(vm.actualDayKey)) {
+            ShareSheetView(image: vm.shareImage, fileURL: vm.shareFileURL) {
                 vm.showShareSheet = false
             }
             // 预览 + 系统动作需要整屏高度；与「照片」App 的分享面板一致。

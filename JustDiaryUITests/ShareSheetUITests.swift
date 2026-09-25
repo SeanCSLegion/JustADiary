@@ -74,9 +74,10 @@ final class ShareSheetUITests: XCTestCase {
                         .waitForExistence(timeout: 10),
                       "系统分享动作应该就在预览下方，不需要再点一次")
 
-        // 关掉面板，回到日记页。
+        // 关掉面板，回到日记页：点的就是系统条目行右上角那个叉
+        // （它是远程视图服务画的，这里靠盖在同一位置的透明点击区接上关闭动作）。
         let close = app.buttons["share.close"]
-        XCTAssertTrue(close.exists, "面板要有自己的关闭按钮")
+        XCTAssertTrue(close.exists, "系统那个叉应该可以关闭面板")
         close.tap()
         XCTAssertFalse(preview.waitForExistence(timeout: 3), "点关闭后面板应收起")
         XCTAssertTrue(share.isHittable, "关闭后回到日记页")

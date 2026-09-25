@@ -554,11 +554,14 @@ final class DiaryViewModel {
 
     /// 把分享长图写成临时文件（PNG，文字边缘不会被压糊）。
     ///
-    /// 文件名用 day_key：系统分享面板直接把文件名当标题显示，`2026-09-08.png`
-    /// 比默认的「图片」清楚；同一天重复分享会覆盖同一个文件，不会越攒越多。
+    /// 文件名带 `JustDiary-` 前缀再跟 day_key：别的 App 也常按日期建文件，
+    /// 不加前缀的话「存储到“文件”」/ AirDrop 之后很容易和别人的 `2026-09-08.png`
+    /// 撞名；系统分享面板又直接拿文件名当标题，所以这个名字也会显示给用户。
+    /// 同一天重复分享会覆盖同一个文件，不会越攒越多。
     private nonisolated static func writeShareFile(_ image: UIImage, dayKey: String) -> URL? {
         guard let data = image.pngData() else { return nil }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(dayKey).png")
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("JustDiary-\(dayKey).png")
         do {
             try data.write(to: url, options: .atomic)
             return url

@@ -11,12 +11,14 @@ import UIKit
 /// App…），保存到相册等能力因此与系统完全一致，不需要我们自己维护动作列表。它是被
 /// **嵌进**这块面板的（不是二次弹窗），所以会连它自己的条目行（缩略图 + 文件名 + 大小）
 /// 一起显示 —— 那一行正好用来说明「要分享的是哪个文件」。
+///
+/// 面板**自己不画标题行、也不画关闭按钮**：预览图顶部就是日期，条目行就是文件名；
+/// 关闭用系统条目行右上角那个叉（见 `systemCloseTarget`）。
 struct ShareSheetView: View {
     /// 渲染好的分享长图；还没渲染完时为 nil（面板已经拉起，先显示进度）。
     var image: UIImage?
     /// 分享给系统的临时文件；拿不到时退回 `image`。
     var fileURL: URL?
-    var title: String
     var onClose: () -> Void
 
     var body: some View {
@@ -61,53 +63,36 @@ struct ShareSheetView: View {
     private var activityArea: some View {
         if let item = activityItem {
             ShareActivityView(item: item, onFinish: onClose)
+                .overlay(alignment: .topTrailing) { systemCloseTarget }
         }
     }
 
     // MARK: - 预览
 
     private var previewColumn: some View {
-        VStack(spacing: 0) {
-            header
-            ScrollView(showsIndicators: false) {
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        // 分享图本身 720pt 宽；预览跟着面板宽度走，宽屏也不放大。
-                        .frame(maxWidth: 720)
-                        .clipShape(RoundedRectangle(cornerRadius: Radius.image, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: Radius.image, style: .continuous)
-                                .stroke(Theme.onSurface().opacity(0.08), lineWidth: 1)
-                        }
-                        .shadow(color: Theme.shadowColor(), radius: 18, y: 8)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 18)
-                        .accessibilityLabel(L10n.str("share_preview_title"))
-                        .accessibilityIdentifier("share.preview")
-                } else {
-                    renderingPlaceholder
-                        .padding(.horizontal, 20)
-                }
+        ScrollView(showsIndicators: false) {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    // 分享图本身 720pt 宽；预览跟着面板宽度走，宽屏也不放大。
+                    .frame(maxWidth: 720)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.image, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Radius.image, style: .continuous)
+                            .stroke(Theme.onSurface().opacity(0.08), lineWidth: 1)
+                    }
+                    .shadow(color: Theme.shadowColor(), radius: 18, y: 8)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 18)
+                    .accessibilityLabel(L10n.str("share_preview_title"))
+                    .accessibilityIdentifier("share.preview")
+            } else {
+                renderingPlaceholder
+                    .padding(.horizontal, 20)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Text(title)
-                .diaryFont(TypeSize.rowTitle, weight: .semibold)
-                .foregroundStyle(Theme.onSurface())
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Spacer(minLength: 8)
-            closeButton
-        }
-        .padding(.leading, 20)
-        .padding(.trailing, 12)
-        .frame(height: 52)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var renderingPlaceholder: some View {
@@ -123,26 +108,25 @@ struct ShareSheetView: View {
 
     // MARK: - 关闭
 
-    /// 面板自己的关闭按钮。
+    /// 系统条目行右上角那个叉的**真实点击目标**。
     ///
-    /// 系统那份动作区里也画了一个叉（`UIActivityViewController` 被嵌进来时它并不知道
-    /// 自己不是被 present 的，那个叉点了没有反应），所以这里必须有一个**真的能关掉**
-    /// 的出口：预览是滚动视图，不能只靠下滑手势。
-    private var closeButton: some View {
+    /// iOS 26/27 的分享面板由**远程视图服务**渲染（宿主视图叫 `ShareSheet.RemoteContainerView`，
+    /// 内容在另一个进程里），所以：视图树里找不到那个叉、也没法给它挂 target；而它自带的
+    /// dismiss 打在一个并不存在的 presentation controller 上 —— 实测连点四个相邻坐标，
+    /// 面板纹丝不动，也就是「看得见、点不动」。
+    ///
+    /// 用户看到的就是那个叉，它就该能关掉面板，所以这里在它**压着的位置**上放一块透明点击区：
+    /// 点到的是系统画的叉，收起来的是我们这块面板。方框取动作区右上角 96×96 ——
+    /// 实测竖屏叉在（距右 40、距顶 76）、横屏在（距右 37、距顶 44），都落在框内，
+    /// 而框内没有别的可点控件（应用行与动作行都在下方 100pt 开外）。
+    private var systemCloseTarget: some View {
         Button {
             Haptics.tap()
             onClose()
         } label: {
-            Image(systemName: "xmark")
-                .diaryFont(TypeSize.meta, weight: .bold)
-                .foregroundStyle(Theme.onSurfaceVariant())
-                .frame(width: Spacing.hitTarget, height: Spacing.hitTarget)
-                .background {
-                    Circle()
-                        .fill(.clear)
-                        .glassEffect(.regular.interactive(true), in: Circle())
-                }
-                .contentShape(Circle())
+            Color.clear
+                .frame(width: 96, height: 96)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(L10n.str("cancel"))
