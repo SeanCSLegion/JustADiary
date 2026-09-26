@@ -201,6 +201,7 @@ Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —�
 | **B9** | 低 | `PartsCodec.parts(from:)` | 空行点「列表」后直接保存 → 库里存下 `items: [""]` 空项 | 只跳过「空白文本行」，没跳过「只有标记的行」 | 只有标记没有文字的行不入库 | ✅ 修 |
 | **B10** | 高（数据丢失） | `RichTextView.updateUIView` | 编辑到一半旋转屏幕/宽度变化 → 回到进入编辑时的内容，刚输入的字没了 | 宽度变化时用 `loadParts`（进入编辑时的快照）整块重载编辑器 | 宽度变化只重排图片，不动文本 | ✅ 修 |
 | **B8** | 低 | `activeStyles()` / `isCenterActive()` / `currentBlockStyle()` | 混合选区时按钮高亮只按选区首字符算，可能误导 | 只探一个点 | 字符样式改为「整段全开才高亮」，与 B5 的统一语义一致 | ✅ 修 |
+| **B19** | 高 | `DiaryPageView` / `RichTextViewController` | **横屏（尤其 SE）键盘弹起后光标被挡住**：界面自动上滑，但滚的是「整张卡片居中」而视口是整屏，已有卡片内容比可视区高时光标落在键盘后面，要手动上滑才看得到正在输入的位置 | 键盘弹起时 `scrollTo("editor-card", anchor: .center)`；且键盘高度取自 `keyboardFrameEndUserInfoKey` 的 `frame.height` —— 横屏时那是**竖屏坐标系**（SE 横屏实测 `(0, 250, 375, 417)`），算出来 417pt 比整块屏还高 | ① 键盘高度改成「换算到窗口坐标后求交集」（`Screen.keyboardObscuredHeight`）；② 改成按**光标**位置滚，让它停在格式栏上沿之上（键盘在栏下面，让开栏就同时让开了键盘），键盘弹起时按几个时间点各确认一次；③ 滚动走 SwiftUI 的 `ScrollPosition`（直接改底层 `UIScrollView.contentOffset` 会被下一次布局覆盖回去，实测无效） | ✅ 修 |
 | **B18** | 中 | `DiaryPageView` | 进出编辑时整张卡片会变宽 / 变窄：阅读列 660、编辑列 620，横屏差 40pt（SE 横屏差 15pt） | `contentColumn(vm.isRead ? 660 : 620)` | 两个模式共用 660；输入区宽度仍差 4pt（卡片内边距 12 vs 10） | ✅ 修 |
 | **B17** | 高 | `DiaryViewModel` / `DiaryPageView` | **键盘收不回来**：编辑页没有任何收起键盘的交互，顶栏按钮又被触控键盘压住，用户没法先收键盘再选文字 | 编辑器只自己处理键盘高度，没有 `resignFirstResponder` 的触发点 | 点内容空白 / 顶栏空白收起键盘，下拉内容也可以；并关掉 `autoFocusEditor`（免得视图重建后又把键盘叫回来） | ✅ 修 |
 | **B15** | 中 | `DiaryPageView` | 顶栏会离开屏幕：横屏键盘弹起时「返回 / 插入图片 / 保存」实测在 y = −51 | 两件事叠在一起：① 顶栏原本挂在 ScrollView 的 `safeAreaInset` 上，`scrollTo` 一带内容滚动就跟着跑；② 触控键盘弹起时横屏可用高度只剩 402pt，SwiftUI 仍会把整页往上推（实测滚动视图变成 457pt 高、整体上移 55pt） | ① 已修：顶栏移出滚动视图，改成 ZStack 顶对齐的 overlay；② **接受为已知限制**，靠 B17 的「点空白 / 下拉收键盘」把顶栏拿回来（用户要的就是这条路径，硬撑着一屏显示反而没意义） | ✅ ① 修 / ② 记录 |
@@ -246,6 +247,7 @@ paragraphRanges 的循环：
 | B13 | 图片按列宽等比排版（`PartsCodec` 的 `w = maxW`、`insertImage` 去掉 343pt 上限）、段落 `.center`；`DiaryImageView` 去掉 `GeometryReader` + 固定宽，改成按比例填满 | `testImageFillsTheColumnAndStaysCentred`、`testImageStoredSizeIsAnAspectRatioNotALayoutSize`、`testReaderImageFillsTheWidthItIsGiven` |
 | B14 | 格式栏改成 `ViewThatFits { barRow; ScrollView { barRow } }`，按钮间距 6 → 4（默认字号下 9 个按钮约 360pt，整条放得下） | `EditorFlowUITests.testFormatBarFitsInOnePieceAtTheDefaultTextSize` |
 
+| B19 | `Screen.keyboardObscuredHeight(screenFrame:)`（窗口坐标求交集）+ `DiaryPageView.applyCaretReveal`（窗口坐标算 delta，`ScrollPosition.scrollTo(y:)` 落地，键盘弹起时 `retries: [0.15, 0.3, 0.5, 0.75, 1.0, 1.4]`）；`RichEditorController.caretRectInWindow()` 给探针与计算共用 | `EditorFlowUITests.testEditingAnExistingBlockKeepsTheCaretVisibleAboveTheKeyboard`（编辑已有卡片：关掉自动弹键盘 → 点正文靠下 → 键盘弹起 → 光标必须在键盘**与浮动格式栏**之上） |
 | B18 | `DiaryPageView` 的正文列统一成 `contentColumn(660)`，不再按 `isRead` 分支 | `EditorFlowUITests.testReadAndEditContentColumnsHaveTheSameWidth`（竖屏 / 横屏都比一遍阅读与编辑的输入区） |
 | B17 | `DiaryViewModel.dismissKeyboard()`（让当前 first responder 辞职 + 关掉 `autoFocusEditor`）；`DiaryPageView` 的内容空白与顶栏空白各挂一个 `onTapGesture`，并加 `.scrollDismissesKeyboard(.interactively)`；内容末尾两块透明占位 `.allowsHitTesting(false)`，否则手势落不到内容上 | `EditorFlowUITests.testTappingBlankSpaceDismissesTheKeyboard`（竖屏点卡片与格式栏之间的空白、横屏点顶栏中间空白，键盘都要收起且顶栏按钮回到屏内） |
 | B15 | `DiaryPageView`：顶栏从 ScrollView 的 `safeAreaInset` 改成 ZStack 里的 `topBarOverlay`（顶对齐 + `onGeometryChange` 量高度给内容当 padding） | `EditorFlowUITests.testTappingBlankSpaceDismissesTheKeyboard` 里的「滚动后顶栏位置不变」断言（横屏收键盘之后测） |
@@ -318,9 +320,10 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
    `ContentPart.style` 的延续（连续的列表行会被合并成一个 `list` part）。
 8. **键盘的收起路径**（B17）：点内容空白、点顶栏空白、下拉内容；格式栏按钮是有意
    例外 —— 点它会 `becomeFirstResponder`，把焦点还给编辑器（连续排版不该被收键盘打断）。
-9. **阅读态与编辑态的正文列同宽**（都是 660 上限，B18）：进出编辑时卡片不会跳。输入区
+9. **光标永远在格式栏之上**（B19）：键盘、格式栏、悬浮顶栏都不该盖住正在输入的位置。
+10. **阅读态与编辑态的正文列同宽**（都是 660 上限，B18）：进出编辑时卡片不会跳。输入区
    宽度仍差 4pt（卡片内边距 12 vs 10），编辑区文字还另有 12pt 的输入内缩。
-10. **光标停在「列表项下一行的空行」上时回车不续列表**：那一行自己没有标记，而 R3 只在
+11. **光标停在「列表项下一行的空行」上时回车不续列表**：那一行自己没有标记，而 R3 只在
    「当前行有标记且标记后还有文字」时另起一项。这是有意的 —— 否则空项回车刚结束列表，
    下一次回车又被上一行的标记续上，用户永远退不出列表。要续列表，把光标放回带标记的
    那一行（在那行末尾按回车）。
