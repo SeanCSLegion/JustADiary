@@ -270,6 +270,19 @@ struct MonthFlowJump: Equatable {
 ///
 /// 点日期时要拿这个值去冻结动画（morph 源必须与屏幕上那一帧逐像素一致，不能用还在
 /// 动画中的目标值），所以把它记在一个引用盒子里给手势闭包读。
+///
+/// **这个盒子必须是普通属性，不能写成 `@State`**（踩过的坑）：`@State` 的值只有挂到
+/// 视图树上才存在，而手势回调、`animatableData` 的 setter 都会在**没挂上**的副本上
+/// 取值。SwiftUI 这时会打一条运行时日志
+///
+///     Accessing State<FlowRenderedOffset>'s value without being installed on a View.
+///     This will create a new FlowRenderedOffset instance each time.
+///
+/// 并且**每次都真的新建一个盒子**（初值 0）：`body` 里记下的那一帧位置根本留不住，
+/// 手势读到的一直是 0 —— 拖动追上正在滑行的惯性、点日期冻结 morph 源都会失效，
+/// 同时把控制台刷满日志（实测一次 UI 测试 512 条）。写成 `let` 就对了：类是引用类型，
+/// 视图值被复制多少份都指向同一个盒子，动画期间 `animatableData` 的写入与
+/// `body` 的写入落在同一个对象上。
 final class FlowRenderedOffset {
     var value: CGFloat = 0
 }
@@ -305,7 +318,8 @@ struct MonthFlowView: View, Animatable {
     /// 滚动落定后回调「顶部现在是哪个月」（竖屏只改标题，横屏还要把选中日带过去）。
     var onSettle: (Date) -> Void = { _ in }
 
-    @State private var rendered = FlowRenderedOffset()
+    /// 屏幕上这一帧的位置。**普通属性**（不是 `@State`）—— 原因见 `FlowRenderedOffset`。
+    private let rendered = FlowRenderedOffset()
     @State private var dragOrigin: CGFloat? = nil
     @State private var indicator: Double = 0
     @State private var indicatorTask: Task<Void, Never>? = nil
@@ -332,8 +346,9 @@ struct MonthFlowView: View, Animatable {
         // 注意：这里**不做硬夹**。拖动时 `offset` 会带着橡皮筋超出两端，硬夹会把
         // 橡皮筋抵消掉（拖到头跟拖到一半手感一样）；越界值由 `blockIndex` 自己夹住。
         let off = offset
-        // 记下屏幕上这一帧的位置（拖动起点、morph 源都用它）。写在引用盒子里，
-        // 不是 @State，不会触发额外求值。
+        // 记下屏幕上这一帧的位置（拖动起点、morph 源都用它）。写进引用盒子 ——
+        // 盒子是类、身份稳定（见 `FlowRenderedOffset`），所以手势回调里读到的
+        // 一定是**最近一次求值**记下的那个位置；写它不触发任何额外求值。
         rendered.value = off
         // 顶栏显示的是**占据视口最多的那个月**，不是「顶部那一行的月份」：
         // 后者在滑动时只要下一月的第一行露头就会切标题，看着像乱跳

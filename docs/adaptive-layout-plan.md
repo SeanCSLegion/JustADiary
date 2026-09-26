@@ -269,6 +269,18 @@ SE 横屏 375pt 高，日历区 303pt，剩 243 给 6 行 → 每格 40pt（日�
 > `FlowRenderedOffset`（引用盒子）记录「当前显示到哪」：拖动要追上正在滑行的惯性、
 > 点日期要把 morph 源冻结在屏幕上那一帧，都要用它。
 
+> **那个引用盒子必须是普通属性，不能写成 `@State`**（真机日志里抓到的坑）：
+> `@State` 的值只在**挂在视图树上**的那一份视图里存在，而 `animatableData` 的 setter
+> 与手势回调都会在没挂上的副本上取值。SwiftUI 这时打运行时日志
+> （`Accessing State<FlowRenderedOffset>'s value without being installed on a View.
+> This will create a new FlowRenderedOffset instance each time.`）并且**真的每次新建一个
+> 盒子**（初值 0）：body 记下的那一帧位置留不住，手势读到的永远是 0 ——
+> 「拖动追上正在滑行的惯性」与「点日期把 morph 源冻结在当前帧」同时失效，
+> 控制台还会被刷满（实测一次 `MonthFlowUITests` 512 条，`F` 级、真机日志同样会出现）。
+> 改成 `private let rendered = FlowRenderedOffset()` 即可：类是引用类型，视图值复制
+> 多少份都指向同一个盒子。**同一条规矩适用于任何 `Animatable` 视图里给手势/动画闭包
+> 读的共享状态**：用引用类型 + 普通属性，不要用 `@State`。
+
 **morph 怎么接**（用户特别提醒「不同视图的切换可能会出现问题」）：
 
 | 切换 | 接法 |
