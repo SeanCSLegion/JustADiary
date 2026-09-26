@@ -91,7 +91,7 @@ struct ReadTextView: UIViewRepresentable {
         func rebuild() {
             guard let tv = textView else { return }
             let attributed = NSMutableAttributedString(
-                attributedString: PartsCodec.attributedString(from: parent.parts, typeSize: typeSize)
+                attributedString: PartsCodec.readerChunk(from: parent.parts, typeSize: typeSize)
             )
             todoRanges = []
             todoCallbacks = []

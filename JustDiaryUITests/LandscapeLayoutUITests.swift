@@ -224,4 +224,60 @@ final class LandscapeLayoutUITests: XCTestCase {
         XCTAssertLessThanOrEqual(text.frame.width, paneRight - paneLeft - 62,
                                  "正文列宽必须跟着右栏宽度走，不能按 UITextView 的兜底宽度排版")
     }
+
+    /// 横屏进编辑时，格式栏必须是键盘上方的**横排**一条。
+    ///
+    /// 它曾经只在横屏（`layout.splitsMasterDetail` 为真时）改成竖排面板：9 个
+    /// 按钮竖排约 454pt，比 iPhone 18 Pro 横屏的 402pt 可用高度还高，整条被屏幕
+    /// 裁掉、又贴在全屏底部中间，与正文列对不上 —— 一进编辑就看不出那是格式栏。
+    /// 参照备忘录：键盘上方的工具栏横竖屏都是横向的。
+    func testLandscapeEditorFormatBarStaysHorizontal() throws {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(2)
+        app = XCUIApplication()
+        app.launchArguments = ["-ui-test-open-day", todayKey(),
+                               "-ui-test-reset-settings", "-ui-test-no-autoloc"]
+        app.launch()
+
+        let writes = app.buttons.matching(NSPredicate(format: "label == %@", "写日记"))
+        let write = writes.allElementsBoundByIndex.first(where: { $0.isHittable }) ?? writes.firstMatch
+        XCTAssertTrue(write.waitForExistence(timeout: 15), "日记页应提供「写日记」")
+        write.tap()
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "编辑器的正文输入区")
+
+        let bar = app.descendants(matching: .any)
+            .matching(identifier: "editor.formatBar").firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 10), "格式栏")
+
+        let frame = bar.frame
+        let win = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(frame.width, frame.height * 2,
+                             "格式栏应是横排一条，而不是竖排（frame=\(frame)）")
+        XCTAssertGreaterThan(frame.width, 300,
+                             "九个按钮横排应占满可用宽度（frame=\(frame)）")
+        XCTAssertGreaterThanOrEqual(frame.minY, win.minY - 1,
+                                    "整条不该被屏幕顶部裁掉（frame=\(frame)）")
+        XCTAssertLessThanOrEqual(frame.maxY, win.maxY + 1,
+                                 "整条不该超出屏幕底部（frame=\(frame)）")
+        // 每个按钮都要在屏幕内：竖排时最上面几个按钮会被推到屏幕外。
+        for label in ["引用", "待办"] {
+            let button = app.buttons[label]
+            XCTAssertTrue(button.exists, "格式栏按钮 \(label)")
+            XCTAssertGreaterThanOrEqual(button.frame.minY, win.minY - 1,
+                                        "\(label) 被推到屏幕上方之外：\(button.frame)")
+        }
+        // 剩下的按钮在右边缘外，横滑一下就该出来（与备忘录那条可滑动的工具栏一致）。
+        bar.swipeLeft()
+        let underline = app.buttons["下划线"]
+        XCTAssertTrue(underline.waitForExistence(timeout: 4), "横滑后应能看到最后一个按钮")
+        XCTAssertGreaterThanOrEqual(underline.frame.minY, win.minY - 1,
+                                    "下划线被推到屏幕上方之外：\(underline.frame)")
+    }
+
+    private func todayKey() -> String {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        return df.string(from: Date())
+    }
 }

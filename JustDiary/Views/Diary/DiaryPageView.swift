@@ -17,9 +17,8 @@ struct DiaryPageView: View {
                 FontToolbar(controller: vm.controller, onTap: {
                     vm.controller.textView?.becomeFirstResponder()
                 })
-                // 横屏且宽度够时，格式栏是正文右侧的竖排面板（见 mockup
-                // docs/design/landscape/screens/write-pad.png）；窄屏仍贴键盘上方。
-                .environment(\.fontToolbarVertical, layout.splitsMasterDetail)
+                // 格式栏横竖屏都在键盘上方（与备忘录一致，见 `FontToolbar`）：
+                // 横屏曾经竖排贴右，但竖排比横屏可用高度还高，会被屏幕裁掉。
                 // Above the keyboard when it is up, otherwise just above the home
                 // indicator. The bar sits over the content, so the ignored bottom
                 // safe area has to be added back here.

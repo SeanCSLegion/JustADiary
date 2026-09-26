@@ -59,7 +59,11 @@ struct DiaryPartsView: View {
 
     var body: some View {
         let chunks = Self.buildChunks(parts)
-        VStack(alignment: .leading, spacing: 8) {
+        // No stack spacing: every chunk boundary is an image, and an image
+        // carries its own spacing (`EditorDesignSize.imageSpacing`) so the
+        // reader and the editor share the same rhythm around pictures. A stack
+        // gap here would land on top of it.
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(chunks) { chunk in
                 if let img = chunk.image, let src = img.src {
                     let w = max(1, CGFloat(img.w ?? 300))
@@ -67,6 +71,7 @@ struct DiaryPartsView: View {
                     DiaryImageView(src: src, displayW: w, displayH: h) {
                         onImageTap?(src, h / w)
                     }
+                    .padding(.vertical, EditorDesignSize.imageSpacing)
                 } else {
                     ReadTextView(parts: chunk.parts,
                                  keyword: keyword,

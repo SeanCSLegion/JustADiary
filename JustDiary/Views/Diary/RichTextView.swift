@@ -194,21 +194,13 @@ struct RichTextView: UIViewRepresentable {
     }
 }
 
-/// 格式栏方向：横屏宽屏时竖排贴在正文右侧（离手指更近，也符合系统把工具栏
-/// 移到侧边的方向），窄屏仍贴键盘上方横排。
-private struct FontToolbarVerticalKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
-extension EnvironmentValues {
-    var fontToolbarVertical: Bool {
-        get { self[FontToolbarVerticalKey.self] }
-        set { self[FontToolbarVerticalKey.self] = newValue }
-    }
-}
-
+/// 格式栏始终是**横排**的一行，贴在键盘上方（与 Apple 备忘录一致：备忘录的键盘上方
+/// 工具栏在横竖屏都是横向、可横向滑动的）。
+///
+/// 它一度在横屏宽屏时改成贴在正文右侧的竖排面板，但 9 个按钮竖排比横屏可用高度还高
+/// （iPhone 18 Pro 横屏只有 402pt，竖排约 454pt），条本身被屏幕裁掉、又贴在整个屏幕的
+/// 底部中间，和正文列对不上，于是横屏一进编辑就看不出这是个格式栏。
 struct FontToolbar: View {
-    @Environment(\.fontToolbarVertical) private var vertical
     var controller: RichEditorController
     var onTap: (() -> Void)? = nil
 
@@ -286,16 +278,15 @@ struct FontToolbar: View {
         let todo = controller.isTodoActive()
         let blockStyleActive = list || quote || todo
 
-        ScrollView(vertical ? .vertical : .horizontal, showsIndicators: false) {
-            AnyLayout(vertical ? AnyLayout(VStackLayout(spacing: 6))
-                               : AnyLayout(HStackLayout(spacing: 6))) {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
                 styleMenu
                 btn("text.aligncenter", accessibilityLabel: L10n.str("editor_tool_center"),
                     active: center, disabled: blockStyleActive) {
                     controller.toggleCenter()
                 }
                 Divider()
-                    .frame(width: vertical ? 20 : nil, height: vertical ? nil : 20)
+                    .frame(height: 20)
                     .overlay(Theme.outlineVariant().opacity(0.5))
                 btn("list.bullet", accessibilityLabel: L10n.str("editor_tool_list"),
                     active: list) {
@@ -310,7 +301,7 @@ struct FontToolbar: View {
                     controller.toggleTodo()
                 }
                 Divider()
-                    .frame(width: vertical ? 20 : nil, height: vertical ? nil : 20)
+                    .frame(height: 20)
                     .overlay(Theme.outlineVariant().opacity(0.5))
                 btn("bold", accessibilityLabel: L10n.str("editor_tool_bold"),
                     active: styles.bold) {
@@ -329,9 +320,13 @@ struct FontToolbar: View {
                     controller.toggleUnderline()
                 }
             }
-            .padding(.vertical, vertical ? 2 : 8)
+            .padding(.vertical, 8)
         }
-        .padding(.horizontal, vertical ? 6 : 12)
+        .padding(.horizontal, 12)
+        // Exposed as a container so a UI test can assert the bar's own frame
+        // (横屏曾经竖排、比屏幕还高，只能从整条的 frame 上看出来).
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("editor.formatBar")
         .background {
             // The formatting bar floats above the editor's content, which is
             // precisely the navigation/control layer Liquid Glass is for. It

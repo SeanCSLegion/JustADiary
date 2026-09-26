@@ -43,10 +43,28 @@ enum EditorBlockStyle: String, CaseIterable {
 
     /// Space after the paragraph. Rendered only: like alignment it is derived
     /// from the block type on load rather than persisted.
+    ///
+    /// Together with `paragraphSpacingBefore` this is what makes a heading sit
+    /// *closer to the text below it than to the text above* — the rule the share
+    /// renderer draws with (`ImageShareService.gapBefore`). The editor used to
+    /// have space after only, so a heading hugged the paragraph above it and
+    /// looked like part of it.
     var paragraphSpacing: CGFloat {
         switch self {
-        case .title: return designSize * 0.4
-        case .heading: return designSize * 0.3
+        case .title: return designSize * 0.15
+        case .heading: return designSize * 0.15
+        case .quote: return designSize * 0.4
+        case .body: return 0
+        }
+    }
+
+    /// Space before the paragraph: a title/heading is separated from what it
+    /// follows, a quote gets the same breathing room as below it, and body text
+    /// stays tight against body text.
+    var paragraphSpacingBefore: CGFloat {
+        switch self {
+        case .title: return designSize * 0.35
+        case .heading: return designSize * 0.35
         case .quote: return designSize * 0.4
         case .body: return 0
         }
@@ -93,6 +111,15 @@ enum EditorDesignSize {
     static let h2 = EditorBlockStyle.heading.designSize
     static let body = EditorBlockStyle.body.designSize
     static let quote = EditorBlockStyle.quote.designSize
+
+    /// Breathing room above and below an image, in design points.
+    ///
+    /// Expressed through the image paragraph's spacing so the editor gets it
+    /// from TextKit; the reader adds the same number as padding around its
+    /// image chunk. Before this existed the editor gave an image 0pt (it was
+    /// glued to the text above and below) while the reader added a stack gap
+    /// plus a phantom line — the same entry looked different in the two.
+    static let imageSpacing = body * 0.6
 
     /// Every size the editor authors, for exact recovery of a design size from
     /// a drawn one. See `EditorFont.designSize(of:typeSize:)`.
@@ -203,6 +230,7 @@ final class RichEditorController {
         let style = NSMutableParagraphStyle()
         style.lineSpacing = block.lineSpacing
         style.paragraphSpacing = block.paragraphSpacing
+        style.paragraphSpacingBefore = block.paragraphSpacingBefore
         attrs[.paragraphStyle] = style
         attrs[.backgroundColor] = block == .quote ? Theme.quoteBgUIColor() : UIColor.clear
         return attrs
@@ -391,6 +419,13 @@ final class RichEditorController {
     /// Restyles one paragraph (newline included), preserving bold/italic traits.
     private func restyle(_ attributed: NSMutableAttributedString, range: NSRange,
                          to block: EditorBlockStyle, cancelCenter: Bool = false) {
+        // An image line is not text: a text style would only rewrite its
+        // spacing (a title's paragraph gap does not belong around a picture).
+        if range.location < attributed.length,
+           let payload = (attributed.attribute(.attachment, at: range.location, effectiveRange: nil) as? PayloadAttachment)?.payload,
+           payload.kind == "image" {
+            return
+        }
         // Drop a list/todo marker: it is a paragraph style of its own, and it
         // would otherwise stay attached to what is now a heading/quote/body.
         if range.location < attributed.length,
@@ -792,6 +827,10 @@ final class RichEditorController {
         attachment.image = DiaryImageStore.rounded(image, size: CGSize(width: maxW, height: displayH), radius: Radius.image)
         attachment.bounds = CGRect(x: 0, y: 0, width: maxW, height: displayH)
         let attributed = NSMutableAttributedString(attachment: attachment)
+        // Same paragraph style the image gets when the entry is re-opened, so a
+        // freshly inserted image is spaced exactly like a loaded one.
+        attributed.addAttribute(.paragraphStyle, value: PartsCodec.imageParagraphStyle(),
+                                range: NSRange(location: 0, length: attributed.length))
         attributed.append(NSAttributedString(string: "\n", attributes: baseTypingAttributes()))
         let insertRange = NSRange(location: tv.selectedRange.location, length: 0)
         tv.textStorage.insert(attributed, at: insertRange.location)
@@ -981,14 +1020,20 @@ enum PartsCodec {
                     let maxW = max(60, imageMaxWidth ?? fallbackW)
                     let w = min(storedW, maxW)
                     let h = storedH * w / storedW
+                    let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: storedW, h: storedH))
                     if let image = DiaryImageStore.shared.image(for: src, maxPixel: max(storedW, storedH) * 3) {
-                        let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: storedW, h: storedH))
                         attachment.image = DiaryImageStore.rounded(image, size: CGSize(width: w, height: h), radius: Radius.image)
-                        attachment.bounds = CGRect(x: 0, y: 0, width: w, height: h)
-                        let att = NSMutableAttributedString(attachment: attachment)
-                        result.append(att)
-                        result.append(NSAttributedString(string: "\n"))
                     }
+                    attachment.bounds = CGRect(x: 0, y: 0, width: w, height: h)
+                    let att = NSMutableAttributedString(attachment: attachment)
+                    // The paragraph style rides on the attachment itself: the
+                    // terminating newline stays plain, so the paragraph *after*
+                    // an image is not born with the image's spacing, while the
+                    // image line still gets the space above and below it.
+                    att.addAttribute(.paragraphStyle, value: imageParagraphStyle(),
+                                     range: NSRange(location: 0, length: att.length))
+                    result.append(att)
+                    result.append(NSAttributedString(string: "\n"))
                 }
             default:
                 appendLine(part, to: result, block: EditorBlockStyle(partStyle: part.style),
@@ -998,11 +1043,50 @@ enum PartsCodec {
         return result
     }
 
+    /// The paragraph an image sits in: the same breathing room above and below,
+    /// so an image is never glued to the text around it.
+    static func imageParagraphStyle() -> NSMutableParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.paragraphSpacingBefore = EditorDesignSize.imageSpacing
+        style.paragraphSpacing = EditorDesignSize.imageSpacing
+        return style
+    }
+
+    /// One read-mode chunk: what `attributedString(from:)` produces, minus the
+    /// two things the reader's chunked layout must not carry.
+    ///
+    /// * **The trailing paragraph break.** A read chunk is its own `UITextView`,
+    ///   and `sizeThatFits` reserves a whole empty caret line for the break after
+    ///   the last paragraph — about 20pt of blank space at the end of every
+    ///   chunk, which showed up as an unexplained gap before images and before
+    ///   the card's bottom edge.
+    /// * **The image paragraph's spacing.** An image is a chunk of its own and
+    ///   `DiaryPartsView` pads it by the same amount, so keeping the paragraph
+    ///   spacing would count that gap twice.
+    ///
+    /// Text paragraphs keep their own spacing: inside a chunk the reader and the
+    /// editor lay text out with exactly the same paragraph styles.
+    static func readerChunk(from parts: [ContentPart],
+                            typeSize: DynamicTypeSize = .large) -> NSAttributedString {
+        let attributed = NSMutableAttributedString(attributedString: attributedString(from: parts,
+                                                                                     typeSize: typeSize))
+        if attributed.string.hasSuffix("\n") {
+            attributed.deleteCharacters(in: NSRange(location: attributed.length - 1, length: 1))
+        }
+        let isImageChunk = parts.count == 1 && parts.first?.style == ContentPartStyle.image
+        if isImageChunk, attributed.length > 0 {
+            attributed.removeAttribute(.paragraphStyle,
+                                       range: NSRange(location: 0, length: attributed.length))
+        }
+        return attributed
+    }
+
     private static func paragraphStyle(_ block: EditorBlockStyle, center: Bool = false) -> NSMutableParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.alignment = center ? .center : .left
         style.lineSpacing = block.lineSpacing
         style.paragraphSpacing = block.paragraphSpacing
+        style.paragraphSpacingBefore = block.paragraphSpacingBefore
         return style
     }
 
