@@ -237,9 +237,11 @@ y:  0 ────────────────────────�
 - **阅读**：正文单栏限宽 **660pt** 居中（手机竖屏就是屏宽 − 左右各 16 的页边距）。
   大标题 28 / 小标题 22 / 正文 17 / 引用 15 不变。
   图片与地图可以与正文并排 —— 那是「并排的介质」，不是「并排的文字」。
-- **编辑**：正文列宽 **≤620pt**；横屏键盘弹起时把格式栏改成**竖向贴右侧**，
-  窄屏退回键盘上方的横向玻璃条。位置规则沿用 `docs/design-system.md` §5：
-  键盘弹起时贴键盘上方 8pt，收起时贴 Home Indicator 上方。
+- **编辑**：正文列宽 **≤620pt**；格式栏**横竖屏都是键盘上方的横向玻璃条**
+  （做过一版「横屏竖排贴右侧」，9 个按钮竖排约 454pt 比横屏可用高度 402pt 还高，
+  整条被屏幕裁掉，与备忘录的做法也不一致；见 `docs/editor-format-behaviors.md` §3）。
+  位置规则沿用 `docs/design-system.md` §5：键盘弹起时贴键盘上方 8pt，
+  收起时贴 Home Indicator 上方。
 
 ---
 
@@ -337,7 +339,7 @@ struct AdaptiveLayout {           // EnvironmentValue
 | `Views/Footprint/FootprintView.swift` | 竖屏单栏；手机横屏把「趋势图 / 地点清单」并排 |
 | `Views/Search/SearchView.swift` | 手机横屏把「时间 / 地点」两组条件并排；「当前关键词」栏（`activeFilterItems` 里 `kind == .keyword` 的那些，画成可单独点掉的胶囊）|
 | `Views/Settings/SettingsView.swift` | 竖屏 / 横屏共用单列卡片 |
-| `Views/Diary/DiaryPageView.swift` | 阅读列限宽 660；编辑列限宽 620；横屏格式栏竖排贴右；顶栏悬浮在正文之上 |
+| `Views/Diary/DiaryPageView.swift` | 阅读列限宽 660；编辑列限宽 620；格式栏横竖屏都是键盘上方的横排玻璃条；顶栏悬浮在正文之上 |
 | `README.md` / `docs/design-system.md` | 补「自适应版面」一节，指向本文 |
 
 四条关键约定（都踩过坑）：

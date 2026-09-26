@@ -132,7 +132,7 @@ python3 tools/seed_sample_diary.py "iPhone 18 Pro"
 
 - iOS 27 / Xcode 27（Swift 6.4）适配方案见 `docs/iOS27-upgrade-plan.md`
 - 界面规范（设计令牌 / 动态字体 / 日期格式 / Liquid Glass 边界）见 `docs/design-system.md`
-- **编辑页字体与段落样式**（字体模型、E1–E6 待办的处理结果、往返测试）见 `docs/editor-typography.md`
+- **编辑页字体与段落样式**（字体模型、E1–E6 待办的处理结果、行距 / 段距 / 图片留白、往返测试）见 `docs/editor-typography.md`
 - **编辑页格式按钮的作用域**（每个按钮点一下 / 取消各影响什么、行样式换行延续、问题清单与修复记录）见 `docs/editor-format-behaviors.md`
 - **位置的记录规则**（何时获取、保存确认、与历史编辑的关系）见 `docs/location-recording.md`
 - 首页动画性能与系统显示设置适配见 `docs/animation-and-accessibility.md`

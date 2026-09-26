@@ -92,8 +92,15 @@
 ## 三、格式栏按钮总表
 
 格式栏 = `FontToolbar`（`RichTextView.swift`），从左到右共 9 个按钮 + 2 条分隔线。
-「修复前」列是本次改动**之前**的行为，❌ 标注问题编号（B1–B10 的含义见第五节，
+「修复前」列是本次改动**之前**的行为，❌ 标注问题编号（B1–B11 的含义见第五节，
 现在都已修复）；「目标」列即第二、三节的规范，也是当前实现。
+
+**格式栏的朝向与位置**：始终是**横排**一条，贴在键盘上方 8pt（键盘收起时贴
+Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —— 9 个按钮竖排约 454pt，
+比 iPhone 18 Pro 横屏的可用高度 402pt 还高：整条被屏幕裁掉、又贴在全屏底部中间、
+与正文列对不上，一进编辑就看不出那是格式栏（见 B11）。参照 Apple 备忘录：
+键盘上方那条工具栏在横竖屏都是横向、可横向滑动的，iOS 26 起按钮更多（18 个）
+也是横滑 + 按上下文排序，从不竖排到侧边。
 
 | # | 按钮 | SF Symbol | 作用域 | 点一下（修复前） | 再点一下 / 取消（修复前） | 改动已输入文字？ | 换行后 | 修复前 |
 |---|---|---|---|---|---|---|---|---|
@@ -192,6 +199,7 @@
 | **B9** | 低 | `PartsCodec.parts(from:)` | 空行点「列表」后直接保存 → 库里存下 `items: [""]` 空项 | 只跳过「空白文本行」，没跳过「只有标记的行」 | 只有标记没有文字的行不入库 | ✅ 修 |
 | **B10** | 高（数据丢失） | `RichTextView.updateUIView` | 编辑到一半旋转屏幕/宽度变化 → 回到进入编辑时的内容，刚输入的字没了 | 宽度变化时用 `loadParts`（进入编辑时的快照）整块重载编辑器 | 宽度变化只重排图片，不动文本 | ✅ 修 |
 | **B8** | 低 | `activeStyles()` / `isCenterActive()` / `currentBlockStyle()` | 混合选区时按钮高亮只按选区首字符算，可能误导 | 只探一个点 | 字符样式改为「整段全开才高亮」，与 B5 的统一语义一致 | ✅ 修 |
+| **B11** | 高 | `DiaryPageView` / `FontToolbar` | 横屏进编辑时格式栏是**竖排**的一列，比屏幕还高：整条被裁掉、贴在全屏底部中间，与正文列对不上 | `fontToolbarVertical = layout.splitsMasterDetail`，横屏走 `VStackLayout`；9 个按钮竖排约 454pt > 横屏可用高度 402pt | 与备忘录一致：横竖屏都是键盘上方的**横排**一条 | ✅ 修（`editor.formatBar` 的 frame 断言守住） |
 
 ### B1 的细节（为什么「行首」这个位置这么常见）
 
@@ -223,6 +231,10 @@ paragraphRanges 的循环：
 | B8 | `activeStyles()` 有选区时改为「整段全开才高亮」，与 B5 的统一语义一致 | `testMixedSelectionReportsNoActiveTrait` |
 | B9 | `PartsCodec.parts(from:)` 跳过「只有标记、没有文字」的行 | `testMarkerWithoutTextIsNotPersisted`、`testTrailingMarkerIsNotPersisted` |
 | B10 | `RichTextView.updateUIView` 宽度变化时不再 `load(parts:)`，改调新增的 `refitImages(maxWidth:)`：只重排附件 bounds 与图片，文本与光标不动 | `testRefitImagesLeavesTextAndCaretAlone` |
+| B11 | 删掉 `fontToolbarVertical` 环境值与 `FontToolbar` 的竖排分支（连同 `DiaryPageView` 的注入），格式栏恒为横排；整条挂 `editor.formatBar` 标识供 UI 测试断言 | `LandscapeLayoutUITests.testLandscapeEditorFormatBarStaysHorizontal`（横屏断言：条形宽 > 高×2、宽 > 300、不出屏、按钮都在屏内、可横滑到最后一个按钮） |
+
+行距 / 段距 / 图片留白的模型与实测数值不在本文范围，见
+`docs/editor-typography.md` 第五节（含 `JustDiaryTests/EditorSpacingTests`）。
 
 设计取舍（值得回看）：
 
@@ -296,19 +308,23 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
 
 | 行为 | 文件:行 |
 |---|---|
-| 字体栏按钮的组装与 active 态 | `JustDiary/Views/Diary/RichTextView.swift:210-350` |
+| 字体栏的组装与 active 态（含 `editor.formatBar` 标识） | `JustDiary/Views/Diary/RichTextView.swift:203-350` |
 | 键盘事件入口（回车拦截、B6） | `JustDiary/Views/Diary/RichTextView.swift:160-180` |
 | 编辑器宽度变化（B10 所在） | `JustDiary/Views/Diary/RichTextView.swift:114-140` |
-| 字符样式：加粗 / 斜体 / 删除线 / 下划线（B5） | `RichTextEngine.swift:229-350` |
-| 段落样式：样式菜单（B1/B2） | `RichTextEngine.swift:352-367` |
-| `restyle`（单行改写） | `RichTextEngine.swift:392-430` |
-| `paragraphRanges`（B1 所在） | `RichTextEngine.swift:445-468` |
-| 居中（B3） | `RichTextEngine.swift:469-505` |
-| 列表 / 待办标记（B4） | `RichTextEngine.swift:546-605` |
-| `handleReturn`（B6：换行续行、空项结束） | `RichTextEngine.swift:607-677` |
-| 引用（B1/B2） | `RichTextEngine.swift:679-709` |
-| 空行 / 段落范围判定 | `RichTextEngine.swift:711-762` |
-| `activeStyles`（B8） | `RichTextEngine.swift:763-780` |
-| `refitImages`（B10） | `RichTextEngine.swift:849-878` |
-| `apply`（含选区还原） | `RichTextEngine.swift:885-905` |
-| 落库解析（B9 所在） | `RichTextEngine.swift:1069-1160` |
+| 字符样式：加粗 / 斜体 / 删除线 / 下划线（B5） | `RichTextEngine.swift:257-378` |
+| 段落样式：样式菜单（B1/B2） | `RichTextEngine.swift:380-395` |
+| `restyle`（单行改写，跳过图片行） | `RichTextEngine.swift:420-458` |
+| `paragraphRanges`（B1 所在） | `RichTextEngine.swift:480-503` |
+| 居中（B3） | `RichTextEngine.swift:504-540` |
+| 列表 / 待办标记（B4） | `RichTextEngine.swift:581-640` |
+| `handleReturn`（B6：换行续行、空项结束） | `RichTextEngine.swift:642-712` |
+| 引用（B1/B2） | `RichTextEngine.swift:714-744` |
+| 空行 / 段落范围判定 | `RichTextEngine.swift:746-797` |
+| `activeStyles`（B8） | `RichTextEngine.swift:798-815` |
+| `refitImages`（B10） | `RichTextEngine.swift:888-917` |
+| `apply`（含选区还原） | `RichTextEngine.swift:924-944` |
+| `imageParagraphStyle` / `readerChunk`（行距与图片留白） | `RichTextEngine.swift:1048-1090` |
+| 落库解析（B9 所在） | `RichTextEngine.swift:1153-1245` |
+| 阅读区块渲染（图片 padding、块间距 0） | `JustDiary/Views/Diary/MediaViews.swift:61-92` |
+| 阅读块规范化（去结尾空行 / 去图片段距） | `JustDiary/Views/Diary/ReadTextView.swift:91-95` |
+| 格式栏位置（键盘上方、横竖屏一致，B11） | `JustDiary/Views/Diary/DiaryPageView.swift:16-28` |
