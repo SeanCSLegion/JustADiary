@@ -3056,13 +3056,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Light, dark, or follow the system"
+            "value" : "Light, dark, or system"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "切换浅色、深色或跟随系统"
+            "value" : "浅色、深色或跟随系统"
           }
         }
       }

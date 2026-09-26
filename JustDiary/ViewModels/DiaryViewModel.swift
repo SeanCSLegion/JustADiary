@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import UIKit
 import os
 
 @Observable
@@ -175,6 +176,21 @@ final class DiaryViewModel {
             selectMode = true
             selectedIds.insert(id)
         }
+    }
+
+    /// 收起键盘。
+    ///
+    /// 编辑页的键盘只能靠「点空白」或下拉内容收起来 —— 之前两条路都没有：顶栏的
+    /// `图片 / 放弃修改 / 保存` 一直被触控键盘压在下面，用户也没法先把键盘收起来
+    /// 再选文字。统一走「让当前 first responder 辞职」，编辑器的 `UITextView` 与
+    /// 阅读态页内搜索的 `TextField` 都适用。
+    func dismissKeyboard() {
+        // `autoFocusEditor` 是「进入编辑时自动弹键盘」的开关：视图重建时
+        // `RichTextView.makeUIView` 会据此再喊一次 `becomeFirstResponder`，用户
+        // 刚收起的键盘会被它 0.25s 后又叫回来（表现就是「键盘收不掉」）。
+        autoFocusEditor = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
     }
 
     func handleBack() {

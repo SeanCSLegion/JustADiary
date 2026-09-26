@@ -144,27 +144,36 @@ struct DiaryPageView: View {
                         editorCard
                             .id("editor-card")
                     }
+                    // 两块占位都不参与命中：否则「点正文下方空白收键盘」会点在
+                    // 这两块透明视图上，手势落不到外层的 contentShape。
                     if vm.keyboardHeight > 0 {
                         Color.clear.frame(height: vm.keyboardHeight + 160)
+                            .allowsHitTesting(false)
                     } else {
                         TabBarClearance(base: 140)
+                            .allowsHitTesting(false)
                     }
                 }
-                .padding(.top, 10)
+                .padding(.top, topBarHeight + 10)
                 // 限宽只作用于正文列本身；页面内边距加在外面，窄屏才不会被
                 // `contentColumn` 和 `adaptivePagePadding` 叠着缩两遍。
-                .frame(maxWidth: layout.contentColumn(vm.isRead ? 660 : 620))
+                // 阅读态与编辑态**同宽**（原来编辑态小 40pt，横屏进出编辑时整张卡片
+                // 会跳一下）。数值取阅读列的 660：它是正文的阅读宽度，编辑同一篇
+                // 日记没有理由更窄。
+                .frame(maxWidth: layout.contentColumn(660))
                 .adaptivePagePadding()
                 .frame(maxWidth: .infinity)
+                // 点内容里的空白（卡片之间、正文下方）收起键盘：卡片 / 按钮自己的
+                // 手势优先，落不到别处的手势才会走到这里。
+                .contentShape(Rectangle())
+                .onTapGesture { vm.dismissKeyboard() }
                 .animation(.diaryStandard, value: vm.blocks.map(\.id))
             }
-            // 顶栏（`topBarOverlay`）是**悬浮**在内容之上的：这里只按它的实测高度
-            // 给滚动内容留出起始让位，不占一条实心横带 —— 日记上滑时会从玻璃按钮
-            // 后面穿过去。系统在顶边（状态栏那一条）保留默认的 scroll edge effect，
-            // 避免正文压到时间/电量；按钮之间透出的仍是正文。
-            .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: topBarHeight)
-            }
+            // 下拉内容也可以把键盘带走（系统标准的交互式收起）。
+            .scrollDismissesKeyboard(.interactively)
+            // 顶栏是悬浮在内容之上的，这里不再用 `safeAreaInset` 给它让位：键盘弹起
+            // 时那条 inset 会把滚动视图撑高（实测 457pt 高的滚动视图被挤到 y = −55），
+            // 让位改用内容自己的顶部 padding（见上面的 `topBarHeight`）。
             .onChange(of: vm.scrollTarget) { _, target in
                 guard let target else { return }
                 withAnimation(.diaryStandard) {
@@ -202,6 +211,10 @@ struct DiaryPageView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
                 if height > 10, abs(height - topBarHeight) > 0.5 { topBarHeight = height }
             }
+            // 顶栏中间的空白也是一处「点空白收键盘」：按钮自己的手势优先，落不到
+            // 按钮上的点才走到这里。
+            .contentShape(Rectangle())
+            .onTapGesture { vm.dismissKeyboard() }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
@@ -400,6 +413,8 @@ struct DiaryPageView: View {
         }
         .padding(Spacing.card)
         .diaryCard(cornerRadius: Radius.card)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("diary.blockCard")
         .onLongPressGesture(minimumDuration: 0.4) {
             vm.enterSelect(block.id)
         }
@@ -449,6 +464,9 @@ struct DiaryPageView: View {
         }
         .padding(10)
         .diaryCard(cornerRadius: Radius.card, interactive: true)
+        // 供 UI 测试比较「阅读卡片 / 编辑卡片」的宽度。
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("diary.editorCard")
     }
 
     /// The entry's location.

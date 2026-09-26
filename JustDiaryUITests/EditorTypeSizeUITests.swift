@@ -76,13 +76,14 @@ final class EditorTypeSizeUITests: XCTestCase {
         let menu = app.buttons["段落样式"]
         XCTAssertTrue(menu.waitForExistence(timeout: 10), "paragraph-style menu button")
         menu.tap()
+        // 最大辅助功能字号下菜单弹出会慢一些，4s 偶尔不够（全套一起跑时更明显）。
         let button = app.buttons[label]
-        if button.waitForExistence(timeout: 4) {
+        if button.waitForExistence(timeout: 8) {
             button.tap()
             return
         }
         let item = app.menuItems[label]
-        XCTAssertTrue(item.waitForExistence(timeout: 4), "style item \(label)")
+        XCTAssertTrue(item.waitForExistence(timeout: 8), "style item \(label)")
         item.tap()
     }
 
