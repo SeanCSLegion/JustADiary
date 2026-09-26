@@ -123,9 +123,16 @@ struct RichTextView: UIViewRepresentable {
             let inset = uiView.textContainerInset
             let available = max(60, width - inset.left - inset.right)
             if controller.imageMaxWidth == nil || abs((controller.imageMaxWidth ?? 0) - available) > 1 {
+                let measured = controller.imageMaxWidth
                 controller.imageMaxWidth = available
-                if context.coordinator.lastToken == loadToken, !loadParts.isEmpty {
-                    controller.load(parts: loadParts)
+                // A width change (rotation, split view) used to reload
+                // `loadParts` — the snapshot this editor opened with — which
+                // silently threw away everything typed since. Only the images
+                // need re-fitting: the text and the caret stay where they are.
+                // The first measurement needs no refit because the text has not
+                // been loaded yet; the load below picks the width up.
+                if measured != nil {
+                    controller.refitImages(maxWidth: available)
                 }
             }
         }
@@ -157,6 +164,13 @@ struct RichTextView: UIViewRepresentable {
             if text == "\n" {
                 let caret = textView.selectedRange.location
                 if parent.controller.shouldBlockNewline(at: caret) {
+                    return false
+                }
+                // List/to-do items — and an empty quoted line, which ends the
+                // quote — handle Return themselves: the marker for the next item
+                // is a real character, not something UIKit's own newline can
+                // carry over.
+                if parent.controller.handleReturn(at: caret) {
                     return false
                 }
             }

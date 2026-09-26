@@ -1,6 +1,8 @@
 # Xcode
 DerivedData/
 build/
+# Local build/test output (xcodebuild -derivedDataPath .build/DerivedData)
+.build/
 *.xcuserstate
 xcuserdata/
 

@@ -237,37 +237,51 @@ final class RichEditorController {
     private func toggleFontStyle(_ trait: UIFontDescriptor.SymbolicTraits) {
         guard let tv = textView else { return }
         let range = tv.selectedRange
-        if range.length > 0 {
-            apply { attributed in
-                attributed.enumerateAttribute(.font, in: range) { value, subRange, _ in
-                    guard let font = value as? UIFont else { return }
-                    var sym = font.fontDescriptor.symbolicTraits
-                    if sym.contains(trait) {
-                        sym.remove(trait)
-                    } else {
-                        sym.insert(trait)
-                    }
-                    guard let base = font.fontDescriptor.withSymbolicTraits(sym) else { return }
-                    let desc = Self.applyItalicSlant(base, trait: trait, adding: !font.fontDescriptor.symbolicTraits.contains(trait))
-                    attributed.removeAttribute(.font, range: subRange)
-                    attributed.addAttribute(.font, value: UIFont(descriptor: desc, size: font.pointSize), range: subRange)
-                }
-            }
-        } else {
+        guard range.length > 0 else {
+            // No selection: the toggle describes what is typed next. Characters
+            // that are already there are never rewritten.
             let font = (tv.typingAttributes[.font] as? UIFont)
                 ?? EditorFont.font(EditorDesignSize.body, typeSize: dynamicTypeSize)
             var sym = font.fontDescriptor.symbolicTraits
-            if sym.contains(trait) {
-                sym.remove(trait)
-            } else {
-                sym.insert(trait)
-            }
+            let adding = !sym.contains(trait)
+            if adding { sym.insert(trait) } else { sym.remove(trait) }
             if let base = font.fontDescriptor.withSymbolicTraits(sym) {
-                let desc = Self.applyItalicSlant(base, trait: trait, adding: !font.fontDescriptor.symbolicTraits.contains(trait))
+                let desc = Self.applyItalicSlant(base, trait: trait, adding: adding)
                 tv.typingAttributes[.font] = UIFont(descriptor: desc, size: font.pointSize)
             }
             notifyFormatChange()
+            return
         }
+        // One state for the whole selection. Toggling each run on its own (what
+        // this used to do) turned a mixed selection into a patchwork: half of
+        // it gained the trait while the other half lost it.
+        let removing = selectionHasTrait(trait, in: range)
+        apply { attributed in
+            attributed.enumerateAttribute(.font, in: range) { value, subRange, _ in
+                guard let font = value as? UIFont else { return }
+                var sym = font.fontDescriptor.symbolicTraits
+                if removing { sym.remove(trait) } else { sym.insert(trait) }
+                guard let base = font.fontDescriptor.withSymbolicTraits(sym) else { return }
+                let desc = Self.applyItalicSlant(base, trait: trait, adding: !removing)
+                attributed.removeAttribute(.font, range: subRange)
+                attributed.addAttribute(.font, value: UIFont(descriptor: desc, size: font.pointSize), range: subRange)
+            }
+        }
+    }
+
+    /// Whether every font in `range` already carries `trait`, which is what
+    /// decides the direction a toggle goes in. Runs without a font (attachment
+    /// characters) are ignored: there is nothing to toggle there.
+    private func selectionHasTrait(_ trait: UIFontDescriptor.SymbolicTraits, in range: NSRange) -> Bool {
+        guard let tv = textView, range.length > 0 else { return false }
+        var found = false
+        var all = true
+        tv.textStorage.enumerateAttribute(.font, in: range) { value, _, _ in
+            guard let font = value as? UIFont else { return }
+            found = true
+            if !font.fontDescriptor.symbolicTraits.contains(trait) { all = false }
+        }
+        return found && all
     }
 
     /// CJK glyphs (PingFang etc.) have no true italic outline, so merely toggling
@@ -296,19 +310,32 @@ final class RichEditorController {
     private func toggleLineStyle(key: NSAttributedString.Key) {
         guard let tv = textView else { return }
         let range = tv.selectedRange
-        if range.length > 0 {
-            apply { attributed in
-                attributed.enumerateAttribute(key, in: range) { value, subRange, _ in
-                    let active = (value as? Int ?? 0) != 0
-                    attributed.removeAttribute(key, range: subRange)
-                    attributed.addAttribute(key, value: active ? 0 : 1, range: subRange)
-                }
-            }
-        } else {
+        guard range.length > 0 else {
+            // No selection: only the next typed characters change.
             let active = (tv.typingAttributes[key] as? Int ?? 0) != 0
             tv.typingAttributes[key] = active ? 0 : 1
             notifyFormatChange()
+            return
         }
+        // Uniform across the selection, exactly like the font traits above.
+        let removing = selectionHasStyle(key, in: range)
+        apply { attributed in
+            attributed.removeAttribute(key, range: range)
+            attributed.addAttribute(key, value: removing ? 0 : 1, range: range)
+        }
+    }
+
+    /// Whether every run in `range` already carries the 0/1 valued line style
+    /// `key`. Decides the direction a strike/underline toggle goes in.
+    private func selectionHasStyle(_ key: NSAttributedString.Key, in range: NSRange) -> Bool {
+        guard let tv = textView, range.length > 0 else { return false }
+        var found = false
+        var all = true
+        tv.textStorage.enumerateAttribute(key, in: range) { value, _, _ in
+            found = true
+            if (value as? Int ?? 0) == 0 { all = false }
+        }
+        return found && all
     }
 
     // MARK: - Paragraph styles
@@ -402,14 +429,28 @@ final class RichEditorController {
         }
     }
 
-    /// Paragraph ranges (terminating newline included) touched by `range`, or
-    /// the caret's paragraph when `range` is empty. An empty trailing line has
-    /// no paragraph and yields nothing, which is how "only affect what is typed
-    /// next" is expressed.
-    private func paragraphRanges(covering range: NSRange) -> [NSRange] {
+    /// Paragraph ranges (terminating newline included) touched by `range`.
+    ///
+    /// * A selection contributes every paragraph it actually overlaps.
+    /// * A caret contributes the caret's own paragraph and nothing else. The
+    ///   old test — `location >= start && location <= lineEnd` — also matched
+    ///   the paragraph *above*, because a line's exclusive end is the next
+    ///   line's start: restyling a freshly opened line silently rewrote the
+    ///   line above it, which is exactly the state right after Return.
+    /// * A caret paragraph that holds no text resolves to a zero-width range at
+    ///   its line start, so callers can tell "nothing to restyle here" from
+    ///   "restyle this paragraph". `includeEmpty` keeps that range (the
+    ///   list/to-do markers need an anchor there); text styles drop it and only
+    ///   affect what is typed next.
+    private func paragraphRanges(covering range: NSRange, includeEmpty: Bool = false) -> [NSRange] {
         guard let tv = textView else { return [] }
-        let ns = tv.textStorage.string as NSString
-        guard ns.length > 0 else { return [] }
+        let storage = tv.textStorage
+        if range.length == 0 {
+            let para = paragraphRange(in: storage, around: range.location)
+            if para.length > 0 { return [para] }
+            return includeEmpty ? [para] : []
+        }
+        let ns = storage.string as NSString
         var result: [NSRange] = []
         var start = 0
         while start < ns.length {
@@ -419,13 +460,7 @@ final class RichEditorController {
             }
             let lineEnd = end < ns.length ? end + 1 : end
             let line = NSRange(location: start, length: lineEnd - start)
-            let hit: Bool
-            if range.length == 0 {
-                hit = range.location >= start && range.location <= lineEnd
-            } else {
-                hit = NSIntersectionRange(range, line).length > 0
-            }
-            if hit { result.append(line) }
+            if NSIntersectionRange(range, line).length > 0 { result.append(line) }
             start = end + 1
         }
         return result
@@ -436,48 +471,40 @@ final class RichEditorController {
         // Center cannot coexist with list/quote/todo; the toolbar disables the
         // button while one of them is active, guard here too.
         if isListActive() || isQuoteActive() || isTodoActive() { return }
-        let location = tv.selectedRange.location
         let center = isCenterActive()
 
-        // On an empty line there is no typed text on THIS line to restyle; only
-        // affect subsequent typing. Otherwise paragraphRange would (via the old
-        // getParagraphStart) pull in the preceding line's range and reset it too.
-        if Self.paragraphIsEmpty(in: tv.textStorage, location: location) {
-            if let style = tv.typingAttributes[.paragraphStyle] as? NSMutableParagraphStyle {
-                style.alignment = center ? .left : .center
-            } else if let style = tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle {
-                let mutable = style.mutableCopy() as! NSMutableParagraphStyle
-                mutable.alignment = center ? .left : .center
-                tv.typingAttributes[.paragraphStyle] = mutable
-            } else {
-                let style = NSMutableParagraphStyle()
-                style.alignment = center ? .left : .center
-                tv.typingAttributes[.paragraphStyle] = style
+        // Every paragraph the selection touches, like the style menu and quote.
+        // It used to look at `selectedRange.location` alone, so a multi-line
+        // selection only centered its first line.
+        let ranges = paragraphRanges(covering: tv.selectedRange)
+        if !ranges.isEmpty {
+            apply { attributed in
+                for range in ranges.reversed() {
+                    let para = self.paragraphRange(in: attributed, around: range.location)
+                    guard para.length > 0 else { continue }
+                    let existing = (attributed.attribute(.paragraphStyle, at: para.location, effectiveRange: nil) as? NSParagraphStyle) ?? NSParagraphStyle()
+                    let style = existing.mutableCopy() as! NSMutableParagraphStyle
+                    style.alignment = center ? .left : .center
+                    attributed.addAttribute(.paragraphStyle, value: style, range: para)
+                }
             }
-            notifyFormatChange()
-            return
-        }
-
-        apply { attributed in
-            let para = paragraphRange(in: attributed, around: location)
-            if para.length > 0 {
-                let existing = (attributed.attribute(.paragraphStyle, at: para.location, effectiveRange: nil) as? NSParagraphStyle) ?? NSParagraphStyle()
-                let style = existing.mutableCopy() as! NSMutableParagraphStyle
-                style.alignment = center ? .left : .center
-                attributed.addAttribute(.paragraphStyle, value: style, range: para)
-            }
-        }
-        if let style = tv.typingAttributes[.paragraphStyle] as? NSMutableParagraphStyle {
-            style.alignment = center ? .left : .center
-        } else if let style = tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle {
-            let mutable = style.mutableCopy() as! NSMutableParagraphStyle
-            mutable.alignment = center ? .left : .center
-            tv.typingAttributes[.paragraphStyle] = mutable
         } else {
-            let style = NSMutableParagraphStyle()
-            style.alignment = center ? .left : .center
-            tv.typingAttributes[.paragraphStyle] = style
+            // An empty line holds no typed text of its own: only what is typed
+            // next changes, and the paragraph above is left alone.
+            notifyFormatChange()
         }
+        Self.setTypingAlignment(center ? .left : .center, in: tv)
+    }
+
+    /// Points the *next typed* paragraph at `alignment`, keeping the rest of the
+    /// typing attributes (font, block style, spacing) as they are. Copies the
+    /// style instead of mutating it in place: `typingAttributes` can hold an
+    /// object that is also referenced by stored text.
+    private static func setTypingAlignment(_ alignment: NSTextAlignment, in tv: UITextView) {
+        let existing = tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle
+        let style = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+        style.alignment = alignment
+        tv.typingAttributes[.paragraphStyle] = style
     }
 
     func isCenterActive() -> Bool {
@@ -518,41 +545,125 @@ final class RichEditorController {
 
     private func toggleMarker(kind: String) {
         guard let tv = textView else { return }
-        let location = tv.selectedRange.location
-        // Determine the current line start. For an empty line there is no typed
-        // text to scan, so we anchor on the caret; use it directly instead of
-        // relying on the (unreliable) tokenizer for a fresh empty paragraph.
-        let lineRange = paragraphRange(in: tv.textStorage, around: location)
-
-        let payload: AttachmentPayload? = lineRange.length > 0 && lineRange.location < tv.textStorage.length
-            ? (tv.textStorage.attribute(.attachment, at: lineRange.location, effectiveRange: nil) as? PayloadAttachment)?.payload
-            : nil
-        let isMarked = payload?.kind == kind
-
-        // Insertion target: at the start of the (possibly empty) current line.
-        let insertLocation = lineRange.location
+        let selection = tv.selectedRange
+        // Empty lines are kept: on a line with no text the marker *is* the
+        // line's content, so there is always somewhere to put it.
+        let ranges = paragraphRanges(covering: selection, includeEmpty: true)
+        guard !ranges.isEmpty else { return }
+        let caretLine = paragraphRange(in: tv.textStorage, around: selection.location).location
+        let isMarked = Self.markerKind(in: tv.textStorage, at: caretLine) == kind
+        let lengthBefore = tv.textStorage.length
 
         apply { attributed in
-            if !isMarked {
-                // Turning on: cancel heading / quote / other marker / center first.
-                self.restyle(attributed, range: NSRange(location: insertLocation, length: 0),
-                             to: .body, cancelCenter: true)
-            }
-            if isMarked {
-                // Only strip a marker we can actually confirm exists at the line start.
-                if insertLocation < attributed.length,
-                   let p = (attributed.attribute(.attachment, at: insertLocation, effectiveRange: nil) as? PayloadAttachment)?.payload,
-                   p.kind == kind {
-                    attributed.replaceCharacters(in: NSRange(location: insertLocation, length: 1), with: "")
+            // Back to front: every insertion/removal shifts the lines after it.
+            for range in ranges.reversed() {
+                let lineStart = range.location
+                if isMarked {
+                    // Only strip a marker we can actually confirm exists.
+                    if Self.markerKind(in: attributed, at: lineStart) == kind {
+                        attributed.replaceCharacters(in: NSRange(location: lineStart, length: 1), with: "")
+                    }
+                } else {
+                    // Turning on: cancel heading / quote / other marker / center first.
+                    self.restyle(attributed, range: NSRange(location: lineStart, length: 0),
+                                 to: .body, cancelCenter: true)
+                    attributed.insert(NSAttributedString(attachment: MarkerAttachment.attachment(kind: kind, typeSize: self.dynamicTypeSize)), at: lineStart)
                 }
-            } else {
-                let attachment = MarkerAttachment.attachment(kind: kind, typeSize: self.dynamicTypeSize)
-                attributed.insert(NSAttributedString(attachment: attachment), at: insertLocation)
             }
         }
 
-        // Reset typing attributes to a plain block line.
+        // Keep the caret inside the item it was in: that line just gained or
+        // lost one character before the caret.
+        if selection.length == 0 {
+            let delta = tv.textStorage.length - lengthBefore
+            let target = min(max(0, max(caretLine, selection.location + delta)), tv.textStorage.length)
+            tv.selectedRange = NSRange(location: target, length: 0)
+        }
+        // Reset typing attributes to a plain block line. Continuing the list
+        // onto the next line is `handleReturn(at:)`'s job — the marker is a
+        // real character and typing attributes cannot carry it.
         tv.typingAttributes = typingAttributes(for: .body)
+    }
+
+    /// The list/to-do marker at `location`, if there is one.
+    private static func markerKind(in storage: NSAttributedString, at location: Int) -> String? {
+        guard location >= 0, location < storage.length,
+              let payload = (storage.attribute(.attachment, at: location, effectiveRange: nil) as? PayloadAttachment)?.payload,
+              payload.kind == "bullet" || payload.kind == "todo" else { return nil }
+        return payload.kind
+    }
+
+    /// Handles Return inside a line-styled paragraph.
+    ///
+    /// List and to-do markers are real characters at the line start, so UIKit's
+    /// own newline cannot carry them onto the next line: pressing Return inside
+    /// an item has to start the next item here. The same rule *ends* the style
+    /// on an empty item — that is what keeps "the style continues on the next
+    /// line" from trapping the user, because Return twice yields a plain
+    /// paragraph.
+    ///
+    /// Returns true when the keystroke has been consumed here.
+    @discardableResult
+    func handleReturn(at location: Int) -> Bool {
+        guard let tv = textView else { return false }
+        let storage = tv.textStorage
+        let ns = storage.string as NSString
+        let para = paragraphRange(in: storage, around: location)
+        let lineStart = para.location
+        // End of the paragraph's text, excluding its terminating newline.
+        var contentEnd = lineStart + para.length
+        if contentEnd > lineStart, contentEnd <= ns.length, ns.character(at: contentEnd - 1) == 0x0A {
+            contentEnd -= 1
+        }
+
+        if let kind = Self.markerKind(in: storage, at: lineStart) {
+            let contentStart = lineStart + 1
+            guard contentEnd > contentStart else {
+                // Empty item: end the list here, leaving the line where it is
+                // (now a plain empty paragraph). Return again for a blank line.
+                removeMarker(kind: kind, at: lineStart)
+                return true
+            }
+            // Start a new item: a newline plus the marker for the next line, so
+            // what is typed next belongs to a fresh item of the same kind.
+            let insertAt = min(max(location, contentStart), contentEnd)
+            let insertion = NSMutableAttributedString()
+            insertion.append(NSAttributedString(string: "\n", attributes: typingAttributes(for: .body)))
+            insertion.append(NSAttributedString(attachment: MarkerAttachment.attachment(kind: kind, typeSize: dynamicTypeSize)))
+            storage.insert(insertion, at: insertAt)
+            tv.selectedRange = NSRange(location: insertAt + insertion.length, length: 0)
+            tv.typingAttributes = typingAttributes(for: .body)
+            notifyFormatChange()
+            return true
+        }
+
+        // An empty quoted line ends the quote the same way: the line becomes a
+        // plain empty paragraph and this Return is consumed.
+        if contentEnd <= lineStart, isQuoteActive() {
+            tv.typingAttributes = baseTypingAttributes()
+            notifyFormatChange()
+            return true
+        }
+        return false
+    }
+
+    /// Drops `kind`'s marker from the line starting at `location`, if it is
+    /// really there. The caret keeps its place in the line.
+    private func removeMarker(kind: String, at location: Int) {
+        guard let tv = textView else { return }
+        let selection = tv.selectedRange
+        let lengthBefore = tv.textStorage.length
+        apply { attributed in
+            guard Self.markerKind(in: attributed, at: location) == kind else { return }
+            attributed.replaceCharacters(in: NSRange(location: location, length: 1), with: "")
+        }
+        let delta = tv.textStorage.length - lengthBefore
+        if selection.length == 0, delta != 0 {
+            let target = min(max(0, max(location, selection.location + delta)), tv.textStorage.length)
+            tv.selectedRange = NSRange(location: target, length: 0)
+        }
+        tv.typingAttributes = baseTypingAttributes()
+        notifyFormatChange()
     }
 
     func isListActive() -> Bool { currentMarkerKind() == "bullet" }
@@ -562,8 +673,7 @@ final class RichEditorController {
     private func currentMarkerKind() -> String? {
         guard let tv = textView, tv.textStorage.length > 0 else { return nil }
         let range = paragraphRange(around: tv.selectedRange)
-        guard range.location < tv.textStorage.length else { return nil }
-        return (tv.textStorage.attribute(.attachment, at: range.location, effectiveRange: nil) as? PayloadAttachment)?.payload.kind
+        return Self.markerKind(in: tv.textStorage, at: range.location)
     }
 
     func toggleQuote() {
@@ -653,15 +763,15 @@ final class RichEditorController {
     func activeStyles() -> (bold: Bool, italic: Bool, strike: Bool, underline: Bool) {
         guard let tv = textView else { return (false, false, false, false) }
         if tv.selectedRange.length > 0 {
-            let location = min(tv.selectedRange.location, max(0, tv.textStorage.length - 1))
-            guard tv.textStorage.length > 0, location < tv.textStorage.length else { return (false, false, false, false) }
-            let font = tv.textStorage.attribute(.font, at: location, effectiveRange: nil) as? UIFont
-            let strike = (tv.textStorage.attribute(.strikethroughStyle, at: location, effectiveRange: nil) as? Int ?? 0) != 0
-            let underline = (tv.textStorage.attribute(.underlineStyle, at: location, effectiveRange: nil) as? Int ?? 0) != 0
-            return (font?.fontDescriptor.symbolicTraits.contains(.traitBold) ?? false,
-                    font?.fontDescriptor.symbolicTraits.contains(.traitItalic) ?? false,
-                    strike,
-                    underline)
+            // "All of the selection", matching what a tap does to it: a mixed
+            // selection reads as off and a tap turns the trait on everywhere.
+            // Probing the first character instead made the button disagree with
+            // its own action.
+            let range = tv.selectedRange
+            return (selectionHasTrait(.traitBold, in: range),
+                    selectionHasTrait(.traitItalic, in: range),
+                    selectionHasStyle(.strikethroughStyle, in: range),
+                    selectionHasStyle(.underlineStyle, in: range))
         }
         // Empty caret: report what the next typed characters will look like.
         let typing = tv.typingAttributes
@@ -729,6 +839,44 @@ final class RichEditorController {
         notifyFormatChange()
     }
 
+    /// Re-fits the images already in the text to a new content width, leaving
+    /// the text and the caret untouched.
+    ///
+    /// The width changes when the device rotates. Reloading the editor's
+    /// original parts here — which is what the view used to do — threw away
+    /// every edit made since the editor opened, because those parts are the
+    /// snapshot from when it opened.
+    func refitImages(maxWidth: CGFloat) {
+        guard let tv = textView else { return }
+        let storage = tv.textStorage
+        guard storage.length > 0, maxWidth > 0 else { return }
+        let selection = tv.selectedRange
+        var refits: [(PayloadAttachment, NSRange)] = []
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            guard let attachment = value as? PayloadAttachment,
+                  attachment.payload.kind == "image" else { return }
+            refits.append((attachment, range))
+        }
+        guard !refits.isEmpty else { return }
+        for (attachment, range) in refits {
+            let storedW = max(1, CGFloat(attachment.payload.w))
+            let storedH = max(1, CGFloat(attachment.payload.h))
+            let w = min(storedW, maxWidth)
+            let h = storedH * w / storedW
+            if let image = DiaryImageStore.shared.image(for: attachment.payload.src,
+                                                        maxPixel: max(storedW, storedH) * 3) {
+                attachment.image = DiaryImageStore.rounded(image, size: CGSize(width: w, height: h),
+                                                           radius: Radius.image)
+            }
+            attachment.bounds = CGRect(x: 0, y: 0, width: w, height: h)
+            // Re-adding the attribute is what makes the layout manager pick the
+            // new bounds up.
+            storage.addAttribute(.attachment, value: attachment, range: range)
+        }
+        tv.selectedRange = selection
+        notifyFormatChange()
+    }
+
     func isEmpty() -> Bool {
         guard let tv = textView else { return true }
         return tv.textStorage.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -737,9 +885,18 @@ final class RichEditorController {
     private func apply(_ block: (NSMutableAttributedString) -> Void) {
         guard let tv = textView else { return }
         let text = tv.textStorage
+        let selection = tv.selectedRange
         let attributed = NSMutableAttributedString(attributedString: text)
         block(attributed)
         text.replaceCharacters(in: NSRange(location: 0, length: text.length), with: attributed)
+        // Rewriting the whole storage makes UIKit collapse the selection to the
+        // end of the edit, which silently dropped a selection the user had just
+        // made. Put it back, clamped to the new length; toggles that changed the
+        // length (a marker added or dropped) adjust the caret themselves after
+        // calling this.
+        let length = text.length
+        let location = min(selection.location, length)
+        tv.selectedRange = NSRange(location: location, length: min(selection.length, length - location))
         notifyFormatChange()
     }
 }
@@ -937,6 +1094,10 @@ enum PartsCodec {
             let lineStartPayload = storage.attribute(.attachment, at: lineRange.location, effectiveRange: nil) as? PayloadAttachment
             if let markerPayload = lineStartPayload?.payload, markerPayload.kind == "todo" || markerPayload.kind == "bullet" {
                 let rest = text.substring(with: NSRange(location: lineRange.location + 1, length: lineLength - 1))
+                // A marker with nothing after it is a line the user is still on
+                // — a just-added marker, or the empty item left by Return — not
+                // an item yet, so it is not written to storage.
+                if rest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
                 if markerPayload.kind == "todo" {
                     appendList(parts: &parts, item: rest, done: markerPayload.done)
                 } else {
