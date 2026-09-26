@@ -362,6 +362,75 @@ struct WeekRowCanvas: View {
     }
 }
 
+/// 一整块（一个月的所有周行）画在**一张** `Canvas` 里。
+///
+/// 连续月历流滚动时每一帧都要重画可见的行：一屏 8–9 行如果各是一张 `Canvas`，
+/// 每帧就是 8–9 次绘制（每次 7 个日期 + 农历 + 按格分隔线），快速滑动时跟不上手指
+/// （用户反馈「快速滑动不跟手、不流畅」）。合成一张后每帧只有 2–3 张。
+struct MonthBlockCanvas: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.diaryDynamicTypeSize) private var typeSize
+
+    var weeks: [WeekDays]
+    var anchorMonth: Date
+    var metrics: DayMetrics
+    var selectedDate: Date
+    var flags: Set<String>
+    /// 本块第一行是否画分隔线（整条流的第一行不画 —— 上面就是星期栏）。
+    var showsFirstDivider: Bool
+    /// 点某一天：回传 (日期, 行号)，行号给 morph 源用。
+    var onTapDay: ((Date, Int) -> Void)?
+
+    private var drawnMetrics: DayMetrics {
+        var m = metrics
+        let f = DynamicTypeMetrics.calendarMultiplier(for: typeSize)
+        m.dayFont *= f
+        m.lunarFont *= f
+        return m
+    }
+
+    var body: some View {
+        let m = drawnMetrics
+        return Canvas { context, _ in
+            let todayKey = DateUtil.dayKeyOf(Date())
+            let selectedKey = DateUtil.dayKeyOf(selectedDate)
+            for (i, week) in weeks.enumerated() {
+                let rowY = CGFloat(i) * m.cellH
+                var inMonth = [Bool](repeating: false, count: week.days.count)
+                var columns: [Int] = []
+                for (col, day) in week.days.enumerated()
+                where DateUtil.calendar.isDate(day, equalTo: anchorMonth, toGranularity: .month) {
+                    inMonth[col] = true
+                    columns.append(col)
+                }
+                // 分隔线按格画、只画本月有日期的那几格（空白格没有线）。
+                if i > 0 || showsFirstDivider {
+                    DayDraw.drawCellDividers(context, columns: columns, rowY: rowY,
+                                             cellW: m.cellW, alpha: m.dividerAlpha)
+                }
+                for (col, day) in week.days.enumerated() where inMonth[col] {
+                    DayDraw.draw(context, day: day, col: col, rowY: rowY, m: m, alpha: 1,
+                                 selectedKey: selectedKey, todayKey: todayKey, flags: flags,
+                                 anchorMonth: anchorMonth, isDark: colorScheme == .dark)
+                }
+            }
+        }
+        .contentShape(Rectangle())
+        .gesture(
+            SpatialTapGesture(count: 1).onEnded { value in
+                guard let onTapDay else { return }
+                let row = Int(value.location.y / m.cellH)
+                let col = Int(value.location.x / m.cellW)
+                guard weeks.indices.contains(row), weeks[row].days.indices.contains(col) else { return }
+                let day = weeks[row].days[col]
+                // 只画本月的日期，空白格不能点（否则会选中屏幕上看不见的日子）。
+                guard DateUtil.calendar.isDate(day, equalTo: anchorMonth, toGranularity: .month) else { return }
+                onTapDay(day, row)
+            }
+        )
+    }
+}
+
 struct MonthBigTitle: View {
     var month: Date
     /// 标题槽高度。竖屏是 `CalendarLayout.bigTitleH`（72），横屏分栏用紧凑值。

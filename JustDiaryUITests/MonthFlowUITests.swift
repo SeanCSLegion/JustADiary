@@ -72,14 +72,6 @@ final class MonthFlowUITests: XCTestCase {
         sleep(2)
     }
 
-    /// 从上往下滑（看前面的月份）。
-    private func swipeDown(_ distance: CGFloat = 0.35) {
-        let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
-        let end = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4 + distance))
-        start.press(forDuration: 0.05, thenDragTo: end)
-        sleep(2)
-    }
-
     func testScrollsContinuouslyAndKeepsTheHeaderPinned() throws {
         launchPortraitHome()
         let before = monthTitle().label

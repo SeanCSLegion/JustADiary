@@ -117,6 +117,25 @@ struct MonthFlowLayout {
         return ans
     }
 
+    /// 视口里**占得最多**的那一块：把每块与本视口相交的高度比一比，取最大的。
+    ///
+    /// 顶部月份用它而不是「视口顶部落在哪一块」—— 后者下一月刚露一行就换标题，
+    /// 快速滑动时标题会乱跳；「占多数」在整屏里只会在过半时切一次。
+    func dominantBlockIndex(offset: CGFloat, viewportH: CGFloat) -> Int {
+        let top = offset
+        let bottom = offset + viewportH
+        var best = blockIndex(atOffset: offset)
+        var bestShare: CGFloat = -1
+        for block in visibleBlocks(offset: offset, viewportH: viewportH, margin: 0) {
+            let share = min(block.bottom, bottom) - max(block.top, top)
+            if share > bestShare {
+                bestShare = share
+                best = block.index
+            }
+        }
+        return best
+    }
+
     func blockIndex(forKey key: Int) -> Int? {
         blocks.firstIndex { $0.key == key }
     }
@@ -217,8 +236,6 @@ struct MonthFlowMorphSource {
     /// 冻结时**顶部大标题显示的那个月**（点中的日期可能属于下一个月的行，
     /// morph 里的大标题要停在原来那一个上，不能中途换字）。
     var topMonth: Date
-    /// 冻结时的滚动偏移（反向 morph 收尾时要回到这里）。
-    var offset: CGFloat
     var rowH: CGFloat
     /// 月份之间那一带的高度（小标题那一行字的高度）。
     var labelBandH: CGFloat
@@ -318,7 +335,10 @@ struct MonthFlowView: View, Animatable {
         // 记下屏幕上这一帧的位置（拖动起点、morph 源都用它）。写在引用盒子里，
         // 不是 @State，不会触发额外求值。
         rendered.value = off
-        let topIndex = layout.blockIndex(atOffset: off)
+        // 顶栏显示的是**占据视口最多的那个月**，不是「顶部那一行的月份」：
+        // 后者在滑动时只要下一月的第一行露头就会切标题，看着像乱跳
+        // （用户：「要显示的是占据屏幕主要的月份」）。
+        let topIndex = layout.dominantBlockIndex(offset: off, viewportH: viewportH)
         let top = layout.blocks.indices.contains(topIndex) ? layout.blocks[topIndex] : nil
         let visible = layout.visibleBlocks(offset: off, viewportH: viewportH, margin: rowH)
 
@@ -331,9 +351,7 @@ struct MonthFlowView: View, Animatable {
             ZStack(alignment: .topLeading) {
                 Color.clear
                 ForEach(visible) { block in
-                    blockView(block, layout: layout, off: off,
-                              labelH: labelH,
-                              contentOriginY: 0)
+                    blockView(block, layout: layout, off: off, labelH: labelH)
                 }
             }
             .frame(width: size.width, height: viewportH, alignment: .topLeading)
@@ -372,7 +390,7 @@ struct MonthFlowView: View, Animatable {
 
     @ViewBuilder
     private func blockView(_ block: MonthFlowLayout.Block, layout: MonthFlowLayout, off: CGFloat,
-                           labelH: CGFloat, contentOriginY: CGFloat) -> some View {
+                           labelH: CGFloat) -> some View {
         let weeks = layout.weeks(of: block)
         ZStack(alignment: .topLeading) {
             // 小标题在**分割线上方**（用户的次序：上个月日期 → 小标题 → 分割线 → 本月日期）。
@@ -388,27 +406,21 @@ struct MonthFlowView: View, Animatable {
                 // 对齐会先把它摆到屏幕中间、再叠一次列偏移（实测偏了整整 3 列）。
                 .frame(width: size.width, height: labelH, alignment: .bottomLeading)
                 .offset(y: -Self.labelTightGap - labelH)
-            ForEach(Array(weeks.enumerated()), id: \.offset) { i, week in
-                WeekRowCanvas(week: week,
-                              metrics: metrics,
-                              selectedDate: selectedDate,
-                              flags: flags,
-                              // 分隔线画在每一行上方，但整条流的第一行之前不画
-                              // （上面就是星期栏，再画一条线是多余的）。
-                              showDivider: !(block.index == 0 && i == 0),
-                              anchorMonth: block.month,
-                              // 相邻月的日期不画：月份边界那一周由两个月各画自己那一半。
-                              showAdjacent: false,
-                              onTapDay: { day in
-                                  onTapDay(day, morphSource(layout: layout, off: off,
-                                                            tapped: (block.index, i)))
-                              })
-                    .frame(width: size.width, height: rowH)
-                    .offset(y: rowH * CGFloat(i))
-            }
+            // 整块（本月所有周行）画在**一张** Canvas 里，滚动时每帧只重画 2–3 张。
+            MonthBlockCanvas(weeks: weeks,
+                             anchorMonth: block.month,
+                             metrics: metrics,
+                             selectedDate: selectedDate,
+                             flags: flags,
+                             showsFirstDivider: block.index != 0,
+                             onTapDay: { day, row in
+                                 onTapDay(day, morphSource(layout: layout, off: off,
+                                                           tapped: (block.index, row)))
+                             })
+                .frame(width: size.width, height: rowH * CGFloat(weeks.count))
         }
         .frame(width: size.width, height: block.bottom - block.top, alignment: .topLeading)
-        .offset(y: contentOriginY + block.top - off)
+        .offset(y: block.top - off)
     }
 
     /// 顶栏：大月份标题 + 星期栏。**钉在顶部**，内容 = 占住视口顶部的那一个月。
@@ -431,7 +443,9 @@ struct MonthFlowView: View, Animatable {
     // MARK: 滚动
 
     private func dragGesture(layout: MonthFlowLayout, off: CGFloat, maxOff: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 6)
+        // 2pt 就起手：6pt 的阈值会让内容在手指动了 6pt 之后才开始跟，明显「不跟手」。
+        // 留一点点（不是 0）是为了不和行内的点击手势抢事件。
+        DragGesture(minimumDistance: 2)
             .onChanged { value in
                 // 手指追上正在滑行的惯性：把**当前显示位置**当作拖动起点。
                 if dragOrigin == nil {
@@ -454,9 +468,18 @@ struct MonthFlowView: View, Animatable {
                 // stiffness 140 / damping 22 的阻尼比 ≈ 0.93，末端会轻轻弹一下）。
                 let projected = origin - value.predictedEndTranslation.height
                 let target = min(maxOff, max(0, projected))
-                let velocity = -value.velocity.height
+                let velocity = -value.velocity.height          // 内容偏移的速度（pt/s）
+                // `interpolatingSpring` 的 `initialVelocity` 是**归一化**的
+                // （Apple 文档：「a value in the range [0, 1] representing the magnitude
+                // of the value being animated」，即「每秒走完这段距离的几分之几」）。
+                // 之前直接把 pt/s 传进去，快了三个数量级 —— 快速甩动时弹簧一上来就飞，
+                // 完全不跟手。这里按「位移」归一化，并夹在 ±12/s（位移很小时不至于爆掉）。
+                let delta = target - origin
+                let normalized: Double = abs(delta) > 4
+                    ? min(max(Double(velocity / delta), -12), 12)
+                    : 0
                 withAnimation(.interpolatingSpring(mass: 1, stiffness: 130, damping: 26,
-                                                   initialVelocity: velocity)) {
+                                                   initialVelocity: normalized)) {
                     onScroll(target)
                 } completion: {
                     let i = layout.blockIndex(atOffset: rendered.value)
@@ -524,7 +547,7 @@ struct MonthFlowView: View, Animatable {
         // morph 源必须与**屏幕上这一帧**一致：先把惯性停在当前帧，再按同一份数字建源。
         freezeAnimation(at: off)
         let visible = layout.visibleBlocks(offset: off, viewportH: viewportH, margin: 0)
-        let topIndex = layout.blockIndex(atOffset: off)
+        let topIndex = layout.dominantBlockIndex(offset: off, viewportH: viewportH)
         let topMonth = layout.blocks.indices.contains(topIndex) ? layout.blocks[topIndex].month : Date()
         var rows: [MonthFlowMorphSource.Row] = []
         var labels: [MonthFlowMorphSource.Label] = []
@@ -547,7 +570,6 @@ struct MonthFlowView: View, Animatable {
                                     labels: labels,
                                     selectedIndex: selected,
                                     topMonth: topMonth,
-                                    offset: off,
                                     rowH: layout.rowH,
                                     labelBandH: CalendarLayout.flowLabelBandHeight(compact: compact),
                                     viewportTop: titleHeight + weekdayHeight,

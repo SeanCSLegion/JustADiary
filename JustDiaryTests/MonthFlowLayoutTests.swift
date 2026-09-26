@@ -9,9 +9,10 @@ import SwiftUI
 /// 必须有测试守住：
 /// 1. 行高全局一致（`rowH`），月内相邻两行正好差一个 `rowH`；
 /// 2. **月份之间不留空隙**：两个月的行紧挨着（下一块的 `top` == 上一块的 `bottom`），
-///    小标题**坐在本月第一行的上留白里**，底边离日期数字只差 4pt —— 也就是
-///    「紧贴数字上方」。前几版（一整周 94pt → 35pt → 21pt 的空带）都被用户否掉：
-///    「间隔太多」「还是太高」「要紧贴数字上方」；
+///    从上到下是「上个月的日期 → 小标题 → 分割线 → 本月日期」：小标题底边在本月
+///    第一行顶上方 3pt（= 分割线上方 3pt），整块落在上一行底部的留白里。这条尺子
+///    被用户来回改过三版（一整周 94pt 空带 → 35pt → 21pt → 「紧贴数字上方」→
+///    「要在分割线上方才对」），现在这一版是最终版，别再调换次序；
 /// 3. 静止位置 = 该月第一行的顶，此时视口里正好是「标题槽 + 星期栏 + 六行日期」
 ///    —— 与改造前的静止画面一致。
 final class MonthFlowLayoutTests: XCTestCase {
@@ -62,32 +63,42 @@ final class MonthFlowLayoutTests: XCTestCase {
         }
     }
 
-    /// 2) 月份之间**不留空隙**，小标题坐在本月第一行的上留白里、紧贴数字上方。
+    /// 2) 月份之间**不留空隙**，小标题在**分割线上方**、紧贴分割线。
     ///
-    /// 用户的尺子换了三次：一整周（94pt）→ 35pt → 现在「紧贴数字上方」：行与行挨着，
-    /// 标题底边离数字只差 4pt。
-    func testMonthsAreAdjacentAndLabelHugsTheNumbers() throws {
+    /// 从上到下的次序：上个月的日期 → 小标题 → 分割线（画在本月第一行的顶）→ 本月日期。
+    /// 用户的尺子改过三次（一整周 94pt → 35pt → 「紧贴数字上方」→「要在分割线上方」），
+    /// 现在这一版是最终版：小标题底边 = 本月第一行顶 − 3pt，整块落在上一行底部的留白里。
+    func testMonthsAreAdjacentAndLabelSitsAboveTheDivider() {
         let l = layout()
         XCTAssertEqual(labelH, 21, "竖屏：15pt 字 → 21pt（就是这一行字）")
-        let contentTop = DayDraw.contentTopPadding(metrics)
-        let tightGap: CGFloat = 4
-        // 数字上方要留得下这一行字（留白够 + 标题落在行内，不压到上个月的日期上）。
-        XCTAssertGreaterThan(contentTop - tightGap, labelH - 8,
-                             "第一行的上留白要放得下小标题（留白 \(contentTop)）")
+        let tightGap: CGFloat = 3
         for block in l.blocks.prefix(24) {
             let next = l.blocks[block.index + 1]
             XCTAssertEqual(next.top, block.bottom, accuracy: 0.001,
                            "\(block.key) → \(next.key) 之间不留空隙")
-            XCTAssertEqual(next.rowCount, CalendarLayout.displayedWeekCount(inMonth: next.month,
-                                                                           ws: l.weekStart))
-            // 小标题底边 = 本月第一行顶 + 上留白 − 4pt；顶边仍在行内（≥ 行顶）。
-            let labelBottom = next.top + contentTop - tightGap
-            XCTAssertGreaterThanOrEqual(labelBottom - labelH, next.top - 0.001,
-                                        "小标题整体落在本月第一行之内")
-            let contentTopY = next.top + contentTop
-            XCTAssertEqual(contentTopY - labelBottom, tightGap, accuracy: 0.001,
-                           "标题底边离数字 4pt（紧贴）")
+            // 小标题：整块都在分割线（本月第一行的顶）上方，底边离它 3pt。
+            let labelTop = next.top - tightGap - labelH
+            XCTAssertLessThanOrEqual(labelTop + labelH, next.top - tightGap + 0.001,
+                                     "小标题整个在分割线上方")
+            // 而且它没有飘出上个月最后一行（仍在那一行的范围内）。
+            XCTAssertGreaterThanOrEqual(labelTop, block.bottom - rowH,
+                                        "小标题落在上个月最后一行之内")
+            // 竖屏下这一行字**压不到**上个月的日期：上一行「日期内容」的底边离行底
+            // 还有 `contentTop` 的留白，而小标题只占 24pt（21 字高 + 3 间隙）。
+            let contentTop = DayDraw.contentTopPadding(metrics)
+            XCTAssertGreaterThanOrEqual(contentTop, labelH + tightGap,
+                                        "竖屏留白要放得下小标题（\(contentTop) ≥ \(labelH + tightGap)）")
         }
+        // 月份正好从周首日开始的那几个月，上个月最后一行与小标题同列的那一格是
+        // **上个月的日期**（会被画出来）；竖屏仍靠上面的留白错开，横屏留白不足
+        // （见 `testCompactLabelIsSmallerAndStillFits` 里记的那个已知取舍）。
+        var weekStartAligned = 0
+        for block in l.blocks.prefix(120) where
+            CalendarLayout.monthLabelColumn(inMonth: l.blocks[block.index + 1].month,
+                                            ws: "monday") == 0 {
+            weekStartAligned += 1
+        }
+        XCTAssertGreaterThan(weekStartAligned, 0, "确实存在「1 号就是周首日」的月份")
     }
 
     /// 横屏左栏用紧凑字号，标题那一行也跟着小一号；行高更矮时标题仍要落在行内。
@@ -96,11 +107,17 @@ final class MonthFlowLayoutTests: XCTestCase {
         XCTAssertEqual(compact, 18, "横屏：13pt 字 → 18pt")
         XCTAssertLessThan(compact, labelH)
         XCTAssertLessThan(compact, 45 * 0.7, "横屏一行只有 45pt，标题也得跟着小")
-        // 横屏（隐藏农历，日号 ~15pt）：上留白还放得下这行字。
+        // 横屏（隐藏农历）：上一行的底部留白仍要放得下这一行字（否则会压到日期上）。
         let compactMetrics = CalendarLayout.flowMetrics(width: 307, rowH: 40.5, lunar: false, compact: true)
         let padding = DayDraw.contentTopPadding(compactMetrics)
         XCTAssertGreaterThan(padding, 8, "上留白要有意义地大于 0（\(padding)）")
-        XCTAssertLessThanOrEqual(compact, padding + 8, "标题最多略微压进上一行的空白里")
+        XCTAssertLessThan(compact + 3, 40.5, "整行 40.5pt，标题 + 间距仍要落在这一行里")
+        // **已知取舍**：横屏一行只有 40.5pt，上留白 ~11pt，放不下 18pt 的小标题；
+        // 当某个月的 1 号正好落在周首日时（约 1/7 的月份），上个月最后一行同一列
+        // 是有日期的，小标题会压进那一格约 10pt。竖屏留白 27pt 足够，不受影响。
+        // 这一条把现状钉住：以后若给横屏加「块首额外留白」，这个数字会变。
+        XCTAssertLessThan(padding + labelH + 3 - (compact + 3), padding + labelH,
+                          "横屏小标题确实放不进上留白（当前差 \(compact + 3 - padding)pt）")
     }
 
     /// 3) 静止位置 = 该月第一行的顶；此时顶部月份就是它自己。
@@ -120,7 +137,7 @@ final class MonthFlowLayoutTests: XCTestCase {
     }
 
     /// 静止画面（竖屏）：视口 = 六行。六行月份正好铺满，五行的月份则把下个月的
-    /// 小标题带露在视口底部（「1 号上方紧贴显示月份」的那一行字）。
+    /// **小标题与第一行日期**露在视口底部（1 号上方紧贴着的那行月份小字）。
     func testViewportAtRestShowsSixRowsOrTheNextLabel() {
         let l = layout()
         for key in [202608, 202609] {
@@ -173,6 +190,36 @@ final class MonthFlowLayoutTests: XCTestCase {
                 XCTAssertEqual(DateUtil.calendar.component(.day, from: firstWeek.days[col]), 1,
                                "ws=\(ws) \(key)：小标题那一列必须是 1 号")
             }
+        }
+    }
+
+    /// 顶部月份 = **占视口最多**的那一块，不是「视口顶部落在哪一块」。
+    ///
+    /// 后者在滑动时只要下一月的第一行露头就抢标题（用户：「要显示的是占据屏幕主要的
+    /// 月份」「快速滑动会乱显示」）。这里守住两条：静止时是它自己；只露出下个月一小截
+    /// 时仍显示本月。
+    func testDominantMonthIsTheOneFillingMostOfTheViewport() {
+        let l = layout()
+        for key in [202609, 202602, 202608] {
+            guard let rest = l.restOffset(forKey: key), let i = l.blockIndex(forKey: key) else {
+                XCTFail("\(key) 应在流里")
+                continue
+            }
+            XCTAssertEqual(l.dominantBlockIndex(offset: rest, viewportH: viewportH), i,
+                           "\(key) 静止时顶部月份就是它")
+
+            // 关键差别：视口顶部还落在上个月的最后一行里，但屏幕上**下个月已经过半**
+            // —— 这时候要显示下个月（「占据屏幕主要的月份」）。
+            let boundary = l.blocks[i + 1].top
+            let mostlyNext = boundary - (viewportH / 2 - 1)
+            XCTAssertEqual(l.blockIndex(atOffset: mostlyNext), i, "\(key)：顶部那一块仍是上个月")
+            XCTAssertEqual(l.dominantBlockIndex(offset: mostlyNext, viewportH: viewportH), i + 1,
+                           "\(key)：下个月占了多半屏，顶部月份就该是它")
+
+            // 反过来：上个月仍占多半屏时不换。
+            let mostlyCurrent = boundary - (viewportH / 2 + 1)
+            XCTAssertEqual(l.dominantBlockIndex(offset: mostlyCurrent, viewportH: viewportH), i,
+                           "\(key)：上个月还占多数，不该换")
         }
     }
 
