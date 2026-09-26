@@ -153,6 +153,11 @@ _device_family = '"1"'
 _oriented_phone = ('"UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft '
                   'UIInterfaceOrientationLandscapeRight"')
 
+# 签名团队：开源仓库里不带个人 Team ID（它会被写进提交的 project.pbxproj）。
+# 需要真机调试时用环境变量给上，自己的团队 ID 不会被提交：
+#     DEVELOPMENT_TEAM=XXXXXXXXXX python3 generate_project.py
+_team_id = os.environ.get("DEVELOPMENT_TEAM", "").strip()
+
 app_common_settings = {
     "ASSETCATALOG_COMPILER_APPICON_NAME": '"JustDiary"',
     "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
@@ -229,6 +234,10 @@ unittest_common_settings = {
 unittest_settings = {"Debug": unittest_common_settings, "Release": unittest_common_settings}
 
 def settings_block(cfg_id, name, settings):
+    # 签名团队只在显式提供时写入（见文件开头 `_team_id`）：开源仓库里不带个人 Team ID。
+    settings = dict(settings)
+    if _team_id:
+        settings["DEVELOPMENT_TEAM"] = _team_id
     body = pbx(settings, name, "XCBuildConfiguration")
     return (
         f"\t\t{cfg_id} /* {name} */ = {{\n"

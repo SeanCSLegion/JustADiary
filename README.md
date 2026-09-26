@@ -1,6 +1,53 @@
 # 一页时光（JustADiary）
 
-基于 SwiftUI 的日记软件（iOS 27+），原为 HarmonyOS 应用迁移而来。
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/iOS-27%2B-black.svg)]()
+[![Swift](https://img.shields.io/badge/Swift-6.4-orange.svg)]()
+[![Xcode](https://img.shields.io/badge/Xcode-27-147EFB.svg)]()
+[![Written by AI](https://img.shields.io/badge/Written%20by-AI%20(DeepSeek)-7C3AED.svg)](#ai-参与与致谢)
+[![Data](https://img.shields.io/badge/Data-on--device%20only-success.svg)](#数据与隐私)
+
+> **本项目由 AI 编写。** 代码、测试与文档都是在 AI（[DeepSeek](https://www.deepseek.com/)）
+> 协助下完成的；特别感谢 DeepSeek。详见 [AI 参与与致谢](#ai-参与与致谢)。
+
+一页时光是一款 **纯本地** 的 iOS 日记应用（iOS 27+ / SwiftUI）：月历与年历浏览、富文本日记、
+足迹聚合、全文搜索。**零第三方依赖、不发起任何网络请求、不做统计上报**，数据只存在本机。
+
+## 预览
+
+| 月历 | 阅读 | 位置与引用 |
+|:---:|:---:|:---:|
+| <img src="docs/images/home-month.jpg" width="240"> | <img src="docs/images/diary-read.jpg" width="240"> | <img src="docs/images/diary-location.jpg" width="240"> |
+
+| 足迹 | 搜索 | 设置 |
+|:---:|:---:|:---:|
+| <img src="docs/images/footprint.jpg" width="240"> | <img src="docs/images/search.jpg" width="240"> | <img src="docs/images/settings.jpg" width="240"> |
+
+> 截图取自模拟器 + `tools/seed_sample_diary.py` 生成的示例数据（非真实用户数据）。
+
+## English summary
+
+**一页时光 (JustADiary)** is a fully local iOS diary app: a month/year calendar home, a
+rich-text diary editor (semantic paragraph styles, inline formats, images, automatic time
+and location, todo lists), a footprint view that aggregates recorded places by country /
+province / city, and full-text search (SQLite FTS5 with CJK segmentation).
+
+- **Platform** — iOS 27+, iPhone only, SwiftUI, Swift 6.4, Xcode 27.
+- **Dependencies** — none: no SPM packages, no network requests, no analytics. Everything
+  stays on the device (SQLite database + local image store, zip-based backup import/export).
+- **Design** — Apple's Liquid Glass is used on the control layer only; content cards keep the
+  system grouped background. Design tokens, Dynamic Type handling, contrast and the editor's
+  round-trip invariants are documented under [`docs/`](docs/).
+- **Written by AI** — the code, tests and documentation were produced with AI assistance
+  (DeepSeek); see [AI 参与与致谢](#ai-参与与致谢).
+- **License** — MIT.
+
+```bash
+git clone https://github.com/SeanCSLegion/JustADiary.git
+cd JustADiary
+python3 generate_project.py     # 生成 JustDiary.xcodeproj
+open JustDiary.xcodeproj        # ⌘R 运行，⌘U 测试
+```
 
 ## 功能
 
@@ -50,6 +97,9 @@ JustDiary/
 
 JustDiaryTests/      # 单元测试（宿主为 App）：content_json 编解码、编辑器往返不变量、日记列宽
 JustDiaryUITests/    # UI 测试：morph 动画、足迹、编辑器、语言/主题、手机横屏版面、冒烟
+
+docs/                # 设计规范、编辑器排版与格式行为、自适应版面、位置规则、升级调研
+tools/               # 示例数据、设计稿截图等开发辅助脚本
 ```
 
 关键设计：
@@ -63,32 +113,80 @@ JustDiaryUITests/    # UI 测试：morph 动画、足迹、编辑器、语言/�
 - 足迹页是**纯数据聚合**（`FootprintDataService`）：不依赖坐标，也不需要任何打包的地理边界数据，因此对任何国家都可用
 - 并发隔离：项目启用 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`，UI 层默认主线程隔离；数据与服务层（`DiaryRepository`、`SQLite`、`BackupService`、`ZipArchive`、`FootprintDataService` 等）显式标注 `nonisolated`，因为它们实际运行在串行队列或后台任务上
 
-## 构建
+## 构建与运行
 
-- 部署目标：**iOS 27.0**
-- 设备族：**iPhone**（`TARGETED_DEVICE_FAMILY = "1"`）——不含 iPad，也未开启 Mac 上的
-  「Designed for iPad」（`SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`）
-- 项目由 `generate_project.py` 生成（PBXFileSystemSynchronizedRootGroup）——**所有构建设置都改这个脚本再重新生成**，不要手改 `project.pbxproj`。新增/删除文件后重新运行：
+- 部署目标：**iOS 27.0**；设备族：**iPhone**（`TARGETED_DEVICE_FAMILY = "1"`）——不含 iPad，
+  也未开启 Mac 上的「Designed for iPad」（`SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`）
+- 依赖：**无第三方依赖**（无 SPM/CocoaPods/Carthage），只需要 Xcode 27
+- 项目由 `generate_project.py` 生成（PBXFileSystemSynchronizedRootGroup）——**所有构建设置都改这个脚本再重新生成**，不要手改 `project.pbxproj`。克隆后先跑一次，新增/删除文件后也要重跑：
 
 ```bash
 python3 generate_project.py
 xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform=iOS Simulator,name=iPhone 18 Pro' build
 ```
 
+- **真机调试的签名团队**不在仓库里（开源，不带个人 Team ID）。需要时用环境变量传给生成脚本，
+  这样 Team ID 不会被写进提交的 `project.pbxproj`：
+
+```bash
+DEVELOPMENT_TEAM=XXXXXXXXXX python3 generate_project.py    # 换成自己的 Team ID
+```
+
 - 运行测试（单元测试覆盖 `content_json` 编解码、编辑器往返不变量与日记列宽；
-  UI 测试覆盖 morph 动画、足迹页、编辑器字号往返与「放弃修改」、语言/主题、
-  手机横屏分栏与翻月、冒烟）：
+  UI 测试覆盖 morph 动画、足迹页、编辑器（含字号往返、「放弃修改」、横屏版面、旋转后图片列宽、
+  键盘收起）、语言/主题、手机横屏分栏与翻月、冒烟）：
 
 ```bash
 xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -parallel-testing-enabled NO test
-```
 
-  也可以只跑其中一类：
-
-```bash
+# 也可以只跑其中一类
 xcodebuild ... -only-testing:JustDiaryTests test          # 毫秒级
 xcodebuild ... -only-testing:JustDiaryUITests test        # 需要中文模拟器 + 示例数据
 ```
+
+## 数据与隐私
+
+- 所有日记、图片、搜索索引与设置都只存在**本机**（App 容器内的 SQLite + 图片目录）；
+  卸载即清除，应用**不发起任何网络请求**，也没有统计/埋点
+- 位置由系统定位自动获取（可关闭），只把「记录时刻的坐标/地名」写进本机数据库；足迹页是按需聚合，
+  不依赖任何打包的地理数据
+- 备份是标准的 zip（含数据库与图片），导入导出都在本机完成，方便自行迁移或长期保存
+
+## AI 参与与致谢
+
+- **本项目由 AI 编写**：Swift 代码、单元/UI 测试、`docs/` 下的设计文档与这份 README，
+  都是在 AI 协助下完成的（人负责提出需求、验收与取舍）。因此代码与文档里保留了大量的
+  「为什么这么做 / 试过什么不行」的注释，方便人（和下一个 AI）接续维护。
+- 特别感谢 **[DeepSeek](https://www.deepseek.com/)** —— 本项目的主要实现伙伴；
+  也感谢 Apple 的 SwiftUI / UIKit 文档与 WWDC 资料，以及所有被参考过的开源资料。
+- 如果你发现 AI 写错了什么，欢迎提 Issue / PR（见下）。
+
+## 贡献
+
+欢迎 Issue 与 PR：
+
+1. 先 `python3 generate_project.py` 生成工程；**改构建设置请改这个脚本**，不要直接改 `project.pbxproj`
+2. 提交前请跑一遍测试（`-only-testing:JustDiaryTests` 至少；涉及 UI 的改动请跑 `JustDiaryUITests`）
+3. 代码注释与文档用中文（与现有风格一致）；提交信息也建议中文，说明「是什么问题 / 怎么改的 / 怎么验证的」
+4. 新增文件后记得重跑 `generate_project.py`
+
+## 许可证
+
+本项目以 **MIT** 许可证发布，见 [LICENSE](LICENSE)。
+
+> 应用名「一页时光」、图标与设计稿（`JustDiary.icon/`、`docs/design/`）同属本仓库，
+> 一并按 MIT 授权；示例数据和截图均为人工构造，不含真实用户数据。
+
+## 文档
+
+- iOS 27 / Xcode 27（Swift 6.4）适配方案见 `docs/iOS27-upgrade-plan.md`
+- 界面规范（设计令牌 / 动态字体 / 日期格式 / Liquid Glass 边界）见 `docs/design-system.md`
+- **编辑页字体与段落样式**（字体模型、E1–E6 待办的处理结果、行距 / 段距 / 图片留白、往返测试）见 `docs/editor-typography.md`
+- **编辑页格式按钮的作用域**（每个按钮点一下 / 取消各影响什么、行样式换行延续、问题清单与修复记录）见 `docs/editor-format-behaviors.md`
+- **位置的记录规则**（何时获取、保存确认、与历史编辑的关系）见 `docs/location-recording.md`
+- 首页动画性能与系统显示设置适配见 `docs/animation-and-accessibility.md`
+- **手机竖屏 / 横屏自适应布局方案与设计稿**见 `docs/adaptive-layout-plan.md`
+- 升级调研（含 Apple 官方文档引用）见 `docs/research/`
 
 ## 设计稿
 
@@ -127,14 +225,3 @@ python3 tools/seed_sample_diary.py "iPhone 18 Pro"
 - `Localizable.xcstrings` 是本地化的**唯一真源**，请直接编辑该文件。
   （曾有的 `generate_xcstrings.py` 依赖已不存在的 `.lproj/Localizable.strings`，属于失效脚本，已删除；
   需要时从 git 历史取回。）
-
-## 版本说明
-
-- iOS 27 / Xcode 27（Swift 6.4）适配方案见 `docs/iOS27-upgrade-plan.md`
-- 界面规范（设计令牌 / 动态字体 / 日期格式 / Liquid Glass 边界）见 `docs/design-system.md`
-- **编辑页字体与段落样式**（字体模型、E1–E6 待办的处理结果、行距 / 段距 / 图片留白、往返测试）见 `docs/editor-typography.md`
-- **编辑页格式按钮的作用域**（每个按钮点一下 / 取消各影响什么、行样式换行延续、问题清单与修复记录）见 `docs/editor-format-behaviors.md`
-- **位置的记录规则**（何时获取、保存确认、与历史编辑的关系）见 `docs/location-recording.md`
-- 首页动画性能与系统显示设置适配见 `docs/animation-and-accessibility.md`
-- **手机竖屏 / 横屏自适应布局方案与设计稿**见 `docs/adaptive-layout-plan.md`
-- 升级调研（含 Apple 官方文档引用）见 `docs/research/`
