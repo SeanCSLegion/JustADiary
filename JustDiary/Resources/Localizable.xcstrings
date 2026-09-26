@@ -2189,13 +2189,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Record and show the start time; hide it when off"
+            "value" : "Display only"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自动记录并显示开始时间；关闭后不显示"
+            "value" : "只影响是否显示"
           }
         }
       }
@@ -2257,13 +2257,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Entries before this time belong to the previous day"
+            "value" : "Before this time = previous day"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在此时间之前写的内容，归入前一天"
+            "value" : "这个时间前算前一天"
           }
         }
       }
@@ -2410,13 +2410,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modify or delete existing blocks only; new blocks can't be added to past days"
+            "value" : "Past days: edit or delete only"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "仅可修改或删除已有编辑块，历史日期不可新增内容"
+            "value" : "历史日期只能改，不能新增"
           }
         }
       }
@@ -2750,13 +2750,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Location stays on this device only"
+            "value" : "Stays on this device only"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "地点仅保存在本机，不会上传"
+            "value" : "地点只存在本机"
           }
         }
       }
@@ -3158,13 +3158,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choose whether calendars begin on Monday or Sunday"
+            "value" : "Which day a week starts on"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "选择日历从周一开始还是周日开始"
+            "value" : "日历以周几开头"
           }
         }
       }

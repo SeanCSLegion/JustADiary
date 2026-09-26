@@ -903,7 +903,10 @@ final class RichEditorController {
         for (attachment, range) in refits {
             let storedW = max(1, CGFloat(attachment.payload.w))
             let storedH = max(1, CGFloat(attachment.payload.h))
-            let w = min(storedW, maxWidth)
+            // Same rule as the codec: the column decides the width, the stored
+            // pair only the aspect ratio. Leaving `min(storedW, maxWidth)` here
+            // meant a rotation re-fitted every image back to its stored width.
+            let w = max(60, maxWidth)
             let h = storedH * w / storedW
             if let image = DiaryImageStore.shared.image(for: attachment.payload.src,
                                                         maxPixel: max(storedW, storedH) * 3) {

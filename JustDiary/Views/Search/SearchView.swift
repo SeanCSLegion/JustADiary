@@ -180,6 +180,8 @@ struct SearchView: View {
                 .diaryFont(TypeSize.caption)
                 .foregroundStyle(Theme.onSurfaceVariant())
             ScrollView(.horizontal, showsIndicators: false) {
+                // 玻璃胶囊自己带外沿高光与按压缩放，滚动视口贴着它会把上下两条
+                // 边裁掉（`ViewThatFits` 那条格式栏同理，那里也留了 8pt）。
                 HStack(spacing: 6) {
                     timeChip(L10n.str("search_all_time"), kind: .all)
                     timeChip(L10n.str("search_time_week"), kind: .thisWeek)
@@ -187,6 +189,7 @@ struct SearchView: View {
                     timeChip(L10n.str("search_time_year"), kind: .thisYear)
                     timeChip(vm.timeRangeLabel, kind: .custom)
                 }
+                .padding(.vertical, 6)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -204,6 +207,7 @@ struct SearchView: View {
                     locChip(vm.locFilterLabel, country: vm.locFilter.country, region1: vm.locFilter.region1,
                             noLoc: vm.locFilter.noLoc, custom: true)
                 }
+                .padding(.vertical, 6)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

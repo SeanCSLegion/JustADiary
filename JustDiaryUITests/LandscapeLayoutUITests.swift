@@ -275,6 +275,50 @@ final class LandscapeLayoutUITests: XCTestCase {
                                     "下划线被推到屏幕上方之外：\(underline.frame)")
     }
 
+    /// 横屏进编辑时，顶栏那些按钮必须留在屏内。
+    ///
+    /// 页面自己做键盘避让（格式栏用 `keyboardHeight` 抬到键盘上方、内容末尾补一块
+    /// 等高占位），如果 system 那套避让还在，横屏（可用高度只有 402pt）会把整页
+    /// 连同 `safeAreaInset` 里**钉住**的顶栏一起往上顶：实测键盘弹起后「返回 /
+    /// 插入图片 / 保存」跑到屏幕上方之外，用户看到的就是「顶栏没有按钮」。
+    func testLandscapeEditorTopBarStaysOnScreen() throws {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(2)
+        app = XCUIApplication()
+        app.launchArguments = ["-ui-test-open-day", todayKey(),
+                               "-ui-test-reset-settings", "-ui-test-no-autoloc"]
+        app.launch()
+
+        let writes = app.buttons.matching(NSPredicate(format: "label == %@", "写日记"))
+        let write = writes.allElementsBoundByIndex.first(where: { $0.isHittable }) ?? writes.firstMatch
+        XCTAssertTrue(write.waitForExistence(timeout: 15), "日记页应提供「写日记」")
+        write.tap()
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "编辑器的正文输入区")
+        editor.tap()
+        sleep(2)
+
+        let win = app.windows.firstMatch.frame
+        for label in ["返回", "插入图片", "放弃修改", "保存"] {
+            let button = app.buttons[label]
+            XCTAssertTrue(button.waitForExistence(timeout: 6), "顶栏按钮 \(label)")
+            XCTAssertGreaterThanOrEqual(button.frame.minY, win.minY - 1,
+                                        "\(label) 被顶出屏幕上方：\(button.frame)")
+            XCTAssertLessThanOrEqual(button.frame.maxY, win.maxY + 1,
+                                     "\(label) 超出屏幕底部：\(button.frame)")
+            XCTAssertTrue(button.isHittable, "\(label) 应可见可点：\(button.frame)")
+        }
+
+        // 顶栏还必须**不随滚动移动**：它原来挂在 ScrollView 的 `safeAreaInset` 上，
+        // 键盘把编辑卡片带进视野时 `scrollTo` 会连它一起滚出去（模拟器接硬件键盘时
+        // 键盘不弹，所以这一条是不依赖键盘的确定性断言）。
+        let before = app.buttons["返回"].frame.minY
+        app.scrollViews.firstMatch.swipeUp()
+        app.scrollViews.firstMatch.swipeDown()
+        XCTAssertEqual(app.buttons["返回"].frame.minY, before, accuracy: 1,
+                       "顶栏应钉在页面顶部，不随内容滚动")
+    }
+
     private func todayKey() -> String {
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"

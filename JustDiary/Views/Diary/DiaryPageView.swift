@@ -8,11 +8,18 @@ struct DiaryPageView: View {
 
     @State private var vm = DiaryViewModel()
     @State private var showPhotoPicker = false
+    /// 顶栏实测高度：顶栏不再挂在滚动视图上，改成按这个高度给内容让位。
+    @State private var topBarHeight: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .bottom) {
             BlobBackground(dense: true)
             content
+            // 顶栏钉在页面顶部，**不放进滚动视图**：它原本是 ScrollView 的
+            // `safeAreaInset`，而键盘弹起时页面会 `scrollTo` 把编辑卡片带进视野，
+            // 横屏（可用高度只有 402pt）连这条 inset 一起被滚出屏幕 —— 实测返回
+            // 按钮跑到 y = −51，用户看到的就是「顶栏没有按钮」。
+            topBarOverlay
             if !vm.isRead {
                 FontToolbar(controller: vm.controller, onTap: {
                     vm.controller.textView?.becomeFirstResponder()
@@ -26,7 +33,11 @@ struct DiaryPageView: View {
                 .transition(.opacity)
             }
         }
+        // 底部安全区由页面自己让位（格式栏用 `keyboardHeight` 抬到键盘上方、内容
+        // 末尾补一块等高占位），所以不要再让系统避让一次：两套叠加会多出一份键盘
+        // 高度的空白。顶栏不在这一层 —— 它由 `topBarOverlay` 钉在页面顶部。
         .ignoresSafeArea(edges: .bottom)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .task {
             vm.dayKey = dayKey
             vm.onDismiss = { dismiss() }
@@ -147,15 +158,12 @@ struct DiaryPageView: View {
                 .frame(maxWidth: .infinity)
                 .animation(.diaryStandard, value: vm.blocks.map(\.id))
             }
-            // 顶栏是**悬浮**在内容之上的：用 `safeAreaInset` 只给滚动内容留出
-            // 起始让位，不占一条实心横带 —— 日记上滑时会从玻璃按钮后面穿过去。
-            // 系统在顶边（状态栏那一条）保留默认的 scroll edge effect，避免正文
-            // 压到时间/电量；按钮之间透出的仍是正文。
+            // 顶栏（`topBarOverlay`）是**悬浮**在内容之上的：这里只按它的实测高度
+            // 给滚动内容留出起始让位，不占一条实心横带 —— 日记上滑时会从玻璃按钮
+            // 后面穿过去。系统在顶边（状态栏那一条）保留默认的 scroll edge effect，
+            // 避免正文压到时间/电量；按钮之间透出的仍是正文。
             .safeAreaInset(edge: .top, spacing: 0) {
-                topBar
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-                    .padding(.bottom, 6)
+                Color.clear.frame(height: topBarHeight)
             }
             .onChange(of: vm.scrollTarget) { _, target in
                 guard let target else { return }
@@ -183,6 +191,18 @@ struct DiaryPageView: View {
                 }
             }
         }
+    }
+
+    /// 顶栏本体：钉在 ZStack 顶部，并把自己的高度报给内容当让位高度。
+    private var topBarOverlay: some View {
+        topBar
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+            .padding(.bottom, 6)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                if height > 10, abs(height - topBarHeight) > 0.5 { topBarHeight = height }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var topBar: some View {
