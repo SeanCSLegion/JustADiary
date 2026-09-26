@@ -201,7 +201,9 @@ Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —�
 | **B9** | 低 | `PartsCodec.parts(from:)` | 空行点「列表」后直接保存 → 库里存下 `items: [""]` 空项 | 只跳过「空白文本行」，没跳过「只有标记的行」 | 只有标记没有文字的行不入库 | ✅ 修 |
 | **B10** | 高（数据丢失） | `RichTextView.updateUIView` | 编辑到一半旋转屏幕/宽度变化 → 回到进入编辑时的内容，刚输入的字没了 | 宽度变化时用 `loadParts`（进入编辑时的快照）整块重载编辑器 | 宽度变化只重排图片，不动文本 | ✅ 修 |
 | **B8** | 低 | `activeStyles()` / `isCenterActive()` / `currentBlockStyle()` | 混合选区时按钮高亮只按选区首字符算，可能误导 | 只探一个点 | 字符样式改为「整段全开才高亮」，与 B5 的统一语义一致 | ✅ 修 |
-| **B15** | 高 | `DiaryPageView` | 横屏键盘弹起后**顶栏整条消失**（返回 / 插入图片 / 放弃修改 / 保存 都被推到屏幕上方之外，实测 `返回` y = −51） | 顶栏挂在 ScrollView 的 `safeAreaInset` 上：键盘弹起时页面 `scrollTo` 把编辑卡片带进视野，横屏可用高度只有 402pt，这条 inset 跟着内容一起被滚出屏幕 | 顶栏移出滚动视图，改成 ZStack 顶对齐的 overlay（用实测高度给内容让位）；键盘只由页面自己避让 | ✅ 修 |
+| **B18** | 中 | `DiaryPageView` | 进出编辑时整张卡片会变宽 / 变窄：阅读列 660、编辑列 620，横屏差 40pt（SE 横屏差 15pt） | `contentColumn(vm.isRead ? 660 : 620)` | 两个模式共用 660；输入区宽度仍差 4pt（卡片内边距 12 vs 10） | ✅ 修 |
+| **B17** | 高 | `DiaryViewModel` / `DiaryPageView` | **键盘收不回来**：编辑页没有任何收起键盘的交互，顶栏按钮又被触控键盘压住，用户没法先收键盘再选文字 | 编辑器只自己处理键盘高度，没有 `resignFirstResponder` 的触发点 | 点内容空白 / 顶栏空白收起键盘，下拉内容也可以；并关掉 `autoFocusEditor`（免得视图重建后又把键盘叫回来） | ✅ 修 |
+| **B15** | 中 | `DiaryPageView` | 顶栏会离开屏幕：横屏键盘弹起时「返回 / 插入图片 / 保存」实测在 y = −51 | 两件事叠在一起：① 顶栏原本挂在 ScrollView 的 `safeAreaInset` 上，`scrollTo` 一带内容滚动就跟着跑；② 触控键盘弹起时横屏可用高度只剩 402pt，SwiftUI 仍会把整页往上推（实测滚动视图变成 457pt 高、整体上移 55pt） | ① 已修：顶栏移出滚动视图，改成 ZStack 顶对齐的 overlay；② **接受为已知限制**，靠 B17 的「点空白 / 下拉收键盘」把顶栏拿回来（用户要的就是这条路径，硬撑着一屏显示反而没意义） | ✅ ① 修 / ② 记录 |
 | **B16** | 中 | `RichEditorController.refitImages` | 编辑模式横竖屏切换后，图片大小不跟着列宽变 | 重排图片时仍用旧的 `min(存储宽, 可用宽)`，旋转后又被夹回存储宽度 | 与 `PartsCodec` 同一条规则：宽度 = 列宽，存储对只作比例 | ✅ 修 |
 | **B12** | 中 | `DiaryViewModel.handleBack` | 编辑到一半点返回，整个日记页被关掉、掉回首页日历 | `!isRead` 时直接 `onDismiss()` | 返回只退出**编辑**，回到这一天的阅读页；有未保存内容仍先确认 | ✅ 修 |
 | **B13** | 中 | `PartsCodec` / `insertImage` / `DiaryImageView` | 横屏下图片不随列宽放大（阅读区还多出上下空带），编辑区图片靠左 | 宽度取 `min(存储宽, 可用宽)` 且段落左对齐；阅读区外层比例盒按列宽、内层图按存储宽 | 图片按列宽等比放大并居中；存储的 `w/h` 只当比例 | ✅ 修 |
@@ -244,7 +246,9 @@ paragraphRanges 的循环：
 | B13 | 图片按列宽等比排版（`PartsCodec` 的 `w = maxW`、`insertImage` 去掉 343pt 上限）、段落 `.center`；`DiaryImageView` 去掉 `GeometryReader` + 固定宽，改成按比例填满 | `testImageFillsTheColumnAndStaysCentred`、`testImageStoredSizeIsAnAspectRatioNotALayoutSize`、`testReaderImageFillsTheWidthItIsGiven` |
 | B14 | 格式栏改成 `ViewThatFits { barRow; ScrollView { barRow } }`，按钮间距 6 → 4（默认字号下 9 个按钮约 360pt，整条放得下） | `EditorFlowUITests.testFormatBarFitsInOnePieceAtTheDefaultTextSize` |
 
-| B15 | `DiaryPageView`：顶栏从 ScrollView 的 `safeAreaInset` 改成 ZStack 里的 `topBarOverlay`（顶对齐 + `onGeometryChange` 量高度给内容让位），并保留 `.ignoresSafeArea(.keyboard, edges: .bottom)` | `LandscapeLayoutUITests.testLandscapeEditorTopBarStaysOnScreen`（横屏：四个按钮都在屏内且可点，且**滚动后位置不变**） |
+| B18 | `DiaryPageView` 的正文列统一成 `contentColumn(660)`，不再按 `isRead` 分支 | `EditorFlowUITests.testReadAndEditContentColumnsHaveTheSameWidth`（竖屏 / 横屏都比一遍阅读与编辑的输入区） |
+| B17 | `DiaryViewModel.dismissKeyboard()`（让当前 first responder 辞职 + 关掉 `autoFocusEditor`）；`DiaryPageView` 的内容空白与顶栏空白各挂一个 `onTapGesture`，并加 `.scrollDismissesKeyboard(.interactively)`；内容末尾两块透明占位 `.allowsHitTesting(false)`，否则手势落不到内容上 | `EditorFlowUITests.testTappingBlankSpaceDismissesTheKeyboard`（竖屏点卡片与格式栏之间的空白、横屏点顶栏中间空白，键盘都要收起且顶栏按钮回到屏内） |
+| B15 | `DiaryPageView`：顶栏从 ScrollView 的 `safeAreaInset` 改成 ZStack 里的 `topBarOverlay`（顶对齐 + `onGeometryChange` 量高度给内容当 padding） | `EditorFlowUITests.testTappingBlankSpaceDismissesTheKeyboard` 里的「滚动后顶栏位置不变」断言（横屏收键盘之后测） |
 | B16 | `refitImages` 的宽度改成 `max(60, maxWidth)`，与 `PartsCodec` 一致 | `EditorSpacingTests.testImageFillsTheColumnAndStaysCentred`（同一条规则：列决定宽度） |
 
 行距 / 段距 / 图片留白的模型与实测数值不在本文范围，见
@@ -312,7 +316,11 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
 7. **换行延续的落库形态**：引用延续靠新行的换行字符继承引用属性；
    列表/待办延续靠 `handleReturn` 在光标处插入「换行 + 标记」，两条路径最终都表现为
    `ContentPart.style` 的延续（连续的列表行会被合并成一个 `list` part）。
-8. **光标停在「列表项下一行的空行」上时回车不续列表**：那一行自己没有标记，而 R3 只在
+8. **键盘的收起路径**（B17）：点内容空白、点顶栏空白、下拉内容；格式栏按钮是有意
+   例外 —— 点它会 `becomeFirstResponder`，把焦点还给编辑器（连续排版不该被收键盘打断）。
+9. **阅读态与编辑态的正文列同宽**（都是 660 上限，B18）：进出编辑时卡片不会跳。输入区
+   宽度仍差 4pt（卡片内边距 12 vs 10），编辑区文字还另有 12pt 的输入内缩。
+10. **光标停在「列表项下一行的空行」上时回车不续列表**：那一行自己没有标记，而 R3 只在
    「当前行有标记且标记后还有文字」时另起一项。这是有意的 —— 否则空项回车刚结束列表，
    下一次回车又被上一行的标记续上，用户永远退不出列表。要续列表，把光标放回带标记的
    那一行（在那行末尾按回车）。
