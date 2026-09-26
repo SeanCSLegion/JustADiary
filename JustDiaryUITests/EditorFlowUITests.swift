@@ -26,12 +26,12 @@ final class EditorFlowUITests: XCTestCase {
 
     /// 打开今天的日记页（阅读态），带 `editor.state` 探针。
     @discardableResult
-    private func launch(resetData: Bool = false) -> XCUIApplication {
+    private func launch(resetData: Bool = false, extraArguments: [String] = []) -> XCUIApplication {
         app = XCUIApplication()
         var args = ["-ui-test-open-day", todayKey(),
                     "-ui-test-editor-state",
                     "-ui-test-reset-settings",
-                    "-ui-test-no-autoloc"]
+                    "-ui-test-no-autoloc"] + extraArguments
         if resetData { args.append("-ui-test-reset-data") }
         app.launchArguments = args
         app.launch()
@@ -51,25 +51,67 @@ final class EditorFlowUITests: XCTestCase {
         return kb.frame.minY < app.windows.firstMatch.frame.maxY - 1
     }
 
+    /// 等触控键盘真的露出来（接了硬件键盘时它可能在屏幕下方，或者根本不弹）。
+    private func waitForKeyboard(timeout: TimeInterval = 6) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if keyboardIsVisible() { return true }
+            usleep(200_000)
+        } while Date() < deadline
+        return false
+    }
+
+    /// 光标探针（`editor.caret`）报出的窗口坐标；没有光标时返回 nil。
+    private func caretRect() -> CGRect? {
+        let probe = app.staticTexts["editor.caret"]
+        guard probe.waitForExistence(timeout: 5) else { return nil }
+        let coords = probe.label.split(separator: "|").first.map(String.init) ?? ""
+        let parts = coords.split(separator: ",").compactMap { Double($0) }
+        guard parts.count == 2 else { return nil }
+        return CGRect(x: 0, y: parts[0], width: 0, height: max(0, parts[1] - parts[0]))
+    }
+
     private func card(_ identifier: String) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
-    /// 点一处空白并等键盘收起。竖屏用「卡片与格式栏之间那条空白」，横屏用「顶栏
-    /// 中间的空白」（横屏可用高度只有 402pt，键盘弹起后卡片与格式栏之间已经没有缝）。
+    /// 点一处空白并等键盘收起。
+    ///
+    /// 位置要按方向挑：竖屏用「顶栏中间的空白」（最稳；正文很长时卡片与格式栏之间
+    /// 已经没有缝），横屏顶栏可能被键盘挤出屏幕，就点格式栏两侧的空白；两条都收不到
+    /// 时退化成下拉内容（系统标准的交互式收起）。
     @discardableResult
     private func tapBlankToDismissKeyboard() -> Bool {
-        let win = app.windows.firstMatch.frame
-        if win.width > win.height {
+        let window = app.windows.firstMatch.frame
+        if window.width > window.height {
+            let bar = card("editor.formatBar").frame
+            if bar.minX > 60 {
+                app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: bar.minX - 28, dy: bar.midY))
+                    .tap()
+            }
+        } else {
             app.coordinate(withNormalizedOffset: .zero)
                 .withOffset(CGVector(dx: 175, dy: 30))
                 .tap()
-        } else {
-            let editorFrame = app.textViews.firstMatch.frame
-            let bar = card("editor.formatBar").frame
-            app.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: 200, dy: (editorFrame.maxY + bar.minY) / 2))
-                .tap()
+            if keyboardIsVisible() {
+                let editorFrame = app.textViews.firstMatch.frame
+                let bar = card("editor.formatBar").frame
+                let y = (editorFrame.maxY + bar.minY) / 2
+                if y > editorFrame.maxY, y < bar.minY {
+                    app.coordinate(withNormalizedOffset: .zero)
+                        .withOffset(CGVector(dx: 200, dy: y))
+                        .tap()
+                }
+            }
+        }
+        if keyboardIsVisible() {
+            // 最后一条路：把内容往下拖一段（`scrollDismissesKeyboard(.interactively)`）。
+            // `swipeDown()` 有时只是回弹，起不到「拖动」的效果，所以用明确的拖拽。
+            let scroll = app.scrollViews.firstMatch
+            let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+            let end = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+            start.press(forDuration: 0.1, thenDragTo: end)
         }
         let deadline = Date().addingTimeInterval(5)
         while keyboardIsVisible(), Date() < deadline { usleep(200_000) }
@@ -204,9 +246,9 @@ final class EditorFlowUITests: XCTestCase {
 
     /// 进出编辑时正文列的宽度不能变（竖屏、横屏都要）。
     ///
-    /// 卡片宽度 = 正文列宽，两个模式共用同一个上限（见 `DiaryPageView`）。卡片内边距
-    /// 阅读态是 `Spacing.card`(12)、编辑态是 10，编辑输入区自己再内缩 12 —— 所以两个
-    /// **输入区**的宽度差恒为 4pt：差得对，就说明列宽一致、进出编辑时卡片不会跳。
+    /// 卡片宽度 = 正文列宽，两个模式共用同一个上限；卡片内边距两边都是
+    /// `Spacing.card`(12)，编辑输入区也不再自己左右内缩 —— 所以两个**输入区**应当
+    /// 完全等宽，进出编辑时正文的左右边界不会跳。
     func testReadAndEditContentColumnsHaveTheSameWidth() throws {
         launch(resetData: true)
         openWriteMode()
@@ -234,17 +276,90 @@ final class EditorFlowUITests: XCTestCase {
                           "编辑态的正文输入区（\(orientation.rawValue)）")
             let editWidth = editText.frame.width
 
-            XCTAssertEqual(editWidth - readWidth, 4, accuracy: 1.5,
+            XCTAssertEqual(editWidth, readWidth, accuracy: 1,
                            "方向 \(orientation.rawValue)：阅读 / 编辑的正文列应等宽"
                            + "（阅读 \(readWidth)，编辑 \(editWidth)）")
 
-            // 先收键盘（触控键盘弹起时顶栏按钮会被推到屏幕外，点不到返回）。
+            // 回阅读态：先转回竖屏再点返回 —— 横屏 + 触控键盘时顶栏会被挤出屏幕，
+            // 竖屏的顶栏则始终够得着。
+            XCUIDevice.shared.orientation = .portrait
+            sleep(2)
             tapBlankToDismissKeyboard()
             app.buttons["返回"].tap()
             let discard = app.buttons["放弃"]
             if discard.waitForExistence(timeout: 3) { discard.tap() }
-            XCTAssertTrue(app.buttons["写日记"].waitForExistence(timeout: 8), "回到阅读态")
+            XCTAssertTrue(app.buttons["写日记"].waitForExistence(timeout: 10), "回到阅读态")
         }
         XCUIDevice.shared.orientation = .portrait
+    }
+
+    /// 编辑**已有**卡片时，光标必须留在键盘（以及浮在键盘上的格式栏）之上。
+    ///
+    /// 用户报的就是这条：横屏点正文、键盘弹起后界面自动滚动，但滚的是「整张卡片居中」
+    /// 而视口是整屏 —— 内容比可视区高时（已有卡片通常如此），光标落在键盘后面，得先
+    /// 上滑一下才看得到自己在输入什么。SE 横屏可用高度只有 198pt，最明显。
+    ///
+    /// 关掉自动弹键盘（`-ui-test-no-autofocus`）才能复现：先把光标点到正文靠下的位置
+    /// （此时没有键盘，那一点可见），键盘再弹起来 —— 正是用户描述的顺序。
+    func testEditingAnExistingBlockKeepsTheCaretVisibleAboveTheKeyboard() throws {
+        launch(resetData: true, extraArguments: ["-ui-test-editor-caret",
+                                                "-ui-test-no-autofocus"])
+        // 1) 先在竖屏写一段够长的内容并保存（竖屏顶栏始终够得着，保存按钮在顶栏）。
+        openWriteMode()
+        let editor = app.textViews.firstMatch
+        editor.tap()
+        editor.typeText("第一行\n第二行\n第三行\n第四行\n第五行\n第六行\n第七行\n第八行")
+        app.buttons["保存"].tap()
+        XCTAssertTrue(app.buttons["写日记"].waitForExistence(timeout: 12), "保存后回到阅读态")
+
+        // 2) 转横屏、重新打开这张卡片进编辑（不自动弹键盘），点正文靠下的位置。
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(3)
+        app.staticTexts["第一行"].firstMatch.tap()
+        let editText = app.textViews.firstMatch
+        XCTAssertTrue(editText.waitForExistence(timeout: 10), "编辑态的输入区")
+        XCTAssertFalse(keyboardIsVisible(), "自动弹键盘应已被测试开关关掉")
+        editText.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)).tap()
+
+        // 3) 键盘弹起：光标必须被滚到键盘（以及浮动格式栏）之上。
+        try XCTSkipUnless(waitForKeyboard(), "触控键盘没弹出来")
+        sleep(2)
+
+        let caret = caretRect()
+        XCTAssertNotNil(caret, "光标探针应有值")
+        let keyboardTop = app.keyboards.firstMatch.frame.minY
+        let bar = card("editor.formatBar")
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "existing-block-caret"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        XCTAssertLessThanOrEqual(caret!.maxY, keyboardTop + 1,
+                                 "光标应在键盘上方（光标 \(caret!)，键盘顶 \(keyboardTop)）")
+        if bar.exists {
+            XCTAssertLessThanOrEqual(caret!.maxY, bar.frame.minY + 1,
+                                     "光标还应在浮动格式栏上方（光标 \(caret!)，格式栏 \(bar.frame)）")
+        }
+        XCUIDevice.shared.orientation = .portrait
+    }
+
+    /// 顶栏中间的空白也要能收键盘（竖屏顶栏一直在屏内）。
+    func testTopBarBlankDismissesTheKeyboard() throws {
+        launch(resetData: true)
+        openWriteMode()
+        app.textViews.firstMatch.tap()
+        try XCTSkipUnless(waitForKeyboard(), "模拟器接了硬件键盘，触控键盘没弹出来")
+
+        // 空白位置按两侧按钮的实际位置算，别写死坐标（不同机型宽度不同）。
+        let back = app.buttons["返回"].frame
+        let right = app.buttons["保存"].frame
+        let x = (back.maxX + right.minX) / 2
+        XCTAssertGreaterThan(x, back.maxX, "顶栏中间应有一段空白：返回 \(back)，保存 \(right)")
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: x, dy: back.midY))
+            .tap()
+        let deadline = Date().addingTimeInterval(5)
+        while keyboardIsVisible(), Date() < deadline { usleep(200_000) }
+        XCTAssertFalse(keyboardIsVisible(), "点顶栏空白应收起键盘")
     }
 }

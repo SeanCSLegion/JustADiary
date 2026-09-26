@@ -134,7 +134,7 @@ final class DiaryViewModel {
         location = nil
         locating = false
         loadToken += 1
-        autoFocusEditor = true
+        autoFocusEditor = autoFocusAllowed
         withAnimation(.diaryStandard) {
             isRead = false
             editingIndex = nil
@@ -155,7 +155,7 @@ final class DiaryViewModel {
         editingIndex = index
         loadParts = parts
         loadToken += 1
-        autoFocusEditor = true
+        autoFocusEditor = autoFocusAllowed
         startUtc = block.startTimeUtc
         // Show the location this block was written with. It is not looked up
         // again — only its precision can still be changed.
@@ -184,6 +184,14 @@ final class DiaryViewModel {
     /// `图片 / 放弃修改 / 保存` 一直被触控键盘压在下面，用户也没法先把键盘收起来
     /// 再选文字。统一走「让当前 first responder 辞职」，编辑器的 `UITextView` 与
     /// 阅读态页内搜索的 `TextField` 都适用。
+    /// 进入编辑时是否自动弹出键盘。
+    ///
+    /// UI 测试可以带 `-ui-test-no-autofocus` 关掉它，好复现「键盘弹起前先点正文」这条
+    /// 用户路径（否则键盘一进编辑就弹出来，没机会先把光标点到正文靠下的位置）。
+    private var autoFocusAllowed: Bool {
+        !ProcessInfo.processInfo.arguments.contains("-ui-test-no-autofocus")
+    }
+
     func dismissKeyboard() {
         // `autoFocusEditor` 是「进入编辑时自动弹键盘」的开关：视图重建时
         // `RichTextView.makeUIView` 会据此再喊一次 `becomeFirstResponder`，用户

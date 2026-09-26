@@ -922,6 +922,21 @@ final class RichEditorController {
         notifyFormatChange()
     }
 
+    /// 光标（选区末端）在窗口坐标里的矩形；不在编辑状态时为 nil。
+    func caretRectInWindow() -> CGRect? {
+        guard let tv = textView, tv.isFirstResponder else { return nil }
+        let caret = tv.caretRect(for: tv.selectedTextRange?.end ?? tv.endOfDocument)
+        guard !caret.isNull, !caret.isInfinite else { return nil }
+        return tv.convert(caret, to: nil)
+    }
+
+    /// 把光标滚进「可见区」：底部让开 `obscuredBottom`（键盘 + 浮在键盘上方的格式栏），
+    /// 顶部让开 `topInset`（悬浮顶栏）。
+    ///
+    /// 键盘弹起时页面不再把整张卡片 `scrollTo(anchor: .center)` —— 那个视口是整屏，
+    /// 横屏（SE 横屏可用高度只有 198pt）卡片下半张连光标一起被键盘盖住，用户得先上滑
+    /// 才看得到自己在输入什么。这里直接滚承载编辑器的 `UIScrollView`（就是 SwiftUI 的
+    /// ScrollView），按光标的实际位置算偏移，不动 SwiftUI 的滚动绑定。
     func isEmpty() -> Bool {
         guard let tv = textView else { return true }
         return tv.textStorage.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

@@ -10,6 +10,15 @@ struct DiaryPageView: View {
     @State private var showPhotoPicker = false
     /// 顶栏实测高度：顶栏不再挂在滚动视图上，改成按这个高度给内容让位。
     @State private var topBarHeight: CGFloat = 0
+    /// 格式栏上沿（屏幕坐标）：它浮在键盘上方，光标要连它一起让开。
+    ///
+    /// 用「上沿」而不是「栏高」：栏高只在它出现时量一次（键盘弹起只改它的**位置**），
+    /// 而位置是随时可读的，且无论键盘在不在，光标都该待在栏的上方。
+    @State private var formatBarTop: CGFloat = .greatestFiniteMagnitude
+    /// 滚动位置交给 SwiftUI 管：直接改底下那个 `UIScrollView` 的 `contentOffset` 会被
+    /// 下一次布局覆盖回去（实测滚动没有任何效果），所以用 `ScrollPosition` 驱动。
+    @State private var scrollPosition = ScrollPosition()
+    @State private var scrollOffsetY: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -29,6 +38,12 @@ struct DiaryPageView: View {
                 // Above the keyboard when it is up, otherwise just above the home
                 // indicator. The bar sits over the content, so the ignored bottom
                 // safe area has to be added back here.
+                // 量的是格式栏自己的上沿：必须在底下那层
+                // `padding(.bottom, keyboardHeight + 8)` **之前**，否则量到被垫高的位置。
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                    formatBarTop = frame.minY
+                    revealCaret(animated: false)
+                }
                 .padding(.bottom, vm.keyboardHeight > 0 ? vm.keyboardHeight + 8 : Screen.safeAreaBottom + 12)
                 .transition(.opacity)
             }
@@ -55,6 +70,11 @@ struct DiaryPageView: View {
         .onChange(of: vm.searchText) { _, _ in
             vm.onSearchTextChanged()
         }
+        // 打字与移动光标都会 bump formatTick：随时把光标保持在可见区里（不带动画，
+        // 以免每次按键都重启一次滚动动画）。
+        .onChange(of: vm.controller.formatTick) { _, _ in
+            revealCaret(animated: false)
+        }
         .sheet(isPresented: $showPhotoPicker) {
             PhotoPicker { image in
                 vm.insertImage(image)
@@ -76,6 +96,15 @@ struct DiaryPageView: View {
             // exposes the block types (and text) the editor would persist, so a
             // test can assert the load → edit → save round trip without reading
             // the app container's database.
+            if ProcessInfo.processInfo.arguments.contains("-ui-test-editor-caret") {
+                // 光标在窗口坐标里的位置，给「键盘有没有挡住光标」那条用例断言。
+                Text(caretProbeText())
+                    .diaryFont(1)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.02)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("editor.caret")
+            }
             if ProcessInfo.processInfo.arguments.contains("-ui-test-editor-state") {
                 Text(editorProbeText())
                     .diaryFont(1)
@@ -86,6 +115,13 @@ struct DiaryPageView: View {
             }
         }
         .appAlert(item: $vm.alertItem)
+    }
+
+    /// UI-test-only: 光标在窗口坐标里的 `"minY,maxY"`，没有光标时是 `"none"`。
+    private func caretProbeText() -> String {
+        _ = vm.controller.formatTick
+        guard let caret = vm.controller.caretRectInWindow() else { return "none" }
+        return "\(Int(caret.minY)),\(Int(caret.maxY))"
     }
 
     /// UI-test-only: `"<block types>|<text>"` for the open editor, or
@@ -107,9 +143,49 @@ struct DiaryPageView: View {
 
     // MARK: - Keyboard
 
+    /// 让光标停在可见区里：底部让开格式栏（键盘在它下面，所以让开栏就够了），
+    /// 顶部让开悬浮顶栏。
+    ///
+    /// 键盘弹起时布局要分几帧才稳定（内容末尾那块「键盘高度 + 160」的占位、格式栏的
+    /// 位置都是随后才落定的），一次滚动往往不够 —— 所以这里按几个时间点各试一次，
+    /// 已经可见的那几次会在 `revealCaret` 里直接返回，代价可以忽略。
+    private func revealCaret(animated: Bool, retries: [Double] = []) {
+        guard !vm.isRead else { return }
+        applyCaretReveal(animated: animated)
+        for delay in retries {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard !vm.isRead else { return }
+                self.applyCaretReveal(animated: false)
+            }
+        }
+    }
+
+    private func applyCaretReveal(animated: Bool) {
+        // 键盘在格式栏下面，所以「让开栏的上沿」就同时让开了键盘。
+        guard formatBarTop < .greatestFiniteMagnitude,
+              let caret = vm.controller.caretRectInWindow() else { return }
+        let bottomLimit = formatBarTop - 8
+        let topLimit = topBarHeight + 8
+        var delta: CGFloat = 0
+        if caret.maxY > bottomLimit {
+            delta = caret.maxY - bottomLimit
+        } else if caret.minY < topLimit {
+            delta = caret.minY - topLimit
+        }
+        guard abs(delta) > 1 else { return }
+        let target = max(0, scrollOffsetY + delta)
+        if animated {
+            withAnimation(.diaryQuick) { scrollPosition.scrollTo(y: target) }
+        } else {
+            scrollPosition.scrollTo(y: target)
+        }
+    }
+
     private func handleKeyboard(_ note: Notification) {
         guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-        let height = frame.origin.y < Screen.height ? frame.height : 0
+        // 不能拿 `frame.height` 直接当键盘高度：横屏时它可能是竖屏坐标系的（见
+        // `Screen.keyboardObscuredHeight`）。
+        let height = Screen.keyboardObscuredHeight(screenFrame: frame)
         guard height != vm.keyboardHeight else { return }
         let duration = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
         let curveValue = (note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? 0
@@ -149,6 +225,12 @@ struct DiaryPageView: View {
                     if vm.keyboardHeight > 0 {
                         Color.clear.frame(height: vm.keyboardHeight + 160)
                             .allowsHitTesting(false)
+                            // 这块占位的高度就是「让开键盘」的量：它一变（键盘弹起 /
+                            // 布局落定）就重新确认一次光标可见 —— 比按固定延时重试可靠，
+                            // 因为 SwiftUI 可能在这个阶段把滚动位置重置回顶部。
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
+                                revealCaret(animated: false)
+                            }
                     } else {
                         TabBarClearance(base: 140)
                             .allowsHitTesting(false)
@@ -171,6 +253,10 @@ struct DiaryPageView: View {
             }
             // 下拉内容也可以把键盘带走（系统标准的交互式收起）。
             .scrollDismissesKeyboard(.interactively)
+            .scrollPosition($scrollPosition)
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, y in
+                scrollOffsetY = y
+            }
             // 顶栏是悬浮在内容之上的，这里不再用 `safeAreaInset` 给它让位：键盘弹起
             // 时那条 inset 会把滚动视图撑高（实测 457pt 高的滚动视图被挤到 y = −55），
             // 让位改用内容自己的顶部 padding（见上面的 `topBarHeight`）。
@@ -190,13 +276,17 @@ struct DiaryPageView: View {
                     }
                 }
             }
+            // 键盘弹起：把**光标**滚到键盘（与浮在它上面的格式栏）之上。
+            // 原来是把整张卡片 `scrollTo(anchor: .center)` 到视口中心，而那个视口是
+            // 整屏 —— 横屏下卡片下半张连光标一起被键盘盖住（SE 横屏可用高度只有
+            // 198pt），用户得先上滑才看得到自己正在输入的位置。
             .onChange(of: vm.keyboardHeight) { _, height in
-                if !vm.isRead, height > 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        withAnimation(.diaryStandard) {
-                            proxy.scrollTo("editor-card", anchor: .center)
-                        }
-                    }
+                guard !vm.isRead, height > 0 else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    // 键盘与「内容末尾那块等高占位」要分几帧才稳定：多试几次，已经
+                    // 可见的那几次在 `revealCaret` 里直接返回，代价可以忽略。
+                    revealCaret(animated: true,
+                                retries: [0.15, 0.3, 0.5, 0.75, 1.0, 1.4])
                 }
             }
         }
@@ -462,7 +552,9 @@ struct DiaryPageView: View {
                 // (160pt scaled by the body style's Dynamic Type factor). A fixed
                 // 160pt was mostly placeholder at accessibility sizes.
         }
-        .padding(10)
+        // 与阅读卡片同内边距（`Spacing.card`）：这样两个模式的**输入区**一样宽，
+        // 进出编辑时正文的左右边界不会跳。
+        .padding(Spacing.card)
         .diaryCard(cornerRadius: Radius.card, interactive: true)
         // 供 UI 测试比较「阅读卡片 / 编辑卡片」的宽度。
         .accessibilityElement(children: .contain)

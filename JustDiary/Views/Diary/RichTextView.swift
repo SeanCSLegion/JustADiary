@@ -39,7 +39,9 @@ final class PlaceholderTextView: UITextView {
     /// *style's* factor (not one global number) keeps the default design
     /// untouched and matches how `TabBarClearance` and the other minimum heights
     /// in the app grow.
-    private var minimumHeight: CGFloat = 160
+    /// 输入区的最小高度（`160 × 动态字号系数`）；`RichTextView.sizeThatFits` 也要用它，
+    /// 否则 SwiftUI 会按「一行文字」的高度排版，编辑区塌成 41pt。
+    private(set) var minimumHeight: CGFloat = 160
 
     override var intrinsicContentSize: CGSize {
         let width = bounds.width > 0 ? bounds.width : 340
@@ -53,7 +55,8 @@ final class PlaceholderTextView: UITextView {
         // The placeholder must be able to grow: a fixed 22pt height clipped the
         // hint once the user raised the system text size.
         let height = placeholderLabel.font.lineHeight
-        placeholderLabel.frame = CGRect(x: inset.left + 5,
+        // 与正文左边界对齐（`textContainer.lineFragmentPadding` 是 0）。
+        placeholderLabel.frame = CGRect(x: inset.left,
                                         y: inset.top,
                                         width: max(0, bounds.width - inset.left - inset.right - 10),
                                         height: ceil(height))
@@ -82,11 +85,32 @@ struct RichTextView: UIViewRepresentable {
         Coordinator(self)
     }
 
+    /// 让 UITextView 老老实实按**被提议的宽度**排版（`ReadTextView` 已有同款实现）。
+    ///
+    /// 不实现时 SwiftUI 走 `intrinsicContentSize`，那里的宽度兜底是 340pt：SE 上卡片
+    /// 343 − 内边距 24 = 提议 319，却被兜底撑到 340 —— 正文与图片横向溢出卡片。
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: PlaceholderTextView,
+                      context: Context) -> CGSize? {
+        let width: CGFloat
+        if let proposed = proposal.width, proposed.isFinite, proposed > 0 {
+            width = proposed
+        } else if uiView.bounds.width > 0 {
+            width = uiView.bounds.width
+        } else {
+            return nil
+        }
+        let measured = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        // 不能用裸的 `sizeThatFits`：它不含输入区的最小高度（160 × 动态字号系数）。
+        return CGSize(width: width, height: max(uiView.minimumHeight, ceil(measured.height)))
+    }
+
     func makeUIView(context: Context) -> PlaceholderTextView {
         let tv = PlaceholderTextView(frame: .zero, textContainer: nil)
         tv.backgroundColor = .clear
         tv.isScrollEnabled = false
-        tv.textContainerInset = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+        // 左右不再内缩：卡片自己的内边距（12）已经让出位置，再缩 12 会让编辑态的正文
+        // 比阅读态窄 24pt（图片也跟着窄）。上下留 10pt 给首行与光标一点余量。
+        tv.textContainerInset = UIEdgeInsets(top: 10, left: 0, bottom: 10, right: 0)
         tv.textContainer.lineFragmentPadding = 0
         tv.delegate = context.coordinator
         tv.textColor = Theme.onSurfaceUIColor()

@@ -53,6 +53,22 @@ enum Screen {
         let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
         return scene?.keyWindow?.safeAreaInsets ?? .zero
     }
+
+    /// 键盘实际遮住窗口的高度。
+    ///
+    /// `keyboardFrameEndUserInfoKey` 给的是**屏幕坐标系**里的矩形，而横屏时那套坐标
+    /// 可能是竖屏朝向的：iPhone SE 横屏实测拿到 `(0, 250, 375, 417)` —— 直接取
+    /// `frame.height` 会得到 417pt（比整块屏还高），页面于是把内容与格式栏按 417pt
+    /// 让位，光标也会被推出可见区。这里先换算到窗口坐标再求交集，两种朝向都对。
+    static func keyboardObscuredHeight(screenFrame: CGRect) -> CGFloat {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        guard let window = scene?.keyWindow else { return 0 }
+        // nil 表示「屏幕坐标系」；UIKit 会按当前界面朝向换算。
+        let inWindow = window.convert(screenFrame, from: nil)
+        let overlap = window.bounds.intersection(inWindow)
+        return overlap.isNull ? 0 : overlap.height
+    }
 }
 
 // MARK: - Background
