@@ -61,6 +61,15 @@ final class EditorFlowUITests: XCTestCase {
         return false
     }
 
+    /// 图片探针（`editor.image`）报出的正文图片尺寸；没有图片时返回 nil。
+    private func imageSize() -> CGSize? {
+        let probe = app.staticTexts["editor.image"]
+        guard probe.waitForExistence(timeout: 6) else { return nil }
+        let parts = probe.label.split(separator: ",").compactMap { Double($0) }
+        guard parts.count == 2 else { return nil }
+        return CGSize(width: parts[0], height: parts[1])
+    }
+
     /// 光标探针（`editor.caret`）报出的窗口坐标；没有光标时返回 nil。
     private func caretRect() -> CGRect? {
         let probe = app.staticTexts["editor.caret"]
@@ -361,5 +370,39 @@ final class EditorFlowUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(5)
         while keyboardIsVisible(), Date() < deadline { usleep(200_000) }
         XCTAssertFalse(keyboardIsVisible(), "点顶栏空白应收起键盘")
+    }
+
+    /// 横屏编辑态插入图片后转到竖屏：图片宽度必须仍然等于**正文列宽**。
+    ///
+    /// 用户报的「横屏编辑转竖屏后图片大小异常」：插入图片时按「输入区宽度 − 24」定宽，
+    /// 而旋转后 `refitImages` / 编解码用的是「输入区宽度 − 左右内缩」（编辑区去掉那 12pt
+    /// 内缩之后是 0）—— 两边尺子不一样，竖屏重排后图片就宽出 24pt、溢出卡片。
+    func testImageKeepsTheColumnWidthAfterRotatingFromLandscapeToPortrait() throws {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(2)
+        launch(resetData: true, extraArguments: ["-ui-test-insert-image",
+                                                "-ui-test-editor-image"])
+        openWriteMode()
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "编辑态的输入区")
+        sleep(3)
+
+        let landscapeSize = imageSize()
+        XCTAssertNotNil(landscapeSize, "进编辑态时应自动插入一张测试图")
+        XCTAssertEqual(landscapeSize!.width, editor.frame.width, accuracy: 1,
+                       "横屏：图片应铺满正文列（图片 \(landscapeSize!)，正文 \(editor.frame.width)）")
+
+        XCUIDevice.shared.orientation = .portrait
+        sleep(3)
+        let portraitSize = imageSize()
+        let portraitEditor = app.textViews.firstMatch
+        XCTAssertTrue(portraitEditor.waitForExistence(timeout: 10), "竖屏编辑态的输入区")
+        XCTAssertNotNil(portraitSize, "转竖屏后图片仍在")
+        XCTAssertEqual(portraitSize!.width, portraitEditor.frame.width, accuracy: 1,
+                       "竖屏：图片宽度应重新贴合正文列（图片 \(portraitSize!)，"
+                       + "正文 \(portraitEditor.frame.width)）")
+        XCTAssertLessThan(portraitSize!.width, landscapeSize!.width,
+                          "竖屏的正文列比横屏窄，图片也应跟着变小")
+        XCUIDevice.shared.orientation = .portrait
     }
 }

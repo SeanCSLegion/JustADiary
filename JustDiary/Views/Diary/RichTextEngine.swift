@@ -817,13 +817,34 @@ final class RichEditorController {
                 (typing[.underlineStyle] as? Int ?? 0) != 0)
     }
 
+    /// 输入区宽度变了：记下新的正文列宽，并让图片按新宽度重排。
+    ///
+    /// 宽度变化以前会重跑 `loadParts`（进入编辑时的那份快照），把用户中途输入的内容
+    /// 悄悄丢掉；现在只重排图片，正文与光标原地不动。首次测量不需要重排（正文还没
+    /// 载入，载入时自然会用上这个宽度）。
+    func handleTextWidthChange(_ width: CGFloat) {
+        guard let tv = textView, width > 40 else { return }
+        let inset = tv.textContainerInset
+        let available = max(60, width - inset.left - inset.right)
+        guard imageMaxWidth == nil || abs((imageMaxWidth ?? 0) - available) > 1 else { return }
+        let measured = imageMaxWidth
+        imageMaxWidth = available
+        guard measured != nil else { return }
+        refitImages(maxWidth: available)
+    }
+
     func insertImage(_ image: UIImage, src: String) {
         guard let tv = textView else { return }
         // The column's full width. It was capped at a portrait phone's 343pt, so
         // a picture inserted in landscape was laid out small and left-aligned
         // (the cap belongs to the *stored* size, which is only an aspect ratio
         // and a pixel-fetch hint now).
-        let maxW = max(60, tv.bounds.width > 0 ? tv.bounds.width - 24 : 343)
+        // 正文列的宽度 = 输入区宽度减去它自己的左右内缩（不是写死的 24：编辑区曾经
+        // 自带 12pt 内缩，后来去掉了，两边必须用同一把尺子，否则插入的图片与旋转后
+        // `refitImages` 重排的宽度会差一截）。
+        let inset = tv.textContainerInset
+        let textWidth = tv.bounds.width > 0 ? tv.bounds.width - inset.left - inset.right : 343
+        let maxW = max(60, textWidth)
         let ratio = image.size.height / max(1, image.size.width)
         let displayH = max(40, maxW * ratio)
         let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: maxW, h: displayH))
@@ -937,6 +958,20 @@ final class RichEditorController {
     /// 横屏（SE 横屏可用高度只有 198pt）卡片下半张连光标一起被键盘盖住，用户得先上滑
     /// 才看得到自己在输入什么。这里直接滚承载编辑器的 `UIScrollView`（就是 SwiftUI 的
     /// ScrollView），按光标的实际位置算偏移，不动 SwiftUI 的滚动绑定。
+    /// 第一个图片附件在正文里的尺寸；没有图片时返回 nil（UI 测试用它断言图片宽度）。
+    func firstImageSize() -> CGSize? {
+        guard let tv = textView, tv.textStorage.length > 0 else { return nil }
+        var size: CGSize?
+        tv.textStorage.enumerateAttribute(.attachment,
+                                          in: NSRange(location: 0, length: tv.textStorage.length)) { value, _, stop in
+            guard let attachment = value as? PayloadAttachment,
+                  attachment.payload.kind == "image" else { return }
+            size = attachment.bounds.size
+            stop.pointee = true
+        }
+        return size
+    }
+
     func isEmpty() -> Bool {
         guard let tv = textView else { return true }
         return tv.textStorage.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

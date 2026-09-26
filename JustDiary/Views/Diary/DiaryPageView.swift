@@ -15,6 +15,8 @@ struct DiaryPageView: View {
     /// 用「上沿」而不是「栏高」：栏高只在它出现时量一次（键盘弹起只改它的**位置**），
     /// 而位置是随时可读的，且无论键盘在不在，光标都该待在栏的上方。
     @State private var formatBarTop: CGFloat = .greatestFiniteMagnitude
+    /// UI-test-only：已经替测试插过那张图了。
+    @State private var testImageInserted = false
     /// 滚动位置交给 SwiftUI 管：直接改底下那个 `UIScrollView` 的 `contentOffset` 会被
     /// 下一次布局覆盖回去（实测滚动没有任何效果），所以用 `ScrollPosition` 驱动。
     @State private var scrollPosition = ScrollPosition()
@@ -67,6 +69,16 @@ struct DiaryPageView: View {
         .onReceive(NotificationCenter.default.publisher(for: .uiTickChanged)) { _ in
             vm.refreshSettings()
         }
+        // UI-test-only：进编辑态时替测试插一张图（相册选图没法稳定脚本化）。
+        .onChange(of: vm.isRead) { _, isRead in
+            guard !isRead,
+                  ProcessInfo.processInfo.arguments.contains("-ui-test-insert-image"),
+                  !testImageInserted else { return }
+            testImageInserted = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                vm.insertImage(Self.uiTestImage())
+            }
+        }
         .onChange(of: vm.searchText) { _, _ in
             vm.onSearchTextChanged()
         }
@@ -105,6 +117,15 @@ struct DiaryPageView: View {
                     .allowsHitTesting(false)
                     .accessibilityIdentifier("editor.caret")
             }
+            if ProcessInfo.processInfo.arguments.contains("-ui-test-editor-image") {
+                // 第一张图片附件在正文里的尺寸，给「旋转后图片是否还贴合正文列」断言。
+                Text(imageProbeText())
+                    .diaryFont(1)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.02)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("editor.image")
+            }
             if ProcessInfo.processInfo.arguments.contains("-ui-test-editor-state") {
                 Text(editorProbeText())
                     .diaryFont(1)
@@ -115,6 +136,24 @@ struct DiaryPageView: View {
             }
         }
         .appAlert(item: $vm.alertItem)
+    }
+
+    /// UI-test-only: 正文里第一张图片的 `"宽,高"`，没有图片时是 `"none"`。
+    private func imageProbeText() -> String {
+        _ = vm.controller.formatTick
+        guard let size = vm.controller.firstImageSize() else { return "none" }
+        return "\(Int(size.width)),\(Int(size.height))"
+    }
+
+    /// UI-test-only: 一张 2:1 的测试图（不依赖任何资源文件）。
+    private static func uiTestImage() -> UIImage {
+        let size = CGSize(width: 600, height: 300)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.systemTeal.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 40, y: 40, width: 240, height: 120))
+        }
     }
 
     /// UI-test-only: 光标在窗口坐标里的 `"minY,maxY"`，没有光标时是 `"none"`。

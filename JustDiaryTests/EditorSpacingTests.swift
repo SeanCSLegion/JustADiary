@@ -245,8 +245,11 @@ final class EditorSpacingTests: XCTestCase {
         XCTAssertEqual(tv.textStorage.string, "正文一\n\u{FFFC}\n",
                        "图片插在光标处，后面跟一个换行")
 
-        // insertImage lays the picture out at the text view's own width.
-        let expectedHeight = CGFloat(320 - 24) * 80 / 120
+        // insertImage lays the picture out at the **text column** width: the text view's
+        // width minus its own text insets (zero here). It used to subtract a hard-coded
+        // 24pt, which stopped matching the width `refitImages`/the codec use once the
+        // editor dropped its 12pt side inset — images then jumped 24pt on rotation.
+        let expectedHeight = CGFloat(320) * 80 / 120
         let rows = paragraphs(tv.textStorage)
         XCTAssertEqual(rows.count, 2, "正文 / 图片（结尾空行不算一段）")
         XCTAssertEqual(rows[1].inkBottom - rows[1].inkTop, expectedHeight, accuracy: 1,

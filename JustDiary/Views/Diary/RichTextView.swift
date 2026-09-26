@@ -49,8 +49,23 @@ final class PlaceholderTextView: UITextView {
         return CGSize(width: width, height: max(minimumHeight, size.height))
     }
 
+    /// 输入区宽度变化时的回调（旋转、分屏）。
+    ///
+    /// 不能只靠 `updateUIView`：SwiftUI 在「只有尺寸变化」时不保证再调它 —— 实测
+    /// SE 横屏插入的图片（611pt）转过竖屏后仍是 611pt，而正文列只有 319pt。
+    var onTextWidthChange: ((CGFloat) -> Void)?
+    private var reportedWidth: CGFloat = 0
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        // 布局期间不能改文本存储（布局管理器正在用），推到下一轮 runloop 再做。
+        if bounds.width > 40, abs(bounds.width - reportedWidth) > 1 {
+            reportedWidth = bounds.width
+            let width = bounds.width
+            DispatchQueue.main.async { [weak self] in
+                self?.onTextWidthChange?(width)
+            }
+        }
         let inset = textContainerInset
         // The placeholder must be able to grow: a fixed 22pt height clipped the
         // hint once the user raised the system text size.
@@ -127,6 +142,9 @@ struct RichTextView: UIViewRepresentable {
             context.coordinator.notifyFormatChange()
         }
         context.coordinator.tv = tv
+        tv.onTextWidthChange = { [weak controller] width in
+            controller?.handleTextWidthChange(width)
+        }
         if autoFocus {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 tv.becomeFirstResponder()
@@ -142,24 +160,9 @@ struct RichTextView: UIViewRepresentable {
             uiView.applyTypeSize(typeSize)
             controller.reapplyTypeSize(typeSize)
         }
-        let width = uiView.bounds.width
-        if width > 40 {
-            let inset = uiView.textContainerInset
-            let available = max(60, width - inset.left - inset.right)
-            if controller.imageMaxWidth == nil || abs((controller.imageMaxWidth ?? 0) - available) > 1 {
-                let measured = controller.imageMaxWidth
-                controller.imageMaxWidth = available
-                // A width change (rotation, split view) used to reload
-                // `loadParts` — the snapshot this editor opened with — which
-                // silently threw away everything typed since. Only the images
-                // need re-fitting: the text and the caret stay where they are.
-                // The first measurement needs no refit because the text has not
-                // been loaded yet; the load below picks the width up.
-                if measured != nil {
-                    controller.refitImages(maxWidth: available)
-                }
-            }
-        }
+        // 宽度（旋转、分屏）交给 `handleTextWidthChange` 一处处理：`layoutSubviews`
+        // 也会调它，因为 SwiftUI 在「只有尺寸变化」时不一定再调 `updateUIView`。
+        controller.handleTextWidthChange(uiView.bounds.width)
         if loadToken != context.coordinator.lastToken {
             if loadParts.isEmpty {
                 controller.clear()
