@@ -25,6 +25,15 @@ enum DayDraw {
         m.lunarAlpha > 0.01 ? (m.lunarFont + 5) * CGFloat(m.lunarAlpha) : 0
     }
 
+    /// 行内日期块的**上留白**：日期是垂直居中画的，所以内容顶 = 行顶 + 这个值。
+    ///
+    /// 月份小标题要「紧贴数字上方」就得知道这个数：带子不再是行与行之间的一条空隙，
+    /// 而是坐在本月第一行的上留白里（见 `MonthFlowView.blockView`）。
+    static func contentTopPadding(_ m: DayMetrics) -> CGFloat {
+        let contentH = m.dayFont + 4 + lunarLineH(m)
+        return max(0, (m.cellH - contentH) / 2)
+    }
+
     private static let lock = NSLock()
     private static var textCache: [TextKey: GraphicsContext.ResolvedText] = [:]
     /// High-water mark for the resolved-text cache. The animated font size mints
@@ -39,6 +48,29 @@ enum DayDraw {
         var weight: Int
         var color: Int
         var isDark: Bool
+    }
+
+    /// 每格日期上方的那一小段分隔线。
+    ///
+    /// 用户的要求：「分割线应该在日期上面，如果没有日期的位置就没有分割线，
+    /// 分割线不是一整行的」—— 所以这里是**按格**画（每格左右各留一点缝，格子之间不连成
+    /// 一条通栏的线），并且只画**这一行真的画了日期**的那几列（相邻月的空白格不画）。
+    static func drawCellDividers(_ context: GraphicsContext,
+                                 columns: [Int],
+                                 rowY: CGFloat,
+                                 cellW: CGFloat,
+                                 alpha: Double) {
+        guard alpha > 0.01, cellW > 0, !columns.isEmpty else { return }
+        let inset = cellW * 0.16
+        let width = max(1, cellW - inset * 2)
+        let color = Theme.outlineVariant().opacity(0.35 * alpha)
+        for col in columns {
+            context.fill(Path(CGRect(x: CGFloat(col) * cellW + inset,
+                                     y: rowY - 0.5,
+                                     width: width,
+                                     height: 1)),
+                         with: .color(color))
+        }
     }
 
     static func clearCache() {
@@ -203,9 +235,14 @@ struct MonthCanvas: View {
                 let rowInMonth = showAdjacent || week.days.contains {
                     DateUtil.calendar.isDate($0, equalTo: anchorMonth, toGranularity: .month)
                 }
-                if metrics.dividerAlpha > 0.01, i > 0, rowInMonth {
-                    context.fill(Path(CGRect(x: 0, y: rowY - 0.5, width: metrics.cellW * 7, height: 1)),
-                                 with: .color(Theme.outlineVariant().opacity(0.35 * metrics.dividerAlpha)))
+                // 这一行真正画出来的列（相邻月的空白格不算）—— 分隔线只画在这些格子上。
+                let drawn = week.days.enumerated().compactMap { col, day -> Int? in
+                    (showAdjacent || DateUtil.calendar.isDate(day, equalTo: anchorMonth, toGranularity: .month))
+                        ? col : nil
+                }
+                if i > 0, rowInMonth {
+                    DayDraw.drawCellDividers(context, columns: drawn, rowY: rowY,
+                                             cellW: metrics.cellW, alpha: metrics.dividerAlpha)
                 }
                 for (col, day) in week.days.enumerated() {
                     if !showAdjacent,
@@ -265,6 +302,9 @@ struct WeekRowCanvas: View {
     var showDivider: Bool = false
     var anchorMonth: Date? = nil
     var adjacentAlpha: Double = 1
+    /// 是否画相邻月的日期。连续月历流里**不画**（与参考一致：月份边界那一周由两个月
+    /// 各画自己那一半，另一边留白），周条与 morph 里要画（那里的 `anchorMonth` 为 nil）。
+    var showAdjacent: Bool = true
     var onTapDay: ((Date) -> Void)? = nil
 
     private var drawnMetrics: DayMetrics {
@@ -280,11 +320,24 @@ struct WeekRowCanvas: View {
         return Canvas { context, size in
             let todayKey = DateUtil.dayKeyOf(Date())
             let selectedKey = DateUtil.dayKeyOf(selectedDate)
-            if showDivider, metrics.dividerAlpha > 0.01 {
-                context.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: 1)),
-                             with: .color(Theme.outlineVariant().opacity(0.35 * metrics.dividerAlpha * alpha)))
+            // 只画有日期的那几格：相邻月的空白格上没有线（连续月历流的月份边界那两行
+            // 因此是「半行线」）。分隔线本身也按格断开，不是通栏一条。
+            let drawn = week.days.enumerated().compactMap { col, day -> Int? in
+                if !showAdjacent, let anchorMonth,
+                   !DateUtil.calendar.isDate(day, equalTo: anchorMonth, toGranularity: .month) {
+                    return nil
+                }
+                return col
+            }
+            if showDivider {
+                DayDraw.drawCellDividers(context, columns: drawn, rowY: 0,
+                                         cellW: metrics.cellW, alpha: metrics.dividerAlpha * alpha)
             }
             for (col, day) in week.days.enumerated() {
+                if !showAdjacent, let anchorMonth,
+                   !DateUtil.calendar.isDate(day, equalTo: anchorMonth, toGranularity: .month) {
+                    continue
+                }
                 DayDraw.draw(context, day: day, col: col, rowY: 0, m: metrics, alpha: alpha,
                              selectedKey: selectedKey, todayKey: todayKey, flags: flags,
                              anchorMonth: anchorMonth, isDark: colorScheme == .dark, adjacentAlpha: adjacentAlpha)
@@ -296,7 +349,14 @@ struct WeekRowCanvas: View {
                 guard let onTapDay else { return }
                 let col = Int(value.location.x / metrics.cellW)
                 guard week.days.indices.contains(col) else { return }
-                onTapDay(week.days[col])
+                let day = week.days[col]
+                // 只画本月的日期时，空白格不能点：否则会选中一个屏幕上看不见的日子
+                // （相邻月的日期不在本块里）。
+                if !showAdjacent, let anchorMonth,
+                   !DateUtil.calendar.isDate(day, equalTo: anchorMonth, toGranularity: .month) {
+                    return
+                }
+                onTapDay(day)
             }
         )
     }
@@ -305,7 +365,8 @@ struct WeekRowCanvas: View {
 struct MonthBigTitle: View {
     var month: Date
     /// 标题槽高度。竖屏是 `CalendarLayout.bigTitleH`（72），横屏分栏用紧凑值。
-    /// **必须**和 `MonthPane` 的标题槽、morph 的终点用同一个数，否则切换时网格会跳。
+    /// **必须**和连续月历流（`MonthFlowView`）的标题槽、morph 的终点用同一个数，
+    /// 否则切换时网格会跳。
     var height: CGFloat = CalendarLayout.bigTitleH
     var fontSize: CGFloat = TypeSize.display
 
@@ -342,12 +403,20 @@ struct YearPageView: View {
     var selectedDate: Date
     var flags: Set<String>
     var weekStart: String
+    /// 整页的尺寸（含底部可以铺到屏幕底边、被浮条压住的那一段）。
     var containerSize: CGSize
+    /// 卡片实际排版用的高度。竖屏它比 `containerSize.height` 小一个浮条高度：
+    /// 页铺满屏幕（翻页时邻页不会从底部漏出来），而卡片仍然在浮条之上结束。
+    var layoutHeight: CGFloat? = nil
     var hiddenMonth: Int? = nil
     var onSelectMonth: (Int) -> Void
 
+    private var layoutSize: CGSize {
+        CGSize(width: containerSize.width, height: layoutHeight ?? containerSize.height)
+    }
+
     var body: some View {
-        let card = CalendarLayout.yearCardSize(in: containerSize)
+        let card = CalendarLayout.yearCardSize(in: layoutSize)
         VStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack(alignment: .center, spacing: 8) {
@@ -398,9 +467,9 @@ struct YearPageView: View {
         comps.month = month
         comps.day = 1
         let monthDate = DateUtil.calendar.date(from: comps) ?? Date()
-        let grid = CalendarLayout.miniGridRect(month: month, in: containerSize)
-        let title = CalendarLayout.miniTitleRect(month: month, in: containerSize)
-        let card = CalendarLayout.yearCardRect(month: month, in: containerSize)
+        let grid = CalendarLayout.miniGridRect(month: month, in: layoutSize)
+        let title = CalendarLayout.miniTitleRect(month: month, in: layoutSize)
+        let card = CalendarLayout.yearCardRect(month: month, in: layoutSize)
         let weeks = CalendarLayout.weeks(inMonth: monthDate, ws: weekStart)
         // 标题与网格都用**显式矩形 + offset**（而不是让 VStack 去居中分配）：
         // 「月→年」morph 里的同一张迷你月必须用同样的写法，否则两侧的取整差
@@ -416,7 +485,7 @@ struct YearPageView: View {
                         // 用与「月→年」morph 起点**同一份**参数：此前这里写死
                         // `dayFont: 11`，morph 用的是按格宽推导的 12–14pt，
                         // 于是动画收尾时日期字号会突然缩一下（跳变）。
-                        metrics: CalendarLayout.miniMetrics(in: containerSize),
+                        metrics: CalendarLayout.miniMetrics(in: layoutSize),
                         selectedDate: selectedDate,
                         flags: flags,
                         showAdjacent: false,

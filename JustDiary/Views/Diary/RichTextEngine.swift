@@ -947,8 +947,17 @@ final class RichEditorController {
     func caretRectInWindow() -> CGRect? {
         guard let tv = textView, tv.isFirstResponder else { return nil }
         let caret = tv.caretRect(for: tv.selectedTextRange?.end ?? tv.endOfDocument)
-        guard !caret.isNull, !caret.isInfinite else { return nil }
-        return tv.convert(caret, to: nil)
+        // `isNull` / `isInfinite` 都**不覆盖 NaN**：TextKit 在布局还没就绪时算出来的
+        // 光标矩形可能是 NaN，`Int(NaN)` 会直接崩（`Double value cannot be converted
+        // to Int`，2026-09-26 12:27 那次崩溃就是这里漏出来的），而 `convert(_:to:)`
+        // 也会把 NaN 传下去污染键盘避让的算术。四个分量都要查。
+        guard !caret.isNull, !caret.isInfinite,
+              caret.origin.x.isFinite, caret.origin.y.isFinite,
+              caret.size.width.isFinite, caret.size.height.isFinite else { return nil }
+        let inWindow = tv.convert(caret, to: nil)
+        guard inWindow.origin.x.isFinite, inWindow.origin.y.isFinite,
+              inWindow.size.width.isFinite, inWindow.size.height.isFinite else { return nil }
+        return inWindow
     }
 
     /// 把光标滚进「可见区」：底部让开 `obscuredBottom`（键盘 + 浮在键盘上方的格式栏），

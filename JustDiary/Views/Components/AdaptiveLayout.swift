@@ -101,6 +101,28 @@ struct AdaptiveLayout: Equatable {
         max(220, containerHeight - Self.splitTopPadding - tabBarClearance)
     }
 
+    // MARK: 单栏（竖屏 / 窄窗口）首页的日历区
+
+    /// 单栏（竖屏 / 窄窗口）首页在**头部之下、系统浮条之上**剩给日历区的整块高度。
+    ///
+    /// 首页的几何因为 `.ignoresSafeArea(edges: .bottom)` 一直延伸到屏幕底边，
+    /// 而系统浮条是**悬在内容之上**的（竖屏 `safeArea.bottom` 只有 home indicator
+    /// 的 34pt，浮条自身 83pt 不在安全区里）—— 所以底部必须在这里自己让出
+    /// `tabBarClearance`。不让的话，18 Pro 竖屏（402×874，顶部安全区 62）上：
+    /// 几何高 812、日历区顶在 y 126；六行月格的底边正好落在 812 + 62 = 874（屏底），
+    /// 年历最后一行卡片 709→874，而竖屏浮条的顶边在 y 791 —— 年视图与月视图的
+    /// 最后一整行日期都被浮条压住（came in as「首页年/月视图日期被底部导航栏遮挡」）。
+    ///
+    /// `headerHeight` 由调用方给（首页的头部整块：顶部 12 + 最小高度 52）：它是页面
+    /// 自己的排版，不属于版面判定。
+    ///
+    /// 这里**没有下限兜底**（不同于 `splitPaneHeight` 的 220）：高度真的不够时宁可让
+    /// 日历区变矮（内容自己会缩），也不能越过浮条 —— 那就是这次要修的 bug。窄横屏
+    /// 单栏（分屏 / 折叠态，浮条 64pt 而屏高只有 375pt）正好落在这个区间。
+    func singleColumnCalendarHeight(containerHeight: CGFloat, headerHeight: CGFloat) -> CGFloat {
+        max(0, containerHeight - headerHeight - tabBarClearance)
+    }
+
     // MARK: 底部系统浮条
 
     /// 底部浮条（tab bar）在两种方向上的实测高度：竖屏 83 / 横屏 64。

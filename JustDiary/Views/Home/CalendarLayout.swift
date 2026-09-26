@@ -80,11 +80,6 @@ enum CalendarDensity: Equatable {
         if case .month(let lunar) = self { return lunar }
         return false
     }
-
-    /// 需要绘制的行数。
-    func rows(monthWeeks: Int) -> Int {
-        isWeekStrip ? 1 : monthWeeks
-    }
 }
 
 struct WeekDays {
@@ -194,6 +189,28 @@ enum CalendarLayout {
                    dividerAlpha: 0)
     }
 
+    /// 连续月历流（`MonthFlowView`）单行的绘制参数。
+    ///
+    /// 字号跟着行高走：竖屏行高 ~94pt，仍是设计里的 20/11；横屏左栏只有 ~40pt 一格，
+    /// 20pt 日号 + 11pt 农历会上下叠在一起（横屏左栏一直是按格高推导字号）。
+    static func flowMetrics(width: CGFloat, rowH: CGFloat, lunar: Bool,
+                            compact: Bool = false) -> DayMetrics {
+        DayMetrics(cellW: monthCellW(width: width),
+                   cellH: rowH,
+                   dayFont: dayFont(forCellH: rowH),
+                   lunarFont: lunarFont(forCellH: rowH),
+                   lunarAlpha: lunar ? 1 : 0,
+                   dividerAlpha: 1)
+    }
+
+    static func dayFont(forCellH cellH: CGFloat) -> CGFloat {
+        min(20, max(13, cellH * 0.34))
+    }
+
+    static func lunarFont(forCellH cellH: CGFloat) -> CGFloat {
+        min(11, max(9, cellH * 0.18))
+    }
+
     static func yearCardSize(in size: CGSize) -> CGSize {
         CGSize(width: (size.width - yearPad * 2 - yearSpacing * 2) / 3,
                height: (size.height - yearTitleH - 8 - yearSpacing * 3) / 4)
@@ -286,6 +303,30 @@ enum CalendarLayout {
         return DateUtil.calendar.date(from: comps) ?? Date()
     }
 
+    /// 连续月历流里小标题的字号（竖屏 15 / 横屏紧凑 13）。
+    static func flowLabelFontSize(compact: Bool) -> CGFloat { compact ? 13 : 15 }
+
+    /// 连续月历流里「月份之间那一带」的高度 = **小标题这一行字本身的高度**。
+    ///
+    /// 用户看过第一版（一个整行高 ≈ 94pt）说「间隔太多」，看过第二版（35pt）又说
+    /// 「还是太高，应该紧贴月份高度」，所以这里不再加任何上下留白：
+    /// 竖屏 15pt 字 → **21pt**；横屏紧凑 13pt 字 → **18pt**。
+    /// 上下看起来的空白来自日期行自身的垂直居中留白，不需要带子再让一份。
+    static func flowLabelBandHeight(compact: Bool) -> CGFloat {
+        (flowLabelFontSize(compact: compact) * 1.4).rounded()
+    }
+
+    /// 小标题该站在哪一列：**当月 1 号所在的那一列**（用户要求「小月份在 1 号的上方」，
+    /// 不是整行居中）。列号 = 1 号是星期几（按周起始设置换算）。
+    static func monthLabelColumn(inMonth month: Date, ws: String) -> Int {
+        DateUtil.weekdayIndex(DateUtil.monthFirst(month), weekStart: ws)
+    }
+
+    /// 下一个月（月初），连续月历流里画「下个月的小标题」要用。
+    static func nextMonth(_ month: Date) -> Date {
+        DateUtil.calendar.date(byAdding: .month, value: 1, to: DateUtil.monthFirst(month)) ?? month
+    }
+
     static let allMonthKeys: [Int] = {
         var keys: [Int] = []
         for y in 1900...2100 {
@@ -364,6 +405,19 @@ enum CalendarLayout {
         return rows
     }
 
+    /// `displayedWeeks(inMonth:ws:)` 的行数，**O(1)** 算出来。
+    ///
+    /// 连续月历流（`MonthFlowLayout`）要为 1900–2100 共 2400 个月建前缀偏移，
+    /// 每个月都去展开一次周数组（6×7 次 `isDate`）会拖慢首次布局；行数只取决于
+    /// 「1 号是星期几 + 这个月几天」：`ceil((前导天数 + 当月天数) / 7)`，而最后一格
+    /// 一定含当月的一天，所以不会有需要裁掉的空尾行 —— 与 `displayedWeeks` 等价
+    /// （由 `MonthFlowLayoutTests` 在 1900–2100 的每个月上守住）。
+    static func displayedWeekCount(inMonth month: Date, ws: String) -> Int {
+        let lead = DateUtil.weekdayIndex(DateUtil.monthFirst(month), weekStart: ws)
+        let days = DateUtil.calendar.range(of: .day, in: .month, for: month)?.count ?? 30
+        return max(1, Int((Double(lead + days) / 7.0).rounded(.up)))
+    }
+
     static func weeks(inMonth month: Date, ws: String) -> [WeekDays] {
         let key = (DateUtil.calendar.component(.year, from: month) * 100 + DateUtil.calendar.component(.month, from: month)) * 2 + (ws == "sunday" ? 1 : 0)
         lock.lock()
@@ -389,11 +443,5 @@ enum CalendarLayout {
         let start = weekStart(of: date, ws: ws)
         let cal = DateUtil.calendar
         return WeekDays(start: start, days: (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: start) })
-    }
-
-    static func weekRowIndex(of date: Date, in month: Date, ws: String) -> Int {
-        let day = DateUtil.calendar.component(.day, from: date)
-        let lead = DateUtil.weekdayIndex(DateUtil.monthFirst(month), weekStart: ws)
-        return (lead + day - 1) / 7
     }
 }

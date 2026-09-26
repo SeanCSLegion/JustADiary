@@ -6,7 +6,7 @@ import XCTest
 /// - 横屏首页是左右分栏，日历紧贴左侧内容边（不再重复避让安全区）；
 /// - **没有年份入口**（横屏只上下滑切月，不提供点按钮切年）；
 /// - 「今天」在右栏标题行；
-/// - 上下滑可翻月；
+/// - 上下滑可滚到别的月份（左栏是连续月历流）；
 /// - 点某一天只换右栏，不改月历宽度（两栏宽度固定）。
 ///
 /// 判定按**可用宽度**而不是机型，所以这套断言在宽窄两种横屏上都成立，
@@ -78,6 +78,21 @@ final class LandscapeLayoutUITests: XCTestCase {
                              "「今天」应在右栏，而不是压在月历旁边")
     }
 
+    /// 在左栏月历上向上滑（看后面的月份）。
+    ///
+    /// 左栏现在是**连续月历流**（不是整页翻月）：一屏约 5–6 行、行高 ~45pt，所以
+    /// 「顶部月份换掉」要滑过一整个月（约 5 行），一次 201pt 的滑动不够 —— 滑两次。
+    private func swipeCalendarUp(times: Int = 2) {
+        let window = app.windows.firstMatch
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.72))
+        let end = window.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.22))
+        for _ in 0..<times {
+            start.press(forDuration: 0.05, thenDragTo: end)
+            usleep(400_000)
+        }
+        sleep(2)
+    }
+
     func testLandscapeMonthSwipesVertically() throws {
         launchLandscape()
         sleep(3)
@@ -85,14 +100,14 @@ final class LandscapeLayoutUITests: XCTestCase {
         let before = monthTitle(app)
         XCTAssertFalse(before.isEmpty, "找不到月历标题，无法验证翻月")
 
-        // 在左栏月历区域内**向上**滑 → 下一个月（与竖屏同方向）
-        let window = app.windows.firstMatch
-        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.72))
-        let end = window.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.22))
-        start.press(forDuration: 0.05, thenDragTo: end)
-        sleep(2)
+        // 在左栏月历区域内**向上**滑 → 后面的月份（与竖屏同方向）
+        swipeCalendarUp()
 
-        XCTAssertNotEqual(monthTitle(app), before, "横屏向上滑应切换到下一个月")
+        XCTAssertNotEqual(monthTitle(app), before, "横屏向上滑应切到新的月份")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "landscape-month-flow"
+        shot.lifetime = .keepAlways
+        add(shot)
     }
 
     func testTappingDayKeepsPaneWidthsStable() throws {
@@ -125,13 +140,9 @@ final class LandscapeLayoutUITests: XCTestCase {
         let headingBefore = app.staticTexts["home.dayHeading"].firstMatch.label
         let before = monthTitle(app)
 
-        let window = app.windows.firstMatch
-        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.72))
-        let end = window.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.22))
-        start.press(forDuration: 0.05, thenDragTo: end)
-        sleep(3)
+        swipeCalendarUp()
 
-        XCTAssertNotEqual(monthTitle(app), before, "向上滑应翻到下一个月")
+        XCTAssertNotEqual(monthTitle(app), before, "向上滑应切到新的月份")
         let headingAfter = app.staticTexts["home.dayHeading"].firstMatch.label
         XCTAssertNotEqual(headingAfter, headingBefore,
                           "翻月后右栏选中日要跟着进入新月份（否则日历上没有选中项）")

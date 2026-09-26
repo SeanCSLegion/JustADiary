@@ -13,9 +13,18 @@ struct HomeView: View {
     @State private var vm = HomeViewModel()
     @State private var mode: CalendarMode = .month
     @State private var zoom: Double = 0
-    @State private var ymMorph: (year: Int, month: Date)?
+    @State private var ymMorph: (year: Int, month: Date, zoomingIn: Bool)?
     @State private var expand: Double = 0
     @State private var mwMorphMonth: Date?
+    /// 月↔周 morph 冻结下来的连续月历流几何（开合两个方向共用）。
+    @State private var mwSource: MonthFlowMorphSource?
+    /// 连续月历流的滚动偏移（内容坐标）。竖屏整屏与横屏左栏两条流各一份；
+    /// 归 HomeView 持有是为了让 SwiftUI 能逐帧插值惯性（见 `FlowRenderedOffset`）。
+    @State private var flowOffset: CGFloat?
+    @State private var paneFlowOffset: CGFloat?
+    /// 发给竖屏月视图的「跳到某个月」请求与它的序号。
+    @State private var monthJump: MonthFlowJump?
+    @State private var jumpToken = 0
     @State private var showFutureToast = false
     @State private var futureToastTask: Task<Void, Never>?
 
@@ -35,7 +44,9 @@ struct HomeView: View {
                 } else {
                     header
                         .padding(.horizontal, 16)
-                        .padding(.top, 12)
+                        .padding(.top, Self.headerTopPadding)
+                        // 顶栏的透明效果已按用户要求**回退**：这一排恢复页面背景色，
+                        // 不再铺磨砂材质（用户：「顶部的透明效果看起来不好，回退吧」）。
                     // 横屏（尚未分栏的窄窗口）点年份胶囊进年历：复用竖屏那套整屏 morph
                     calendarArea(size: size)
                 }
@@ -58,7 +69,10 @@ struct HomeView: View {
                             .glassEffect(.regular, in: Capsule())
                     }
                     .shadow(color: Theme.shadowColor(), radius: 12, y: 4)
-                    .padding(.bottom, 24)
+                    // 这颗 toast 挂在整块几何的底边上（几何一直延伸到屏幕底边），
+                    // 而浮条悬在内容之上：只让 24pt 的话 toast 整颗都落在浮条
+                    // 底下（竖屏浮条顶边在 y 791，toast 在 810–850），等于没显示。
+                    .padding(.bottom, layout.tabBarClearance + 24)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
                     .sensoryFeedback(.warning, trigger: showFutureToast)
             }
@@ -66,8 +80,9 @@ struct HomeView: View {
         .task { await vm.loadInitial() }
         .onChange(of: layout.splitsMasterDetail) { _, split in
             // 旋转进横屏分栏时，年/周态与 morph 都必须收掉：横屏没有年历入口，
-            // 也不该停留在半屏 morph 上。
-            if split { settleToMonth() }
+            // 也不该停留在半屏 morph 上。反向旋转时让竖屏那条流按当前月重新静止
+            // （横屏左栏可能已经滚到别的月份了）。
+            if split { settleToMonth() } else { flowOffset = nil }
         }
         .onReceive(NotificationCenter.default.publisher(for: .diaryVersionChanged)) { _ in
             Task { await vm.loadInitial() }
@@ -86,14 +101,26 @@ struct HomeView: View {
         withTransaction(tr) {
             ymMorph = nil
             mwMorphMonth = nil
+            mwSource = nil
             zoom = 0
             expand = 0
             mode = .month
         }
+        // 左栏的滚动位置跟着行高变（横屏 45pt / SE 40.5pt），下一次进横屏重新静止。
+        paneFlowOffset = nil
         Task { await vm.reloadDayBlocks() }
     }
 
     // MARK: - Header
+
+    /// 头部整块占掉的高度：`.padding(.top, 12)` + `.frame(minHeight, 52)`。
+    ///
+    /// 日历区的高度是从**整块几何**里推出来的（几何因为 `.ignoresSafeArea(edges:
+    /// .bottom)` 一直延伸到屏幕底边），所以这两个数字既要在 `header` 上用，也要在
+    /// 减高度时用 —— 写两份就会漂移，日期又会钻到浮条底下。
+    private static let headerTopPadding: CGFloat = 12
+    private static let headerMinHeight: CGFloat = 52
+    private static var headerBlockHeight: CGFloat { headerTopPadding + headerMinHeight }
 
     private var titleText: String {
         switch mode {
@@ -145,7 +172,7 @@ struct HomeView: View {
         }
         // `height` clipped the capsule once the title grew with the user's
         // text size; `minHeight` is unchanged at the default category.
-        .frame(minHeight: 52)
+        .frame(minHeight: Self.headerMinHeight)
     }
 
     private func relativeDayLabel() -> String {
@@ -187,7 +214,10 @@ struct HomeView: View {
         tr.disablesAnimations = true
         withTransaction(tr) {
             vm.selectMonth(monthDate)
-            ymMorph = (vm.yearPage, monthDate)
+            // 连续月历流要在 morph 结束时**正好**停在这个月的静止位置，所以这里
+            // 立刻把跳转请求发下去（morph 期间月视图是隐藏的，看不见这次跳）。
+            jumpFlow(to: monthDate, animated: false)
+            ymMorph = (vm.yearPage, monthDate, true)
             mode = .month
             zoom = 1
         }
@@ -200,7 +230,9 @@ struct HomeView: View {
         }
     }
 
-    private func openDay(_ day: Date) {
+    /// 点某一天 → 月↔周 morph。`source` 是按下那一刻冻结的连续月历流几何：
+    /// 反方向（周→月）也用同一份源倒放，所以这一行会**回到它原来的位置**。
+    private func openDay(_ day: Date, source: MonthFlowMorphSource) {
         guard mwMorphMonth == nil else { return }
         Haptics.tap()
         var tr = Transaction()
@@ -208,6 +240,7 @@ struct HomeView: View {
         withTransaction(tr) {
             vm.select(day)
             mwMorphMonth = vm.monthPage
+            mwSource = source
             mode = .week
             expand = 0
         }
@@ -239,6 +272,8 @@ struct HomeView: View {
             } completion: {
                 morphLog("mw-back-end")
                 mwMorphMonth = nil
+                // 源几何用完就丢：下一次开合会重新冻结。
+                mwSource = nil
             }
         case .month:
             showYearPage()
@@ -255,7 +290,7 @@ struct HomeView: View {
         tr.disablesAnimations = true
         withTransaction(tr) {
             vm.yearPage = DateUtil.calendar.component(.year, from: vm.monthPage)
-            ymMorph = (vm.yearPage, vm.monthPage)
+            ymMorph = (vm.yearPage, vm.monthPage, false)
             mode = .year
             zoom = 0
         }
@@ -280,6 +315,7 @@ struct HomeView: View {
             withAnimation(.snappy(duration: 0.3)) {
                 vm.resetToToday()
             }
+            jumpFlow(to: Date(), animated: true)
             Task { await vm.reloadDayBlocks() }
         case .week:
             Haptics.tap()
@@ -293,10 +329,14 @@ struct HomeView: View {
     private func resetToToday() {
         ymMorph = nil
         mwMorphMonth = nil
+        mwSource = nil
         zoom = 0
         expand = 0
         mode = .month
         vm.resetToToday()
+        // 版面可能刚变过（旋转 / 密度），先把两条流都放回当前月的静止位置。
+        flowOffset = nil
+        paneFlowOffset = nil
         Task { await vm.loadInitial() }
     }
 
@@ -323,7 +363,7 @@ struct HomeView: View {
         // `size` 已经是**扣掉左右安全区**的内容尺寸（18 Pro 横屏 874×402 → 宽 750；
         // SE 横屏 667×375 → 宽 667；高度因为 `.ignoresSafeArea(.bottom)` 仍是屏高）：
         // 左侧那 62pt 系统占位已经在几何原点里，这里再减一次就是重复避让 ——
-        // 第一版在 HomeView 与 MonthPane 各避让一次，日历被推到 x ≈ 222，左半屏白白空着。
+        // 第一版在 HomeView 与左栏月历各避让一次，日历被推到 x ≈ 222，左半屏白白空着。
         let topPad = AdaptiveLayout.splitTopPadding
         // 底部为横屏那枚悬在屏幕底部的系统浮条让位（实测 64pt，且紧贴屏底）：
         // 日历区在浮条之上结束。这里**不能**用 `bottomInset + 44`：SE 横屏没有
@@ -331,12 +371,6 @@ struct HomeView: View {
         let paneH = layout.splitPaneHeight(containerHeight: size.height)
 
         let headerH = CalendarLayout.compactMonthTitleH + CalendarLayout.compactWeekdayHeaderH
-        let weeks = CalendarLayout.displayedWeeks(inMonth: vm.monthPage, ws: weekStart).count
-        let density = CalendarDensity.resolve(availableHeight: paneH - headerH,
-                                               rows: weeks,
-                                               wantsLunar: showsLunar)
-        let rows = density.rows(monthWeeks: weeks)
-        let cellH = density.rowHeight(availableHeight: paneH - headerH, rows: rows)
 
         // 主栏固定为容器宽的一部分，其余全部给右栏；两栏之和 + 页边距 + 分隔线
         // 正好等于容器宽，所以 18 Pro 横屏是 345 / 356.5，SE 横屏是 307 / 311.5，
@@ -347,33 +381,39 @@ struct HomeView: View {
         let gutter = AdaptiveLayout.splitGutter
         let todayAction = todayTapped
 
+        // 行高按**固定的 6 行**算：连续滚动里行高必须全局一致，不能跟着「当月是 5 行
+        // 还是 6 行」变，否则滚过月份边界时格子会忽高忽低。
+        let density = CalendarDensity.resolve(availableHeight: paneH - headerH,
+                                              rows: 6,
+                                              wantsLunar: showsLunar)
+        let rowH = density.rowHeight(availableHeight: paneH - headerH, rows: 6)
+        let flowMetrics = CalendarLayout.flowMetrics(width: calendarW,
+                                                     rowH: rowH,
+                                                     lunar: density.showsLunar,
+                                                     compact: true)
+
         return HStack(alignment: .top, spacing: 0) {
-            // 月历：**上下滑**翻月（与竖屏一致，横屏不引入第二套手势方向）；
-            // 每页只画当前月，不显示相邻月的日期。
-            DragPagePager(keys: CalendarLayout.allMonthKeys,
-                          current: CalendarLayout.monthKey(vm.monthPage),
-                          axis: .vertical,
-                          pageSize: paneH,
-                          disabled: false,
-                          onPageChange: { key in
-                selectMonthPage(key)
-            }) { key in
-                MonthPane(month: CalendarLayout.dateForMonthKey(key),
+            // 月历：与竖屏同一套**连续月历流**（上下滑无级滚动，不引入第二套手势），
+            // 只是紧凑形态 + 行高按左栏高度自适应。
+            MonthFlowView(offset: paneFlowOffset ?? flowRest(vm.monthPage, rowH: rowH),
+                          onScroll: { paneFlowOffset = $0 },
                           weekStart: weekStart,
                           selectedDate: selectedDate,
                           flags: flags,
-                          width: calendarW,
-                          areaH: paneH,
-                          cellH: cellH,
-                          density: density,
+                          size: CGSize(width: calendarW, height: paneH),
+                          metrics: flowMetrics,
+                          rowH: rowH,
                           titleHeight: CalendarLayout.compactMonthTitleH,
                           weekdayHeight: CalendarLayout.compactWeekdayHeaderH,
                           titleFont: TypeSize.pageTitle,
-                          onTapDay: selectDay)
-                    .frame(width: calendarW, height: paneH)
-            }
-            .frame(width: calendarW, height: paneH)
-            .clipped()
+                          compact: true,
+                          onTapDay: { day, _ in selectDay(day) },
+                          // 翻月后把选中日带进新月份，右栏才跟着一起走。
+                          onSettle: { month in
+                              selectMonthPage(CalendarLayout.monthKey(month))
+                          })
+                .frame(width: calendarW, height: paneH)
+                .clipped()
 
             Rectangle()
                 .fill(Theme.outlineVariant().opacity(0.4))
@@ -414,100 +454,141 @@ struct HomeView: View {
 
     private func calendarArea(size: CGSize) -> some View {
         let w = size.width
-        let h = max(320, size.height - 64)
-        // While a morph runs, all three base layers sit at opacity 0 — but an
-        // opacity-0 view is still built and still re-evaluated on every
-        // animation frame. Each layer wraps a DragPagePager that eagerly builds
-        // three pages, so the hidden year layer alone costs 3 x 12 = 36 month
-        // canvases per frame. Skip them entirely while morphing; the morph view
-        // is the only thing that needs to be on screen.
+        // 两把高度尺子（用户要求底部「不要留白色遮罩、要有沉浸感」之后分出来的）：
+        //
+        // - `hSafe`（= 几何 − 头部 − **浮条自身的高度**）：**不许被浮条压住**的内容用它。
+        //   年历的四行卡片、morph 的终点都按它排 —— 几何到屏幕底边，而浮条悬在内容之上
+        //   （竖屏 `safeArea.bottom` 只有 34pt 的 home indicator、浮条自身 83pt 不在安全区），
+        //   不自己让出来，最后一行就被盖住。
+        // - `hFull`（= 几何 − 头部）：**可以穿到浮条底下**的内容用它。月视图的连续流与
+        //   周视图的日记都铺到屏幕底边：日期从玻璃浮条下面滚过去，浮条那层玻璃才有东西
+        //   可以透，底部不会留出一条空白的「白遮罩」。当月那六行仍然落在 `hSafe` 之内
+        //   （行高按 `hSafe` 算），所以「日期被浮条压住」那个 bug 不会回来。
+        let hSafe = layout.singleColumnCalendarHeight(containerHeight: size.height,
+                                                     headerHeight: Self.headerBlockHeight)
+        let hFull = hSafe + layout.tabBarClearance
+        // 行高沿用「标题槽 + 星期栏 + 六行」那把尺子（按 `hSafe` 算）：静止时画面与
+        // 改造前逐像素一致，年↔月 morph 的终点（`fullMonthGridRect`）也就不用重新推导。
+        // 24pt 只是兜底：容器矮到连一行都放不下时（分屏 / 折叠态的极端高度），
+        // 行高不能变成负数。
+        let rowH = max(24, CalendarLayout.monthCellH(areaH: hSafe))
+        let flowMetrics = CalendarLayout.flowMetrics(width: w, rowH: rowH, lunar: showsLunar)
+
+        // While a morph runs the base layers sit at opacity 0 — but an opacity-0 view is
+        // still built and still re-evaluated on every animation frame. The year layer
+        // wraps a DragPagePager that eagerly builds three pages (3 x 12 = 36 month
+        // canvases), so it is only built when it is actually the visible mode; the week
+        // layer (day content scroll view) likewise.
+        //
+        // 月视图（连续月历流）是例外：**始终挂载**，morph 期间只把不透明度压到 0。
+        // 它的滚动位置是内部状态，卸载就丢 —— 月↔周 morph 收尾要回到「按下那一行
+        // 原来的位置」，卸载再挂载就会跳一下。
         return ZStack(alignment: .top) {
-            if !morphing {
-                yearLayer(w: w, h: h)
-                    .opacity(mode == .year ? 1 : 0)
-                    .allowsHitTesting(mode == .year)
-                monthLayer(w: w, h: h)
-                    .opacity(mode == .month ? 1 : 0)
-                    .allowsHitTesting(mode == .month)
-                weekLayer(w: w, h: h)
-                    .opacity(mode == .week ? 1 : 0)
-                    .allowsHitTesting(mode == .week)
+            if !morphing, mode == .year {
+                // 页高用 `hFull`（铺满屏幕）：分页器的邻页整页在屏幕之外，不会有
+                // 「下一年的头两行从底部漏出来」；卡片本身仍按 `hSafe` 排，最后一
+                // 行依旧在浮条之上。
+                yearLayer(w: w, containerH: hFull, layoutH: hSafe)
+            }
+            MonthFlowView(offset: flowOffset ?? flowRest(vm.monthPage, rowH: rowH),
+                          onScroll: { flowOffset = $0 },
+                          weekStart: weekStart,
+                          selectedDate: selectedDate,
+                          flags: flags,
+                          size: CGSize(width: w, height: hFull),
+                          metrics: flowMetrics,
+                          rowH: rowH,
+                          jump: monthJump,
+                          onTapDay: { day, source in openDay(day, source: source) },
+                          onSettle: settleFlow)
+                .frame(width: w, height: hFull)
+                .opacity(mode == .month && !morphing ? 1 : 0)
+                .allowsHitTesting(mode == .month && !morphing)
+            if !morphing, mode == .week {
+                weekLayer(w: w, h: hFull)
             }
             if let m = ymMorph {
                 YearMonthMorphView(progress: zoom,
                                    year: m.year,
                                    month: m.month,
-                                   size: CGSize(width: w, height: h),
+                                   size: CGSize(width: w, height: hSafe),
                                    weekStart: weekStart,
                                    selectedDate: selectedDate,
                                    flags: flags,
-                                   showsLunar: showsLunar)
+                                   showsLunar: showsLunar,
+                                   frameHeight: hFull,
+                                   // 年→月（`zoom` 从 1 走到 0）时下个月那一条要**淡入**；
+                                   // 月→年时它一开场就迅速消失。
+                                   peekFadesIn: m.zoomingIn)
             }
-            if let mm = mwMorphMonth {
+            if mwMorphMonth != nil, let src = mwSource {
                 MonthWeekMorphView(progress: expand,
-                                   month: mm,
+                                   month: src.topMonth,
+                                   source: src,
                                    selectedDate: selectedDate,
                                    flags: flags,
                                    weekStart: weekStart,
-                                   size: CGSize(width: w, height: h),
+                                   // 周视图与日记也铺到屏幕底边（沉浸），所以 morph 的
+                                   // 容器同样用 `hFull`：收尾换回真实图层时高度不会变。
+                                   size: CGSize(width: w, height: hFull),
                                    showsLunar: showsLunar) {
-                    dayContentBlock(w: w, h: h)
+                    dayContentBlock(w: w, h: hFull)
                 }
             }
         }
-        .frame(width: w, height: h)
+        // 整块日历区铺到屏幕底边（`hFull`）：月视图的日期从玻璃浮条下面滚过去。
+        .frame(width: w, height: hFull, alignment: .top)
         .clipped()
     }
 
-    private func yearLayer(w: CGFloat, h: CGFloat) -> some View {
+    /// 连续月历流滚动落定：竖屏只把「当前月」记进 VM（顶部大标题由月视图自己实时跟随），
+    /// 横屏由左栏的 `onSettle` 单独处理（还要把选中日带过去）。
+    private func settleFlow(_ month: Date) {
+        guard CalendarLayout.monthKey(month) != CalendarLayout.monthKey(vm.monthPage) else { return }
+        vm.selectMonth(month)
+    }
+
+    /// 某个月在连续月历流里的**静止偏移**（该月第一行的顶）。
+    ///
+    /// 月视图的滚动位置由 HomeView 持有（惯性要交给 SwiftUI 逐帧插值），所以
+    /// 「跳到某个月」就是把偏移设成这个值；`MonthFlowLayout` 有缓存，这里几乎零成本。
+    private func flowRest(_ month: Date, rowH: CGFloat) -> CGFloat {
+        MonthFlowLayout.cached(weekStart: weekStart, rowH: rowH)
+            .restOffset(forKey: CalendarLayout.monthKey(month)) ?? 0
+    }
+
+    /// 让月视图跳到某个月（今天 / 年历点月）。`token` 保证「连续两次跳同一个月」
+    /// 也能被 `onChange` 看到；真正的偏移换算与动画在月视图里做（它才知道行高）。
+    private func jumpFlow(to month: Date, animated: Bool) {
+        jumpToken += 1
+        monthJump = MonthFlowJump(key: CalendarLayout.monthKey(month),
+                                  animated: animated,
+                                  token: jumpToken)
+    }
+
+    private func yearLayer(w: CGFloat, containerH: CGFloat, layoutH: CGFloat) -> some View {
         DragPagePager(keys: CalendarLayout.allYears,
                       current: vm.yearPage,
                       axis: .vertical,
-                      pageSize: h,
+                      pageSize: containerH,
                       disabled: morphing,
                       onPageChange: { vm.yearPage = $0 }) { y in
             YearPageView(year: y,
                          selectedDate: selectedDate,
                          flags: flags,
                          weekStart: weekStart,
-                         containerSize: CGSize(width: w, height: h),
+                         containerSize: CGSize(width: w, height: containerH),
+                         layoutHeight: layoutH,
                          onSelectMonth: openMonthFromYear)
         }
-        .frame(height: h)
+        .frame(height: containerH)
     }
 
-    private func monthLayer(w: CGFloat, h: CGFloat) -> some View {
-        DragPagePager(keys: CalendarLayout.allMonthKeys,
-                      current: CalendarLayout.monthKey(vm.monthPage),
-                      axis: .vertical,
-                      pageSize: h,
-                      disabled: morphing,
-                      onPageChange: { key in
-            vm.selectMonth(CalendarLayout.dateForMonthKey(key))
-        }) { key in
-            MonthPane(month: CalendarLayout.dateForMonthKey(key),
-                      weekStart: weekStart,
-                      selectedDate: selectedDate,
-                      flags: flags,
-                      width: w,
-                      areaH: h,
-                      cellH: CalendarLayout.monthCellH(areaH: h),
-                      density: showsLunar ? .month(lunar: true) : .month(lunar: false),
-                      // 竖屏顶部已经有 InfoCapsule(今天 + 相对日期)，这里不再重复。
-                      onTapDay: openDay)
-        }
-        .frame(height: h)
-    }
-
-    /// 点某个日期：横屏只更新选中日（不进入周视图），竖屏走原来的 morph。
+    /// 点某个日期：横屏只更新选中日（不进入周视图），竖屏走 morph。
     private func selectDay(_ day: Date) {
-        if layout.splitsMasterDetail {
-            Haptics.tap()
-            withAnimation(.snappy(duration: 0.25)) { vm.select(day) }
-            Task { await vm.reloadDayBlocks() }
-        } else {
-            openDay(day)
-        }
+        Haptics.tap()
+        withAnimation(.snappy(duration: 0.25)) { vm.select(day) }
+        Task { await vm.reloadDayBlocks() }
     }
 
     private func weekLayer(w: CGFloat, h: CGFloat) -> some View {
