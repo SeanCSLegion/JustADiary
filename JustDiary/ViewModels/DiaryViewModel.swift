@@ -185,15 +185,34 @@ final class DiaryViewModel {
             }
             return
         }
-        if !isRead, !controller.isEmpty() {
-            alertItem = .confirm(title: L10n.str("editor_exit_title"),
-                                 message: L10n.str("editor_exit_content_msg"),
-                                 confirmLabel: L10n.str("discard")) {
-                    self.onDismiss?()
+        // In the editor, back leaves the *edit*, not the page: the day's reading
+        // view is what sits behind it. It used to dismiss the whole cover, so
+        // cancelling an edit dropped the user straight back onto the home
+        // calendar instead of the entry they were reading.
+        if !isRead {
+            if controller.isEmpty() {
+                showRead()
+            } else {
+                alertItem = .confirm(title: L10n.str("editor_exit_title"),
+                                     message: L10n.str("editor_exit_content_msg"),
+                                     confirmLabel: L10n.str("discard")) {
+                    self.discardEditing()
+                    self.showRead()
                 }
+            }
             return
         }
         onDismiss?()
+    }
+
+    /// Leaves the editor for the day's reading view. The stored blocks are
+    /// untouched — the editor never wrote them — so nothing has to be reloaded.
+    private func showRead() {
+        autoFocusEditor = false
+        withAnimation(.diaryStandard) {
+            isRead = true
+            editingIndex = nil
+        }
     }
 
     // MARK: - Discard

@@ -85,8 +85,38 @@ final class EditorSpacingTests: XCTestCase {
         ContentPart(style: style, runs: [TextRun(text: text)])
     }
 
-    private func doc(_ parts: [ContentPart]) -> NSAttributedString {
-        PartsCodec.attributedString(from: parts, imageMaxWidth: width, typeSize: .large)
+    private func attachmentBounds(_ attributed: NSAttributedString) -> CGRect? {
+        var rect: CGRect?
+        attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, _, _ in
+            if let attachment = value as? PayloadAttachment { rect = attachment.bounds }
+        }
+        return rect
+    }
+
+    /// Redraws into a plain RGBA bitmap: `ImageRenderer`'s own image is backed
+    /// by a pixel buffer with no readable data provider.
+    private func readable(_ image: UIImage) -> UIImage? {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(at: .zero)
+        }
+    }
+
+    /// The colour bytes at a point of a rendered image. Alpha is not reliable
+    /// here (the renderer may drop it), so callers compare against the corner.
+    private func pixel(_ image: UIImage, x: CGFloat, y: CGFloat) -> [UInt8] {
+        guard let cg = image.cgImage, let data = cg.dataProvider?.data,
+              let bytes = CFDataGetBytePtr(data) else { return [] }
+        let bpp = max(1, cg.bitsPerPixel / 8)
+        let offset = Int(y) * cg.bytesPerRow + Int(x) * bpp
+        guard offset + bpp <= CFDataGetLength(data) else { return [] }
+        return (0..<bpp).map { bytes[offset + $0] }
+    }
+
+    private func doc(_ parts: [ContentPart], width: CGFloat? = nil) -> NSAttributedString {
+        PartsCodec.attributedString(from: parts, imageMaxWidth: width ?? self.width, typeSize: .large)
     }
 
     /// A real file on disk: without one the codec cannot size the picture, so a
@@ -96,10 +126,13 @@ final class EditorSpacingTests: XCTestCase {
             .appendingPathComponent("images")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent(name)
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 120, height: 80))
+        // Same aspect as the declared 300 × 138: the view draws with
+        // `scaledToFit`, so a mismatched fixture would letterbox and the
+        // edge-to-edge assertion below would measure the fixture, not the code.
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 150, height: 69))
         let image = renderer.image { context in
             UIColor.systemTeal.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 120, height: 80))
+            context.fill(CGRect(x: 0, y: 0, width: 150, height: 69))
         }
         try XCTUnwrap(image.pngData()).write(to: url)
         return ContentPart(style: ContentPartStyle.image, src: "images/\(name)", w: 300, h: Double(h))
@@ -179,8 +212,8 @@ final class EditorSpacingTests: XCTestCase {
         XCTAssertEqual(rows.count, 3)
 
         let imageRow = rows[1]
-        XCTAssertEqual(imageRow.inkBottom - imageRow.inkTop, 138, accuracy: 1,
-                       "图片行就是图片本身的高度")
+        XCTAssertEqual(imageRow.inkBottom - imageRow.inkTop, 138 * width / 300, accuracy: 1,
+                       "图片行就是图片本身的高度（按列宽等比缩放）")
         XCTAssertEqual(imageRow.inkTop - imageRow.boxTop, EditorDesignSize.imageSpacing, accuracy: 0.5,
                        "图片上方：原来是 0，图片直接贴着上一行")
         XCTAssertEqual(imageRow.boxBottom - imageRow.inkBottom, EditorDesignSize.imageSpacing, accuracy: 0.5,
@@ -229,8 +262,9 @@ final class EditorSpacingTests: XCTestCase {
         let attributed = doc([body("正文一"), missing, body("正文二")])
         XCTAssertEqual(attributed.length, doc([body("正文一"), body("正文二")]).length + 2,
                        "占位附件 + 换行都应保留")
-        XCTAssertEqual(paragraphs(attributed)[1].inkBottom - paragraphs(attributed)[1].inkTop, 138,
-                       accuracy: 1, "占位仍占图片应有的高度")
+        let placeholder = paragraphs(attributed)[1]
+        XCTAssertEqual(placeholder.inkBottom - placeholder.inkTop, 138 * width / 300, accuracy: 1,
+                       "占位仍占图片应有的高度")
     }
 
     // MARK: - Reader chunks
@@ -247,15 +281,16 @@ final class EditorSpacingTests: XCTestCase {
     }
 
     func testReaderImageChunkIsExactlyTheImage() throws {
-        let chunk = PartsCodec.readerChunk(from: [try imagePart()])
+        let chunk = PartsCodec.readerChunk(from: [try imagePart()], imageMaxWidth: width)
 
         XCTAssertNil(chunk.attribute(.paragraphStyle, at: 0, effectiveRange: nil),
                      "图片块的段距由 DiaryPartsView 用 padding 给，不该在段样式里再算一遍")
-        // The picture plus the line's descender — what matters is that the ~20pt
-        // reserved caret line is gone.
+        // The picture (scaled to the chunk) plus the line's descender — what
+        // matters is that the ~20pt reserved caret line is gone.
+        let scaled = 138 * width / 300
         let height = textViewHeight(chunk)
-        XCTAssertGreaterThan(height, 137)
-        XCTAssertLessThan(height, 138 + 8, "块高就是图片高度，上下留白交给 padding")
+        XCTAssertGreaterThan(height, scaled)
+        XCTAssertLessThan(height, scaled + 8, "块高就是图片高度，上下留白交给 padding")
     }
 
     func testReaderTextChunkKeepsItsParagraphGaps() {
@@ -274,5 +309,54 @@ final class EditorSpacingTests: XCTestCase {
                        EditorBlockStyle.title.paragraphSpacingBefore + EditorBlockStyle.title.paragraphSpacing,
                        accuracy: 2,
                        "块内的段距与编辑区一致")
+    }
+
+    // MARK: - An image follows the column
+
+    func testImageFillsTheColumnAndStaysCentred() throws {
+        let image = try imagePart()   // stored as 300 × 138
+        let narrow = try XCTUnwrap(attachmentBounds(doc([body("上文"), image], width: 300)))
+        let wide = try XCTUnwrap(attachmentBounds(doc([body("上文"), image], width: 600)))
+
+        XCTAssertEqual(narrow.width, 300, accuracy: 1)
+        XCTAssertEqual(wide.width, 600, accuracy: 1,
+                       "列变宽时图片要跟着放大（原来停在竖屏宽度）")
+        XCTAssertEqual(wide.height / wide.width, 138.0 / 300.0, accuracy: 0.01,
+                       "只按存储的比例缩放")
+
+        let rendered = doc([body("上文"), image], width: 600)
+        let attachmentIndex = (rendered.string as NSString).range(of: "\u{FFFC}").location
+        let style = rendered.attribute(.paragraphStyle, at: attachmentIndex,
+                                       effectiveRange: nil) as? NSParagraphStyle
+        XCTAssertEqual(style?.alignment, .center, "图片段落居中")
+    }
+
+    func testImageStoredSizeIsAnAspectRatioNotALayoutSize() throws {
+        let image = try imagePart()   // 300 × 138
+        let rendered = doc([image], width: 600)
+        let saved = try XCTUnwrap(PartsCodec.parts(from: rendered, typeSize: .large).first)
+        XCTAssertEqual(saved.w, 300, "存储的宽度不随列宽变化")
+        XCTAssertEqual(saved.h, 138)
+    }
+
+    @MainActor
+    func testReaderImageFillsTheWidthItIsGiven() throws {
+        let image = try imagePart()
+        let view = DiaryImageView(src: try XCTUnwrap(image.src), displayW: 300, displayH: 138)
+            .frame(width: 600)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 1
+        let rendered = try XCTUnwrap(renderer.uiImage)
+        XCTAssertEqual(rendered.size.width, 600, accuracy: 1)
+        XCTAssertEqual(rendered.size.height, 600 * 138 / 300, accuracy: 1)
+
+        // …and the picture itself reaches both edges, rather than sitting small
+        // in the middle of a full-width box (that was the landscape rendering).
+        let bitmap = try XCTUnwrap(readable(rendered))
+        let midY = bitmap.size.height / 2
+        let background = pixel(bitmap, x: 1, y: 1)
+        XCTAssertNotEqual(pixel(bitmap, x: 2, y: midY), background, "左边应该有图")
+        XCTAssertNotEqual(pixel(bitmap, x: bitmap.size.width - 3, y: midY), background,
+                          "右边应该有图")
     }
 }

@@ -90,8 +90,15 @@ struct ReadTextView: UIViewRepresentable {
 
         func rebuild() {
             guard let tv = textView else { return }
+            // The chunk's own width, not the screen's: a chunk lives inside a
+            // card, and the codec's fallback (`Screen.width - 76`) would size an
+            // image against the display instead of the column it sits in.
+            let inset = tv.textContainerInset
+            let available = tv.bounds.width - inset.left - inset.right
             let attributed = NSMutableAttributedString(
-                attributedString: PartsCodec.readerChunk(from: parent.parts, typeSize: typeSize)
+                attributedString: PartsCodec.readerChunk(from: parent.parts,
+                                                         imageMaxWidth: available > 40 ? available : nil,
+                                                         typeSize: typeSize)
             )
             todoRanges = []
             todoCallbacks = []

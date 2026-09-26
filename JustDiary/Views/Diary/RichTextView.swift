@@ -267,60 +267,75 @@ struct FontToolbar: View {
         .accessibilityValue(L10n.str(current.localizationKey))
     }
 
-    @ViewBuilder
-    var body: some View {
-        // Observing the controller's format tick re-evaluates this body after
-        // every edit/cursor move/format toggle, keeping the button states live.
+    /// The buttons at their intrinsic width.
+    ///
+    /// Spacing is 4pt, not 6: at the default text size the nine controls then
+    /// add up to ~360pt and the whole bar fits a 402pt phone in one piece
+    /// (with 6pt it came to ~404pt and the last button hung off the edge).
+    private var barRow: some View {
+        // 状态在这里重新取一次：`ViewThatFits` 会量两遍，而且这些读取本来就让
+        // body 依赖 `formatTick`（按钮状态才会跟着光标 / 编辑实时更新）。
         let styles = controller.activeStyles()
         let center = controller.isCenterActive()
         let list = controller.isListActive()
         let quote = controller.isQuoteActive()
         let todo = controller.isTodoActive()
         let blockStyleActive = list || quote || todo
-
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                styleMenu
-                btn("text.aligncenter", accessibilityLabel: L10n.str("editor_tool_center"),
-                    active: center, disabled: blockStyleActive) {
-                    controller.toggleCenter()
-                }
-                Divider()
-                    .frame(height: 20)
-                    .overlay(Theme.outlineVariant().opacity(0.5))
-                btn("list.bullet", accessibilityLabel: L10n.str("editor_tool_list"),
-                    active: list) {
-                    controller.toggleList()
-                }
-                btn("text.quote", accessibilityLabel: L10n.str("editor_tool_quote"),
-                    active: quote) {
-                    controller.toggleQuote()
-                }
-                btn("checklist", accessibilityLabel: L10n.str("editor_tool_todo"),
-                    active: todo) {
-                    controller.toggleTodo()
-                }
-                Divider()
-                    .frame(height: 20)
-                    .overlay(Theme.outlineVariant().opacity(0.5))
-                btn("bold", accessibilityLabel: L10n.str("editor_tool_bold"),
-                    active: styles.bold) {
-                    controller.toggleBold()
-                }
-                btn("italic", accessibilityLabel: L10n.str("editor_tool_italic"),
-                    active: styles.italic) {
-                    controller.toggleItalic()
-                }
-                btn("strikethrough", accessibilityLabel: L10n.str("editor_tool_strike"),
-                    active: styles.strike) {
-                    controller.toggleStrike()
-                }
-                btn("underline", accessibilityLabel: L10n.str("editor_tool_underline"),
-                    active: styles.underline) {
-                    controller.toggleUnderline()
-                }
+        return HStack(spacing: 4) {
+            styleMenu
+            btn("text.aligncenter", accessibilityLabel: L10n.str("editor_tool_center"),
+                active: center, disabled: blockStyleActive) {
+                controller.toggleCenter()
             }
-            .padding(.vertical, 8)
+            Divider()
+                .frame(height: 20)
+                .overlay(Theme.outlineVariant().opacity(0.5))
+            btn("list.bullet", accessibilityLabel: L10n.str("editor_tool_list"),
+                active: list) {
+                controller.toggleList()
+            }
+            btn("text.quote", accessibilityLabel: L10n.str("editor_tool_quote"),
+                active: quote) {
+                controller.toggleQuote()
+            }
+            btn("checklist", accessibilityLabel: L10n.str("editor_tool_todo"),
+                active: todo) {
+                controller.toggleTodo()
+            }
+            Divider()
+                .frame(height: 20)
+                .overlay(Theme.outlineVariant().opacity(0.5))
+            btn("bold", accessibilityLabel: L10n.str("editor_tool_bold"),
+                active: styles.bold) {
+                controller.toggleBold()
+            }
+            btn("italic", accessibilityLabel: L10n.str("editor_tool_italic"),
+                active: styles.italic) {
+                controller.toggleItalic()
+            }
+            btn("strikethrough", accessibilityLabel: L10n.str("editor_tool_strike"),
+                active: styles.strike) {
+                controller.toggleStrike()
+            }
+            btn("underline", accessibilityLabel: L10n.str("editor_tool_underline"),
+                active: styles.underline) {
+                controller.toggleUnderline()
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    var body: some View {
+        // The bar is only as wide as its buttons (centred by the page), instead
+        // of stretching across the whole screen: in landscape a full-width strip
+        // under a 620pt column read as a toolbar twice the size it needed. When
+        // the buttons genuinely cannot fit — a large accessibility text size —
+        // the second variant takes over and scrolls, like Notes' toolbar.
+        ViewThatFits(in: .horizontal) {
+            barRow
+            ScrollView(.horizontal, showsIndicators: false) {
+                barRow
+            }
         }
         .padding(.horizontal, 12)
         // Exposed as a container so a UI test can assert the bar's own frame

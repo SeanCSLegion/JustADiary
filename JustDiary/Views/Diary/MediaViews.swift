@@ -16,27 +16,29 @@ struct DiaryImageView: View {
     var displayH: CGFloat
     var onTap: (() -> Void)? = nil
 
+    /// Fills the column, keeping the picture's aspect ratio.
+    ///
+    /// The width used to be capped at the *stored* width while the surrounding
+    /// aspect-ratio box was sized from the column: in landscape the box was as
+    /// tall as a full-width picture while the picture stayed portrait-sized, so
+    /// an image came out small and centred inside big empty bands. The stored
+    /// pair is only the aspect ratio here — the layout decides the width.
     var body: some View {
-        GeometryReader { geo in
-            let w = min(max(40, geo.size.width), max(40, displayW))
-            let fitH = max(1, displayH * w / max(displayW, 1))
-            HStack(spacing: 0) {
-                Spacer(minLength: 0)
-                if let image = DiaryImageStore.shared.image(for: src, maxPixel: max(displayW, displayH) * 3) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: w, height: fitH)
-                        .clipShape(RoundedRectangle(cornerRadius: Radius.image, style: .continuous))
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            Haptics.tap()
-                            onTap?()
-                        }
-                }
-                Spacer(minLength: 0)
+        Group {
+            if let image = DiaryImageStore.shared.image(for: src, maxPixel: max(displayW, displayH) * 3) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.image, style: .continuous))
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        Haptics.tap()
+                        onTap?()
+                    }
+            } else {
+                // A missing file keeps its slot instead of reflowing the entry.
+                Color.clear
             }
-            .frame(width: geo.size.width, height: geo.size.height)
         }
         .aspectRatio(max(displayW, 1) / max(displayH, 1), contentMode: .fit)
         .accessibilityAddTraits(.isImage)

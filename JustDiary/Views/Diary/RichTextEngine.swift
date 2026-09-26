@@ -819,8 +819,11 @@ final class RichEditorController {
 
     func insertImage(_ image: UIImage, src: String) {
         guard let tv = textView else { return }
-        let viewWidth = tv.bounds.width > 0 ? tv.bounds.width - 24 : 343
-        let maxW = min(viewWidth, 343)
+        // The column's full width. It was capped at a portrait phone's 343pt, so
+        // a picture inserted in landscape was laid out small and left-aligned
+        // (the cap belongs to the *stored* size, which is only an aspect ratio
+        // and a pixel-fetch hint now).
+        let maxW = max(60, tv.bounds.width > 0 ? tv.bounds.width - 24 : 343)
         let ratio = image.size.height / max(1, image.size.width)
         let displayH = max(40, maxW * ratio)
         let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: maxW, h: displayH))
@@ -1018,7 +1021,14 @@ enum PartsCodec {
                     let storedH = max(1, CGFloat(part.h ?? 200))
                     let fallbackW = max(60, Screen.width - 76)
                     let maxW = max(60, imageMaxWidth ?? fallbackW)
-                    let w = min(storedW, maxW)
+                    // Fill the column. The stored pair only carries the aspect
+                    // ratio from here on: a picture authored on a phone used to
+                    // keep its portrait width in landscape (a small picture in a
+                    // wide column, left-aligned), and the reader sized its
+                    // aspect box from the column while drawing the picture at
+                    // the stored width, which is where the phantom bands above
+                    // and below it came from.
+                    let w = maxW
                     let h = storedH * w / storedW
                     let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: storedW, h: storedH))
                     if let image = DiaryImageStore.shared.image(for: src, maxPixel: max(storedW, storedH) * 3) {
@@ -1043,10 +1053,12 @@ enum PartsCodec {
         return result
     }
 
-    /// The paragraph an image sits in: the same breathing room above and below,
-    /// so an image is never glued to the text around it.
+    /// The paragraph an image sits in: centred, with the same breathing room
+    /// above and below, so an image is never glued to the text around it and
+    /// never hangs off the left edge of a wide column.
     static func imageParagraphStyle() -> NSMutableParagraphStyle {
         let style = NSMutableParagraphStyle()
+        style.alignment = .center
         style.paragraphSpacingBefore = EditorDesignSize.imageSpacing
         style.paragraphSpacing = EditorDesignSize.imageSpacing
         return style
@@ -1066,9 +1078,10 @@ enum PartsCodec {
     ///
     /// Text paragraphs keep their own spacing: inside a chunk the reader and the
     /// editor lay text out with exactly the same paragraph styles.
-    static func readerChunk(from parts: [ContentPart],
+    static func readerChunk(from parts: [ContentPart], imageMaxWidth: CGFloat? = nil,
                             typeSize: DynamicTypeSize = .large) -> NSAttributedString {
         let attributed = NSMutableAttributedString(attributedString: attributedString(from: parts,
+                                                                                     imageMaxWidth: imageMaxWidth,
                                                                                      typeSize: typeSize))
         if attributed.string.hasSuffix("\n") {
             attributed.deleteCharacters(in: NSRange(location: attributed.length - 1, length: 1))
