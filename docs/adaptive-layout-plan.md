@@ -244,6 +244,12 @@ y:  0 ────────────────────────�
   整条被屏幕裁掉，与备忘录的做法也不一致；见 `docs/editor-format-behaviors.md` §3）。
   位置规则沿用 `docs/design-system.md` §5：键盘弹起时贴键盘上方 8pt，
   收起时贴 Home Indicator 上方。
+  **键盘避让由页面自己做**（内容末尾补等高占位 + `.ignoresSafeArea(.keyboard, edges: .bottom)`），
+  不要再让系统避让一次，否则会多出一份键盘高度的空白。
+  **顶栏不放在滚动视图里**：它曾经是 ScrollView 的 `safeAreaInset`，键盘弹起时页面
+  `scrollTo` 会把编辑卡片带进视野，横屏可用高度只有 402pt，顶栏随之被滚出屏幕
+  （实测返回按钮 y = −51）——现在它是 ZStack 里顶对齐的 overlay，见
+  `docs/editor-format-behaviors.md` B15。
 
 ---
 

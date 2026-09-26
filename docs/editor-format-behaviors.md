@@ -201,6 +201,8 @@ Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —�
 | **B9** | 低 | `PartsCodec.parts(from:)` | 空行点「列表」后直接保存 → 库里存下 `items: [""]` 空项 | 只跳过「空白文本行」，没跳过「只有标记的行」 | 只有标记没有文字的行不入库 | ✅ 修 |
 | **B10** | 高（数据丢失） | `RichTextView.updateUIView` | 编辑到一半旋转屏幕/宽度变化 → 回到进入编辑时的内容，刚输入的字没了 | 宽度变化时用 `loadParts`（进入编辑时的快照）整块重载编辑器 | 宽度变化只重排图片，不动文本 | ✅ 修 |
 | **B8** | 低 | `activeStyles()` / `isCenterActive()` / `currentBlockStyle()` | 混合选区时按钮高亮只按选区首字符算，可能误导 | 只探一个点 | 字符样式改为「整段全开才高亮」，与 B5 的统一语义一致 | ✅ 修 |
+| **B15** | 高 | `DiaryPageView` | 横屏键盘弹起后**顶栏整条消失**（返回 / 插入图片 / 放弃修改 / 保存 都被推到屏幕上方之外，实测 `返回` y = −51） | 顶栏挂在 ScrollView 的 `safeAreaInset` 上：键盘弹起时页面 `scrollTo` 把编辑卡片带进视野，横屏可用高度只有 402pt，这条 inset 跟着内容一起被滚出屏幕 | 顶栏移出滚动视图，改成 ZStack 顶对齐的 overlay（用实测高度给内容让位）；键盘只由页面自己避让 | ✅ 修 |
+| **B16** | 中 | `RichEditorController.refitImages` | 编辑模式横竖屏切换后，图片大小不跟着列宽变 | 重排图片时仍用旧的 `min(存储宽, 可用宽)`，旋转后又被夹回存储宽度 | 与 `PartsCodec` 同一条规则：宽度 = 列宽，存储对只作比例 | ✅ 修 |
 | **B12** | 中 | `DiaryViewModel.handleBack` | 编辑到一半点返回，整个日记页被关掉、掉回首页日历 | `!isRead` 时直接 `onDismiss()` | 返回只退出**编辑**，回到这一天的阅读页；有未保存内容仍先确认 | ✅ 修 |
 | **B13** | 中 | `PartsCodec` / `insertImage` / `DiaryImageView` | 横屏下图片不随列宽放大（阅读区还多出上下空带），编辑区图片靠左 | 宽度取 `min(存储宽, 可用宽)` 且段落左对齐；阅读区外层比例盒按列宽、内层图按存储宽 | 图片按列宽等比放大并居中；存储的 `w/h` 只当比例 | ✅ 修 |
 | **B14** | 低 | `FontToolbar` | 横屏格式栏拉满整行，比正文列还长 | `ScrollView` 自己占满可用宽度 | 按内容宽度居中（`ViewThatFits`：放得下就不滚，放不下才横滑） | ✅ 修 |
@@ -241,6 +243,9 @@ paragraphRanges 的循环：
 | B12 | `handleBack` 在 `!isRead` 时改为 `showRead()`（回到阅读态），确认放弃后才丢弃这次编辑；空编辑器直接回到阅读态 | `EditorFlowUITests.testBackFromTheEditorReturnsToTheDaysReadingView`、`…testBackFromAnEmptyEditorAlsoReturnsToTheReadingView` |
 | B13 | 图片按列宽等比排版（`PartsCodec` 的 `w = maxW`、`insertImage` 去掉 343pt 上限）、段落 `.center`；`DiaryImageView` 去掉 `GeometryReader` + 固定宽，改成按比例填满 | `testImageFillsTheColumnAndStaysCentred`、`testImageStoredSizeIsAnAspectRatioNotALayoutSize`、`testReaderImageFillsTheWidthItIsGiven` |
 | B14 | 格式栏改成 `ViewThatFits { barRow; ScrollView { barRow } }`，按钮间距 6 → 4（默认字号下 9 个按钮约 360pt，整条放得下） | `EditorFlowUITests.testFormatBarFitsInOnePieceAtTheDefaultTextSize` |
+
+| B15 | `DiaryPageView`：顶栏从 ScrollView 的 `safeAreaInset` 改成 ZStack 里的 `topBarOverlay`（顶对齐 + `onGeometryChange` 量高度给内容让位），并保留 `.ignoresSafeArea(.keyboard, edges: .bottom)` | `LandscapeLayoutUITests.testLandscapeEditorTopBarStaysOnScreen`（横屏：四个按钮都在屏内且可点，且**滚动后位置不变**） |
+| B16 | `refitImages` 的宽度改成 `max(60, maxWidth)`，与 `PartsCodec` 一致 | `EditorSpacingTests.testImageFillsTheColumnAndStaysCentred`（同一条规则：列决定宽度） |
 
 行距 / 段距 / 图片留白的模型与实测数值不在本文范围，见
 `docs/editor-typography.md` 第五节（含 `JustDiaryTests/EditorSpacingTests`）。

@@ -164,7 +164,9 @@ UI 用例通过 `-ui-test-editor-state` 探针读取「编辑器将要落库的�
 只按存储的 `w:h` 等比缩放并**居中**。所以存储的 `w` / `h` 从今往后只是「比例」和
 「取图分辨率上限」的提示，不再是排版尺寸 —— `PartsCodec.parts(from:)` 落库时照抄
 payload 里的原值，列宽变化不会改写它。横屏列变宽时图片跟着放大；段落对齐用
-`.center`（`imageParagraphStyle()`），编辑区里小图也居中。
+`.center`（`imageParagraphStyle()`），编辑区里小图也居中。**横竖屏切换时同样**：
+`RichTextController.refitImages(maxWidth:)` 按同一条规则重排已有附件（旋转、分屏都会
+触发），只重排图片与附件 bounds，文本与光标不动。
 
 ### 5.2 两条链路怎么用同一个模型
 
