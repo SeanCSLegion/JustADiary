@@ -225,8 +225,9 @@ iOS 默认值：
   （`read_search_prev` / `read_search_next`，原先只报符号名 `chevron.up`）。
 - **格式栏的位置**（本轮补）：键盘弹起时贴在键盘上方 8pt；键盘收起时贴在
   Home Indicator 上方（`Screen.safeAreaBottom + 12`）。原来写死的 84pt 在没有
-  键盘时会把格式栏悬在半空。**横竖屏一致**：都是一条横排玻璃条（2026-09-26 补，
-  见 `docs/editor-format-behaviors.md` §3）。
+  键盘时会把格式栏悬在半空。**横竖屏一致**：都是一条横排玻璃条，并且**按内容宽度居中**
+  （`ViewThatFits`：默认字号下一条放得下，大字号才退化成横滑），不拉满整行
+  （2026-09-26 补，见 `docs/editor-format-behaviors.md` §3）。
 - **分享面板**（`ShareSheetView`，本轮补）：日记页顶栏的分享按钮**一步**拉起一块
   `.large` sheet —— 上方是即将分享的长图预览（可滚动；手机横屏改成左右排，免得预览
   被挤没），下方直接嵌 `UIActivityViewController` 给出系统动作（拷贝 / 保存图像 /

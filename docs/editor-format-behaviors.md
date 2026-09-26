@@ -100,7 +100,9 @@ Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —�
 比 iPhone 18 Pro 横屏的可用高度 402pt 还高：整条被屏幕裁掉、又贴在全屏底部中间、
 与正文列对不上，一进编辑就看不出那是格式栏（见 B11）。参照 Apple 备忘录：
 键盘上方那条工具栏在横竖屏都是横向、可横向滑动的，iOS 26 起按钮更多（18 个）
-也是横滑 + 按上下文排序，从不竖排到侧边。
+也是横滑 + 按上下文排序，从不竖排到侧边。它同时**按内容宽度居中**（`ViewThatFits`：
+默认字号下 9 个按钮约 360pt，一条放得下；只有大字号放不下时才退化成横滑），
+不再拉满整行。
 
 | # | 按钮 | SF Symbol | 作用域 | 点一下（修复前） | 再点一下 / 取消（修复前） | 改动已输入文字？ | 换行后 | 修复前 |
 |---|---|---|---|---|---|---|---|---|
@@ -199,6 +201,9 @@ Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —�
 | **B9** | 低 | `PartsCodec.parts(from:)` | 空行点「列表」后直接保存 → 库里存下 `items: [""]` 空项 | 只跳过「空白文本行」，没跳过「只有标记的行」 | 只有标记没有文字的行不入库 | ✅ 修 |
 | **B10** | 高（数据丢失） | `RichTextView.updateUIView` | 编辑到一半旋转屏幕/宽度变化 → 回到进入编辑时的内容，刚输入的字没了 | 宽度变化时用 `loadParts`（进入编辑时的快照）整块重载编辑器 | 宽度变化只重排图片，不动文本 | ✅ 修 |
 | **B8** | 低 | `activeStyles()` / `isCenterActive()` / `currentBlockStyle()` | 混合选区时按钮高亮只按选区首字符算，可能误导 | 只探一个点 | 字符样式改为「整段全开才高亮」，与 B5 的统一语义一致 | ✅ 修 |
+| **B12** | 中 | `DiaryViewModel.handleBack` | 编辑到一半点返回，整个日记页被关掉、掉回首页日历 | `!isRead` 时直接 `onDismiss()` | 返回只退出**编辑**，回到这一天的阅读页；有未保存内容仍先确认 | ✅ 修 |
+| **B13** | 中 | `PartsCodec` / `insertImage` / `DiaryImageView` | 横屏下图片不随列宽放大（阅读区还多出上下空带），编辑区图片靠左 | 宽度取 `min(存储宽, 可用宽)` 且段落左对齐；阅读区外层比例盒按列宽、内层图按存储宽 | 图片按列宽等比放大并居中；存储的 `w/h` 只当比例 | ✅ 修 |
+| **B14** | 低 | `FontToolbar` | 横屏格式栏拉满整行，比正文列还长 | `ScrollView` 自己占满可用宽度 | 按内容宽度居中（`ViewThatFits`：放得下就不滚，放不下才横滑） | ✅ 修 |
 | **B11** | 高 | `DiaryPageView` / `FontToolbar` | 横屏进编辑时格式栏是**竖排**的一列，比屏幕还高：整条被裁掉、贴在全屏底部中间，与正文列对不上 | `fontToolbarVertical = layout.splitsMasterDetail`，横屏走 `VStackLayout`；9 个按钮竖排约 454pt > 横屏可用高度 402pt | 与备忘录一致：横竖屏都是键盘上方的**横排**一条 | ✅ 修（`editor.formatBar` 的 frame 断言守住） |
 
 ### B1 的细节（为什么「行首」这个位置这么常见）
@@ -233,6 +238,10 @@ paragraphRanges 的循环：
 | B10 | `RichTextView.updateUIView` 宽度变化时不再 `load(parts:)`，改调新增的 `refitImages(maxWidth:)`：只重排附件 bounds 与图片，文本与光标不动 | `testRefitImagesLeavesTextAndCaretAlone` |
 | B11 | 删掉 `fontToolbarVertical` 环境值与 `FontToolbar` 的竖排分支（连同 `DiaryPageView` 的注入），格式栏恒为横排；整条挂 `editor.formatBar` 标识供 UI 测试断言 | `LandscapeLayoutUITests.testLandscapeEditorFormatBarStaysHorizontal`（横屏断言：条形宽 > 高×2、宽 > 300、不出屏、按钮都在屏内、可横滑到最后一个按钮） |
 
+| B12 | `handleBack` 在 `!isRead` 时改为 `showRead()`（回到阅读态），确认放弃后才丢弃这次编辑；空编辑器直接回到阅读态 | `EditorFlowUITests.testBackFromTheEditorReturnsToTheDaysReadingView`、`…testBackFromAnEmptyEditorAlsoReturnsToTheReadingView` |
+| B13 | 图片按列宽等比排版（`PartsCodec` 的 `w = maxW`、`insertImage` 去掉 343pt 上限）、段落 `.center`；`DiaryImageView` 去掉 `GeometryReader` + 固定宽，改成按比例填满 | `testImageFillsTheColumnAndStaysCentred`、`testImageStoredSizeIsAnAspectRatioNotALayoutSize`、`testReaderImageFillsTheWidthItIsGiven` |
+| B14 | 格式栏改成 `ViewThatFits { barRow; ScrollView { barRow } }`，按钮间距 6 → 4（默认字号下 9 个按钮约 360pt，整条放得下） | `EditorFlowUITests.testFormatBarFitsInOnePieceAtTheDefaultTextSize` |
+
 行距 / 段距 / 图片留白的模型与实测数值不在本文范围，见
 `docs/editor-typography.md` 第五节（含 `JustDiaryTests/EditorSpacingTests`）。
 
@@ -252,9 +261,10 @@ paragraphRanges 的循环：
 
 | 套件 | 结果 |
 |---|---|
-| `JustDiaryTests/EditorFormatBehaviorTests`（本次新增 23 例） | 全部通过 |
-| `JustDiaryTests`（含 `ContentFormatTests` 存储格式与往返、`ShareRendererTests`、`AdaptiveLayoutTests`、`SplitLayoutTests`） | 48 例全部通过 |
-| `JustDiaryUITests/EditorTypeSizeUITests`（真实 UI：四段样式往返保存、放弃修改、输入区高度） | 全部通过 |
+| `JustDiaryTests/EditorFormatBehaviorTests`（作用域，23 例） | 全部通过 |
+| `JustDiaryTests/EditorSpacingTests`（行距 / 段距 / 图片，15 例） | 全部通过 |
+| `JustDiaryTests` 合计（另含 `ContentFormatTests` 存储格式与往返、`ShareRendererTests`、`AdaptiveLayoutTests`、`SplitLayoutTests`） | 63 例全部通过 |
+| `JustDiaryUITests` 合计（`EditorTypeSizeUITests` 往返保存 / 放弃修改 / 输入区高度、`LandscapeLayoutUITests` 含横屏格式栏、`EditorFlowUITests` 含返回阅读页与格式栏放得下） | 21 例全部通过 |
 
 复现命令（宏插件需要完整沙箱，故在 workspace 沙箱外运行）：
 
@@ -263,7 +273,7 @@ export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
   -destination 'platform=iOS Simulator,name=iPhone 18 Pro' \
   -derivedDataPath .build/DerivedData \
-  -only-testing:JustDiaryTests -only-testing:JustDiaryUITests/EditorTypeSizeUITests
+  -only-testing:JustDiaryTests -only-testing:JustDiaryUITests
 ```
 
 ---
@@ -275,7 +285,7 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
 | 图片 `photo` | 编辑态顶栏 | 拉起 `PhotoPicker`，选图后 `controller.insertImage`：在光标处插入图片附件 + 一个换行，光标移到图片之后 | 图片是独立的 `ContentPart.style == "image"` |
 | 放弃修改 `arrow.counterclockwise` | 编辑态顶栏 | `confirmDiscardEditing()` → 二次确认 → `loadParts = editingOriginalParts`（回到**进入编辑时**的内容） | 新日记的 `editingOriginalParts` 进入时已清空 |
 | 保存 `checkmark` | 编辑态顶栏 | `saveEditor()`：落库 `controller.currentParts()`；缺地点/跨天会有额外确认弹窗 | 空编辑器直接保存会被忽略 |
-| 返回 `chevron.left` | 顶栏 | `handleBack()`：有未保存内容时弹「放弃编辑？」确认 | |
+| 返回 `chevron.left` | 顶栏 | `handleBack()`：**编辑态**只退出编辑、回到这一天的阅读页（有未保存内容先弹「放弃」确认）；**阅读态**才关掉日记页回首页 | B12 |
 | 地点胶囊 | 编辑卡片内 | 打开精度菜单（省 / 市 / 区 / 详细），可「重新定位」（仅新块） | 与样式无关，见 `docs/location-recording.md` |
 | 待办勾选 | **阅读态**卡片内 | 直接切换该待办的 `done`（划线 + 降透明度） | 编辑态没有勾选交互，只有格式栏的「待办」按钮 |
 
