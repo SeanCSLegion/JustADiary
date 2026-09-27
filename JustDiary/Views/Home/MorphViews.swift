@@ -241,9 +241,13 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
                             .opacity(1 - CL.clamp01(progress * 2.2))
                     }
                     ForEach(Array(source.rows.enumerated()), id: \.offset) { i, row in
-                        rowView(i, row: row, selectedTop: selectedTop, rowH: rowH,
-                                headH: headH, mMetrics: mMetrics, wMetrics: wMetrics)
-                            .offset(y: -clipTop)
+                        // 月份边界那一周在相邻月里也有一行，它的日期由选中行那一套负责
+                        // —— 见 `isCarriedBySelectedRow`，不再画第二遍。
+                        if !isCarriedBySelectedRow(row, at: i) {
+                            rowView(i, row: row, selectedTop: selectedTop, rowH: rowH,
+                                    headH: headH, mMetrics: mMetrics, wMetrics: wMetrics)
+                                .offset(y: -clipTop)
+                        }
                     }
                 }
                 .frame(width: size.width, height: max(0, size.height - clipTop), alignment: .top)
@@ -257,6 +261,24 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
         .frame(width: size.width, height: size.height, alignment: .top)
         .clipped()
         .allowsHitTesting(false)
+    }
+
+    /// 这一行是不是**被选中行带走了**的那一行。
+    ///
+    /// 月份边界那一周在连续流里属于**两个块**：上个月的最后一行（画上个月那几天）
+    /// 与下个月的第一行（画下个月那几天）。选中行会把「相邻月的那几格」带走
+    /// （`previousShift` / `nextShift`），那几格与相邻月那一行画的是**同一批日期** ——
+    /// 两边都画就会出现两套动画：一套跟着选中行进出周条，另一套跟着它自己那个月
+    /// 滑走 / 滑进来（用户报的正是这个：上面一套往下走、下面一套跟着月份往上走）。
+    ///
+    /// 判据 = **周起始日相同 + 不属于选中行所在的那个月**。命中时这一行整行不画：
+    /// 它在自己块里画的就是那几天，而它的分隔线由选中行那一组在同一个位置画出来
+    /// （见 `WeekRowCanvas` 里三组分隔线），两端因此与真实图层逐像素一致。
+    private func isCarriedBySelectedRow(_ row: MonthFlowMorphSource.Row, at index: Int) -> Bool {
+        guard index != source.selectedIndex, let selected = source.selectedRow else { return false }
+        let cal = DateUtil.calendar
+        guard cal.isDate(row.week.start, inSameDayAs: selected.week.start) else { return false }
+        return !cal.isDate(row.anchorMonth, equalTo: selected.anchorMonth, toGranularity: .month)
     }
 
     /// 相邻月那两组日期各自的位移：从周条里的位置，走到它们在**自己那一块**里的真实位置。
@@ -359,6 +381,13 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
             y = row.top + CGFloat(progress) * (size.height - row.top)
             alpha = 1 - CL.clamp01(progress * 1.4)
         }
+        // 相邻月那几格会被搬到**本行格子之外**（上个月的最后一行在上方一整行 + 月份空隙
+        // 处、下个月的第一行在下方同样远，竖屏约 110pt），而 `Canvas` 只画在自己的 frame
+        // 里 —— 不按位移把画布撑开，那几格一离开本行就被裁掉：屏幕上就是「日期凭空出现」，
+        // 而不是从周条一路走到自己那个月的那一行（用户报的）。选中行因此按位移撑高画布，
+        // 其余行的位移恒为 0，frame 与改造前逐像素一致。
+        let rise = max(0, -min(previousShift.dy, nextShift.dy, 0))
+        let drop = max(0, max(previousShift.dy, nextShift.dy, 0))
         return WeekRowCanvas(week: row.week,
                              metrics: metrics,
                              selectedDate: selectedDate,
@@ -367,9 +396,9 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
                              showDivider: row.showDivider,
                              anchorMonth: row.anchorMonth,
                              // 只有**选中的那一行**（它就是正在变成周条的那一行）要带相邻月的
-                             // 日期；其余行和月视图一样只画本月的。否则月份边界那一周会在
-                             // 两行里各画一遍（9 月最后一行与 10 月第一行本来就是同一周），
-                             // 动画中間会看到同一批日期出现两次。
+                             // 日期；其余行和月视图一样只画本月的。边界那一周在相邻月里的
+                             // 那一行整行不画（见 `isCarriedBySelectedRow`），所以这批日期
+                             // 在动画里只有这一套。
                              // 相邻月日期**不淡入淡出**，只做移动（用户要求「就按照原本的样式」）。
                              adjacentAlpha: 1,
                              previousShift: previousShift,
@@ -377,9 +406,10 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
                              previousSolid: previousSolid,
                              nextSolid: nextSolid,
                              showAdjacent: isSelected,
+                             rowOrigin: rise,
                              onTapDay: nil)
-            .frame(width: size.width, height: metrics.cellH)
-            .offset(y: y)
+            .frame(width: size.width, height: metrics.cellH + rise + drop)
+            .offset(y: y - rise)
     }
 }
 

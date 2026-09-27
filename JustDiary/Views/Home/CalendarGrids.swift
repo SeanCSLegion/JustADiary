@@ -320,6 +320,9 @@ struct WeekRowShift: Equatable {
     var dy: CGFloat
     /// 逐格横向位移（键 = 这一格在周条里的列号，值 = 整列位移）。
     var columnShifts: [Int: CGFloat] = [:]
+
+    /// 整组都没有位移：这一组的分隔线不必单独画一次（两端静止时就是这样）。
+    var isEmpty: Bool { dy == 0 && columnShifts.isEmpty }
 }
 
 struct WeekRowCanvas: View {
@@ -344,6 +347,13 @@ struct WeekRowCanvas: View {
     /// 是否画相邻月的日期。连续月历流里**不画**（与参考一致：月份边界那一周由两个月
     /// 各画自己那一半，另一边留白），周条与 morph 里要画（那里的 `anchorMonth` 为 nil）。
     var showAdjacent: Bool = true
+    /// 画布内所有纵向坐标的**起点**（默认 0）。
+    ///
+    /// 跨月 morph 的选中行会把相邻月那几格搬到**本行格子之外**（最远一整行 + 月份空隙，
+    /// 竖屏约 110pt），而 `Canvas` 只画在自己的 frame 里：调用方要把 frame 按位移撑高，
+    /// 并让这里所有 y 从 `rowOrigin` 起算。不这么做的话，那几格一离开本行就被裁掉 ——
+    /// 屏幕上就是「日期凭空出现 / 凭空消失」，而不是从周条走到自己那个月的那一行。
+    var rowOrigin: CGFloat = 0
     var onTapDay: ((Date) -> Void)? = nil
 
     private var drawnMetrics: DayMetrics {
@@ -359,18 +369,42 @@ struct WeekRowCanvas: View {
         return Canvas { context, size in
             let todayKey = DateUtil.dayKeyOf(Date())
             let selectedKey = DateUtil.dayKeyOf(selectedDate)
-            // 只画有日期的那几格：相邻月的空白格上没有线（连续月历流的月份边界那两行
-            // 因此是「半行线」）。分隔线本身也按格断开，不是通栏一条。
-            let drawn = week.days.enumerated().compactMap { col, day -> Int? in
-                if !showAdjacent, let anchorMonth,
-                   !DateUtil.calendar.isDate(day, equalTo: anchorMonth, toGranularity: .month) {
-                    return nil
+            // 分隔线按「这一格属于哪个月」分成三组，而不是整行一组：
+            // 本月那几格画在本行顶；**相邻月那几格各自跟着自己那一格的位移走**
+            // （跨月 morph 里它们要沿自己的路线回自己那个月的那一行，见 `WeekRowShift`）。
+            // 不分组的话，日期沿线走了、线却留在选中行上 —— 与「分割线在日期上面、
+            // 没有日期的地方就没有分割线」这条约定冲突（用户报过的正是这一类）。
+            // 不跨月时三组里的相邻两组为空、位移也都是 0，画法与改造前逐像素一致。
+            var ownColumns: [Int] = []
+            var previousColumns: [Int] = []
+            var nextColumns: [Int] = []
+            for (col, day) in week.days.enumerated() {
+                let inMonth = anchorMonth.map {
+                    DateUtil.calendar.isDate(day, equalTo: $0, toGranularity: .month)
+                } ?? true
+                if inMonth {
+                    ownColumns.append(col)
+                } else if showAdjacent {
+                    // 只画有日期的那几格：相邻月的空白格上没有线（连续月历流的月份边界
+                    // 那两行因此是「半行线」）。分隔线本身也按格断开，不是通栏一条。
+                    if day < (anchorMonth ?? day) { previousColumns.append(col) }
+                    else { nextColumns.append(col) }
                 }
-                return col
             }
             if showDivider {
-                DayDraw.drawCellDividers(context, columns: drawn, rowY: 0,
-                                         cellW: metrics.cellW, alpha: metrics.dividerAlpha * alpha)
+                let dividerAlpha = metrics.dividerAlpha * alpha
+                DayDraw.drawCellDividers(context, columns: ownColumns, rowY: rowOrigin,
+                                         cellW: metrics.cellW, alpha: dividerAlpha)
+                if !previousColumns.isEmpty, !previousShift.isEmpty {
+                    DayDraw.drawCellDividers(context, columns: previousColumns,
+                                             rowY: rowOrigin + previousShift.dy,
+                                             cellW: metrics.cellW, alpha: dividerAlpha)
+                }
+                if !nextColumns.isEmpty, !nextShift.isEmpty {
+                    DayDraw.drawCellDividers(context, columns: nextColumns,
+                                             rowY: rowOrigin + nextShift.dy,
+                                             cellW: metrics.cellW, alpha: dividerAlpha)
+                }
             }
             for (col, day) in week.days.enumerated() {
                 let inMonth = anchorMonth.map {
@@ -388,7 +422,7 @@ struct WeekRowCanvas: View {
                     dcx = shift.columnShifts[col] ?? 0
                     solid = isPrevious ? previousSolid : nextSolid
                 }
-                DayDraw.draw(context, day: day, col: col, rowY: 0, m: metrics, alpha: alpha,
+                DayDraw.draw(context, day: day, col: col, rowY: rowOrigin, m: metrics, alpha: alpha,
                              selectedKey: selectedKey, todayKey: todayKey, flags: flags,
                              anchorMonth: anchorMonth, isDark: colorScheme == .dark,
                              adjacentAlpha: adjacentAlpha,
