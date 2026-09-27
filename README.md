@@ -144,6 +144,15 @@ xcodebuild ... -only-testing:JustDiaryTests test          # 毫秒级
 xcodebuild ... -only-testing:JustDiaryUITests test        # 需要中文模拟器 + 示例数据
 ```
 
+- 动画「拍片子」：`CrossMonthMorphUITests` 把月↔周 morph 逐帧截成附件（`-slow-morph` 放到 3 秒），
+  用来肉眼核对日期在动画里的路线。它没有断言，**默认跳过**；要看就显式打开：
+
+```bash
+MORPH_FILM=1 xcodebuild ... -only-testing:JustDiaryUITests/CrossMonthMorphUITests test
+python3 tools/xcresult_frames.py <x.xcresult> .build/frames     # 导出并改名
+python3 tools/film_strip.py .build/frames out.png --cols 6 --label   # 拼成胶片
+```
+
 ## 数据与隐私
 
 - 所有日记、图片、搜索索引与设置都只存在**本机**（App 容器内的 SQLite + 图片目录）；
