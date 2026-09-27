@@ -259,58 +259,59 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
         .allowsHitTesting(false)
     }
 
-    /// 选中行里那两组「相邻月的日期」各自的位移：从周条里的位置，走到它们在**自己那一块**
-    /// 里的真实位置。`away` 是 0…1 的进度（0 = 周视图那一侧，1 = 月视图那一侧）。
+    /// 相邻月那两组日期各自的位移：从周条里的位置，走到它们在**自己那一块**里的真实位置。
+    /// `away` 是 0…1 的进度（0 = 周视图那一侧，1 = 月视图那一侧）。
     ///
-    /// - **上个月那几天**（在左边）：回到上面那一块的最后一行 —— **向上**走
-    ///   `rowH × (1 + 上个月周数 − k)`，同时每一格按「周几」挪到自己那一列；
-    /// - **下个月那几天**（在右边）：回到下面那一块的第一行 —— **向下**走
-    ///   `rowH × (本月周数 − k − 1)`，同样逐格挪列；
+    /// **方向由真实坐标决定，不是「上个月就一定向上」**：目标行的屏幕位置是用
+    /// `MonthFlowLayout` 的内容坐标 + 冻结时的滚动偏移算出来的
+    /// （`block.top + row × rowH − flowOffset + viewportTop`），再减去这一行当前的屏幕位置，
+    /// 就是它该走的位移 —— 该向上就向上、该向下就向下。
     ///
-    /// 其中 k 是选中行在本月里的行号（点进来的那一周一定含 1 号，所以通常 k = 0）。
+    /// 例：本月的第 4 行（含 9/28–10/4）被点开时，上个月那一行的最后一行其实在它**下面**
+    /// 一行，所以那几格在动画里要**向下**走回 9 月最后一行；而月初那一行被点开时，
+    /// 上个月那一行在它上面，就**向上**走。两种情况都由同一段减法自然得出。
     ///
-    /// 横向**逐格**算：那几天回到自己那一块时是按「周几」重排的，每格列号都不同，
-    /// 整组平移会把它们挤到一起（8/31 是周日该去第 7 列、9/1 是周二该去第 3 列）。
-    ///
-    /// 端点上两边必须重合：`away = 0` 时两组位移都是 0（周条里就是它们本来的样子）；
-    /// `away = 1` 时它们正好落在自己那一块的行上 —— 那一刻真实月视图接上，不需要任何跳跃。
-    ///
-    /// **不做淡入淡出**（用户明确要求「就按照原本的样式，只做移动」）：位置对了，收尾那一帧
-    /// 它们本来就在自己那一块的正确位置上（上面那一块最后一行 / 下面那一块第一行），
-    /// 由 `clipTop` 那条裁剪边与真实图层接管，不需要靠透明度遮掩。
+    /// 横向按「周几」逐格算（两边的列天然对齐，实测恒为 0，留着以防排版规则变化）。
+    /// `away = 0` 时位移全为 0，所以周视图那一侧逐像素重合、两个方向都不跳。
     private func adjacentShifts(row: MonthFlowMorphSource.Row, rowH: CGFloat, away: Double)
         -> (previous: WeekRowShift, next: WeekRowShift) {
         let cal = DateUtil.calendar
         let anchor = row.anchorMonth
         let week = row.week
-        // 选中行在本月里的行号（= 它的起始周是这个月的第几周）。
-        let rowIndex = CalendarLayout.displayedWeeks(inMonth: anchor, ws: weekStart)
-            .firstIndex { cal.isDate($0.start, inSameDayAs: week.start) } ?? 0
-        let thisMonthWeeks = CalendarLayout.displayedWeekCount(inMonth: anchor, ws: weekStart)
+        let layout = MonthFlowLayout.cached(weekStart: weekStart, rowH: rowH)
+        let screenOrigin = source.viewportTop - source.flowOffset   // 内容坐标 → 屏幕坐标
+        // `row.top` 就是这一行冻结时的**屏幕顶**（`MonthFlowView.morphSource` 里已经换算过）。
+        let selectedScreenTop = row.top
         let inMonth: (Date) -> Bool = { cal.isDate($0, equalTo: anchor, toGranularity: .month) }
+
+        /// 某一周在它自己那个月里的**屏幕顶**（真实排版，不靠行号推）。
+        func rowScreenTop(ofMonth month: Date, weekStartOf targetWeek: Date) -> CGFloat? {
+            guard let bi = layout.blockIndex(forKey: CalendarLayout.monthKey(month)) else { return nil }
+            let block = layout.blocks[bi]
+            let weeks = layout.weeks(of: block)
+            guard let ri = weeks.firstIndex(where: { cal.isDate($0.start, inSameDayAs: targetWeek) }) else { return nil }
+            return block.top + CGFloat(ri) * rowH + screenOrigin
+        }
 
         var previous = WeekRowShift(dy: 0)
         if let firstInMonth = week.days.firstIndex(where: inMonth), firstInMonth > 0 {
-            // 上个月：本月 1 号往前退一天就是（跨年由日历自己处理）。
+            // 上个月那一块的**最后一行**（就是这一周在它自己那个月里的位置）。
             let prevMonth = DateUtil.addDays(DateUtil.monthFirst(anchor), -1)
-            let prevWeeks = CalendarLayout.displayedWeekCount(inMonth: prevMonth, ws: weekStart)
-            // 上个月那一块的最后一行在选中行的上一行。
-            previous.dy = -rowH * CGFloat(1 + prevWeeks - rowIndex) * CGFloat(away)
+            if let target = rowScreenTop(ofMonth: prevMonth, weekStartOf: week.start) {
+                previous.dy = (target - selectedScreenTop) * CGFloat(away)
+            }
             for col in 0..<firstInMonth {
-                // 回到自己那一行时按「周几」排：目标列 = 周几。
                 let target = DateUtil.weekdayIndex(week.days[col], weekStart: weekStart)
                 previous.columnShifts[col] = CGFloat(target - col) * CGFloat(away)
             }
         }
         var next = WeekRowShift(dy: 0)
         if let lastInMonth = week.days.lastIndex(where: inMonth), lastInMonth < week.days.count - 1 {
-            // 下个月那一块的第一行在**选中行的下面几行**。距离 = `thisMonthWeeks − rowIndex`
-            // （**不是**再减 1）：`thisMonthWeeks` 是「本月的第一行」到「下个月的第一行」之间
-            // 的行数，选中行是本月第 `rowIndex` 行，两者相减才是它到下个月第一行的距离。
-            // 减 1 会让它们**少走整整一行**（用户报的「最终位置不对，好像还是本周的位置」）。
-            // 例：9 月 5 行、点第 1 行 → 下个月第一行在它下面 5 行；点第 5 行（9/28–10/4，
-            // 那一行本身就含 10 月 1–4 日）→ 下个月第一行就在它下面 1 行。
-            next.dy = rowH * CGFloat(thisMonthWeeks - rowIndex) * CGFloat(away)
+            // 下个月那一块的**第一行**。
+            let nextMonth = CalendarLayout.nextMonth(anchor)
+            if let target = rowScreenTop(ofMonth: nextMonth, weekStartOf: week.start) {
+                next.dy = (target - selectedScreenTop) * CGFloat(away)
+            }
             for col in (lastInMonth + 1)..<week.days.count {
                 let target = DateUtil.weekdayIndex(week.days[col], weekStart: weekStart)
                 next.columnShifts[col] = CGFloat(target - col) * CGFloat(away)

@@ -273,6 +273,9 @@ struct MonthFlowMorphSource {
     var labelBandH: CGFloat
     /// 视口在日历区里的顶（= 标题槽 + 星期栏）。
     var viewportTop: CGFloat
+    /// 冻结时的**滚动偏移**（内容坐标）。morph 里要拿它 + 内容坐标算出「相邻月那一行
+    /// 真实在屏幕上的哪儿」，才能让那几格按真实位置走（见 `MonthWeekMorphView.adjacentShifts`）。
+    var flowOffset: CGFloat = 0
     /// 紧凑形态（横屏左栏）—— 小标题字号要跟着走。
     var compact: Bool
     var size: CGSize
@@ -622,6 +625,7 @@ struct MonthFlowView: View, Animatable {
                                     rowH: layout.rowH,
                                     labelBandH: CalendarLayout.flowLabelBandHeight(compact: compact),
                                     viewportTop: titleHeight + weekdayHeight,
+                                    flowOffset: off,
                                     compact: compact,
                                     size: size)
     }
