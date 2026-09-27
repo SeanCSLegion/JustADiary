@@ -9,7 +9,8 @@ import SwiftUI
 //     │ 一 二 三 四 五 六 日 ◀── 星期栏：钉住
 //     ├──────────────────────────────────────────────
 //     │ 28 29 30                       ← 上个月的最后一行
-//     │              10月              ← 小标题：在**分割线上方**、紧贴它
+//     │              ⌄ 16pt 空隙        ← 月份之间的间隔（flowMonthGap）
+//     │              10月              ← 小标题：画在空隙里、紧贴在分割线上方
 //     │  ──  ──  ──  ──                ← 按格画的分割线（只画有日期的那几格）
 //     │                 1  2  3  4      ← 本月第一行（分割线在日期上面）
 //     │                    1  2  3  4    ← 下个月第一行（列对齐不变）
@@ -19,15 +20,15 @@ import SwiftUI
 // 三条几何约定，全部由 `MonthFlowLayout` 精确算出来（不依赖 SwiftUI 的懒加载测量，
 // 因为 morph 的起点必须和屏幕上画的东西逐像素一致）：
 //
-// 1. **行高全局一致**：每个月 = 一行小标题带 + 若干周行，都是 `rowH`。
-// 2. **月份之间不留空隙**：两个月的行紧挨着；小标题画在**分割线上方**（贴着一个
-//    `labelTightGap`），分割线画在本月第一行的顶、日期在分割线下面。所以从上到下的
-//    次序是「上个月的日期 → 小标题 → 分割线 → 本月日期」。带高
-//    （`flowLabelBandHeight`）只是这一行字的高度，用来把标题摆到那个位置。
+// 1. **行高全局一致**：每个月 = 若干周行，都是 `rowH`。
+// 2. **月份之间隔一条 `flowMonthGap`（16pt）**，小标题就画在这条空隙里：它底边贴着
+//    分割线上方 `flowLabelTightGap`（3pt）。所以从上到下的次序是
+//    「上个月的日期 → 小标题 → 分割线 → 本月日期」。空隙属于**下一块**
+//    （`Block.top` 已经越过它），于是 `Block.top` 始终是「本月第一行的顶」。
 // 3. **静止位置 = 该月第一行的顶**：进入某个月（初始 / 今天 / 年历点月）时，
-//    把该月第一行顶到视口顶部，小标题刚好落在视口上沿之外。于是静止画面与改造前
-//    「标题槽 + 星期栏 + 六行日期」**逐像素一致**，年↔月 morph 的终点
-//    （`CalendarLayout.fullMonthGridRect`）与月↔周 morph 的起点都不用重新推导。
+//    把该月第一行顶到视口顶部，小标题落在视口上沿之外（`Block.top` 之上那条空隙里）。
+//    于是静止画面与改造前「标题槽 + 星期栏 + 六行日期」**逐像素一致**，年↔月 morph
+//    的终点（`CalendarLayout.fullMonthGridRect`）与月↔周 morph 的起点都不用重新推导。
 
 // MARK: - 几何
 
@@ -39,13 +40,13 @@ struct MonthFlowLayout {
         /// `yyyyMM`。
         var key: Int
         var month: Date
-        /// 小标题带的顶（= 本块在内容坐标里的起点）。
         /// 本月第一行的顶 —— 也是**本块的起点**、「静止」时滚动偏移该取的值。
-        /// 两个月的行是紧挨着的，小标题画在这一行的上留白里。
+        /// 它上面那条 `flowMonthGap` 的空隙属于本块（小标题画在那里），所以块首
+        /// 不会有「上个月的日期」跟着一起进来。
         var top: CGFloat
         /// 本块要画的周行数（`CalendarLayout.displayedWeekCount`，5 或 6）。
         var rowCount: Int
-        /// 本块的底（= 下个月第一行的顶）。
+        /// 本块的底（= 下个月那条空隙的顶）。
         var bottom: CGFloat
 
         var id: Int { key }
@@ -90,9 +91,13 @@ struct MonthFlowLayout {
         for (i, key) in CalendarLayout.allMonthKeys.enumerated() {
             let month = CalendarLayout.dateForMonthKey(key)
             let rows = CalendarLayout.displayedWeekCount(inMonth: month, ws: weekStart)
-            let bottom = cursor + CGFloat(rows) * self.rowH
+            // 月份之间那条空隙插在**下一块的块首**（第一块不加：整条流从第 0 点开始，
+            // 否则首月静止时上面会多出一条空带）。`top` 因此始终是本月第一行的顶。
+            cursor += i == 0 ? 0 : CalendarLayout.flowMonthGap
+            let top = cursor
+            let bottom = top + CGFloat(rows) * self.rowH
             built.append(Block(index: i, key: key, month: month,
-                               top: cursor, rowCount: rows, bottom: bottom))
+                               top: top, rowCount: rows, bottom: bottom))
             cursor = bottom
         }
         self.blocks = built
@@ -101,7 +106,8 @@ struct MonthFlowLayout {
 
     // MARK: 查询
 
-    /// 内容坐标 `y` 落在哪一块（小标题带也算本块）。二分，越界时夹到两端。
+    /// 内容坐标 `y` 落在哪一块（`Block.top` 之上那条 `flowMonthGap` 空隙也算本块）。
+    /// 二分，越界时夹到两端。
     func blockIndex(atOffset y: CGFloat) -> Int {
         guard !blocks.isEmpty else { return 0 }
         var lo = 0, hi = blocks.count - 1, ans = 0
@@ -121,6 +127,17 @@ struct MonthFlowLayout {
     ///
     /// 顶部月份用它而不是「视口顶部落在哪一块」—— 后者下一月刚露一行就换标题，
     /// 快速滑动时标题会乱跳；「占多数」在整屏里只会在过半时切一次。
+    ///
+    /// 份额 = **本块的日期行与视口相交的高度**：`min(block.bottom, bottom) − max(block.top, top)`。
+    /// 两点要留意（加入 `flowMonthGap` 之后才显出来）：
+    /// - 起点写成 `max(block.top, top)` 而不是 `block.top`：视口顶部落在块首那条空隙里时，
+    ///   上面那 16pt 是上个月最后一行下面的留白，不该算成下一块的份额（否则下一块白捡
+    ///   16pt，顶部大标题会在离视觉分界还差 8pt 时就提前翻页）；
+    /// - 空隙本身**两块都不算**，于是分界正好落在空隙中点 —— 翻页不会因为多了这条空隙
+    ///   而提前或推后（`MonthFlowLayoutTests` 守住：静止时显示本月、下个月占多半屏时显示
+    ///   下个月、连续扫过一段流时只能一格一格往前走）。
+    ///
+    /// 平分（份额完全相等）时保留**靠前**的那一块：比较写严格的 `>`，不写 `>=`。
     func dominantBlockIndex(offset: CGFloat, viewportH: CGFloat) -> Int {
         let top = offset
         let bottom = offset + viewportH
@@ -150,10 +167,22 @@ struct MonthFlowLayout {
     }
 
     /// 与 `[offset, offset + viewportH]` 相交的块（上下各多带 `margin`）。
+    ///
+    /// 起点是「`offset` 落在哪一块」，再**向前后各走一步**：向前收那些底边还伸进这一段
+    /// 的块，向后收那些顶边还没越过这一段底边的块。
+    ///
+    /// 向前这一步是加入月份空隙之后必须补上的：视口顶部落在某一块**块首那条空隙**里时，
+    /// `blockIndex(atOffset:)` 返回的是**下面**那一块（空隙属于下一块），若从这里直接起步，
+    /// 上面那一块就会被整个跳过 —— 它最后一行还有半行在屏幕上，而且在
+    /// `dominantBlockIndex` 里本该还占着多半屏、顶部大标题不该翻页
+    /// （`MonthFlowLayoutTests.testDominantMonthIsTheOneFillingMostOfTheViewport` 抓住的
+    /// 就是这个）。
     func visibleBlocks(offset: CGFloat, viewportH: CGFloat, margin: CGFloat) -> [Block] {
         guard !blocks.isEmpty else { return [] }
-        let first = blockIndex(atOffset: max(0, offset - margin))
+        let start = offset - margin
         let limit = offset + viewportH + margin
+        var first = blockIndex(atOffset: offset)
+        while first > 0, blocks[first - 1].bottom > start { first -= 1 }
         var last = first
         while last + 1 < blocks.count, blocks[last + 1].top < limit { last += 1 }
         return Array(blocks[first...last])
@@ -173,10 +202,12 @@ struct MonthFlowLayout {
 // MARK: - 小标题
 
 /// 月份小标题：站在**当月 1 号那一列的正上方**（不是整行居中），
-/// 并且紧贴 1 号那一行（贴着小标题带的底边）。
+/// 并且紧贴 1 号那一行的顶（贴着小标题带的底边，中间只隔 `flowLabelTightGap`）。
 ///
-/// 带高就是这一行字的高度（`CalendarLayout.flowLabelBandHeight`），上下不再留白：
-/// 用户看过两版（整行高 → 35pt）都嫌高，明确要求「紧贴月份高度」。
+/// 它整条都画在本块块首那条 `flowMonthGap` 空隙里（见 `MonthFlowView.blockView` 的负
+/// offset）：带高就是这一行字的高度（`CalendarLayout.flowLabelBandHeight`），上下不再留白
+/// —— 用户看过两版（整行高 → 35pt）都嫌高，明确要求「紧贴月份高度」；月份之间的呼吸
+/// 由块首那条 `flowMonthGap` 空隙负责。
 struct MonthFlowLabel: View {
     var month: Date
     /// 单格宽度（= 面板宽 / 7）。
@@ -225,7 +256,8 @@ struct MonthFlowMorphSource {
 
     struct Label {
         var month: Date
-        /// 冻结时小标题**底边**在日历区坐标里的 y（紧贴日期数字上方）。
+        /// 冻结时小标题**底边**在日历区坐标里的 y（紧贴日期数字上方，见
+        /// `CalendarLayout.flowLabelTightGap`）。
         var bottom: CGFloat
     }
 
@@ -333,7 +365,8 @@ struct MonthFlowView: View, Animatable {
     }
 
     /// 小标题与它下面那条分割线之间的间隙（「紧贴」的那个「紧」）。
-    private static let labelTightGap: CGFloat = 3
+    /// 用 `CalendarLayout` 里那个共享常量：`morphSource` 与「下个月那一条」都读它。
+    private static var labelTightGap: CGFloat { CalendarLayout.flowLabelTightGap }
 
     private var viewportH: CGFloat { max(0, size.height - titleHeight - weekdayHeight) }
 
@@ -410,7 +443,8 @@ struct MonthFlowView: View, Animatable {
         ZStack(alignment: .topLeading) {
             // 小标题在**分割线上方**（用户的次序：上个月日期 → 小标题 → 分割线 → 本月日期）。
             // 分割线画在本行顶部（见 `WeekRowCanvas`），所以标题底边落在行顶之上
-            // `labelTightGap`；它借用的是上一行底部那段留白，不额外占高度。
+            // `labelTightGap`；它整条都住在块首那条 `flowMonthGap` 空隙里（画到负 y 是
+            // 有意的：本块的上边界之外就是这条空隙，`ZStack` 与内容区都不裁）。
             MonthFlowLabel(month: block.month,
                            cellW: size.width / 7,
                            column: CalendarLayout.monthLabelColumn(inMonth: block.month, ws: weekStart),
@@ -592,3 +626,4 @@ struct MonthFlowView: View, Animatable {
                                     size: size)
     }
 }
+

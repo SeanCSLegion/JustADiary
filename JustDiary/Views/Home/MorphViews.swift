@@ -31,11 +31,16 @@ struct YearMonthMorphView: View, Animatable {
 
     /// 「下个月那一条」：小标题 + 第一行日期，位置与 `MonthFlowView` 完全同一把尺子。
     @ViewBuilder
-    private func peek(fullRect: CGRect, t: Double, opacity: Double) -> some View {
+    private func peek(fullRect: CGRect, opacity: Double) -> some View {
         let rowH = fullRect.height / 6
         let rows = CalendarLayout.displayedWeekCount(inMonth: month, ws: weekStart)
         let next = CalendarLayout.nextMonth(month)
-        let nextTop = fullRect.minY + CGFloat(rows) * rowH
+        // 下个月第一行 / 小标题的位置：与连续月历流同一把尺子（`flowMonthGap` 属于下一块，
+        // 小标题贴在它上面 `flowLabelTightGap` 处）。**别把空隙减第二次** —— 实测那样小标题
+        // 会高 16pt，收尾换回真图层时「小月份」标题往上跳一下。
+        let peek = CalendarLayout.peekGeometry(fullRect: fullRect, rows: rows)
+        let nextTop = peek.nextRowTop
+        let labelBottom = peek.labelBottom
         let labelH = CalendarLayout.flowLabelBandHeight(compact: false)
         MonthFlowLabel(month: next,
                        cellW: size.width / 7,
@@ -43,7 +48,7 @@ struct YearMonthMorphView: View, Animatable {
                        bandH: labelH,
                        weekStart: weekStart)
             .frame(width: size.width, height: labelH, alignment: .bottomLeading)
-            .offset(y: nextTop - 3 - labelH)
+            .offset(y: labelBottom - labelH)
             .opacity(opacity)
         // 下个月**在容器里能看见的每一行**都要画：只画第一行的话，被系统浮条遮住的那
         // 部分（`hFull` 里 `hSafe` 之外那一段）要等 morph 结束、真图层接上才出现，
@@ -136,7 +141,7 @@ struct YearMonthMorphView: View, Animatable {
             // 方向不同，处理也不同（`peekFadesIn` 由调用方给）：
             // - 年 → 月：它是**要出现**的内容，跟着这一段动画淡入（不能等 morph 结束才冒出来）；
             // - 月 → 年：它是**要离开**的内容，一开场就迅速消失（不能飘进年视图里）。
-            peek(fullRect: fullRect, t: t, opacity: peekFadesIn
+            peek(fullRect: fullRect, opacity: peekFadesIn
                  ? CL.clamp01((t - 0.55) / 0.45)
                  : CL.clamp01((t - 0.9) / 0.1))
         }
@@ -254,6 +259,66 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
         .allowsHitTesting(false)
     }
 
+    /// 选中行里那两组「相邻月的日期」各自的位移：从周条里的位置，走到它们在**自己那一块**
+    /// 里的真实位置。`away` 是 0…1 的进度（0 = 周视图那一侧，1 = 月视图那一侧）。
+    ///
+    /// - **上个月那几天**（在左边）：回到上面那一块的最后一行 —— **向上**走
+    ///   `rowH × (1 + 上个月周数 − k)`，同时每一格按「周几」挪到自己那一列；
+    /// - **下个月那几天**（在右边）：回到下面那一块的第一行 —— **向下**走
+    ///   `rowH × (本月周数 − k − 1)`，同样逐格挪列；
+    ///
+    /// 其中 k 是选中行在本月里的行号（点进来的那一周一定含 1 号，所以通常 k = 0）。
+    ///
+    /// 横向**逐格**算：那几天回到自己那一块时是按「周几」重排的，每格列号都不同，
+    /// 整组平移会把它们挤到一起（8/31 是周日该去第 7 列、9/1 是周二该去第 3 列）。
+    ///
+    /// 端点上两边必须重合：`away = 0` 时两组位移都是 0（周条里就是它们本来的样子）；
+    /// `away = 1` 时它们正好落在自己那一块的行上 —— 那一刻真实月视图接上，不需要任何跳跃。
+    ///
+    /// **不做淡入淡出**（用户明确要求「就按照原本的样式，只做移动」）：位置对了，收尾那一帧
+    /// 它们本来就在自己那一块的正确位置上（上面那一块最后一行 / 下面那一块第一行），
+    /// 由 `clipTop` 那条裁剪边与真实图层接管，不需要靠透明度遮掩。
+    private func adjacentShifts(row: MonthFlowMorphSource.Row, rowH: CGFloat, away: Double)
+        -> (previous: WeekRowShift, next: WeekRowShift) {
+        let cal = DateUtil.calendar
+        let anchor = row.anchorMonth
+        let week = row.week
+        // 选中行在本月里的行号（= 它的起始周是这个月的第几周）。
+        let rowIndex = CalendarLayout.displayedWeeks(inMonth: anchor, ws: weekStart)
+            .firstIndex { cal.isDate($0.start, inSameDayAs: week.start) } ?? 0
+        let thisMonthWeeks = CalendarLayout.displayedWeekCount(inMonth: anchor, ws: weekStart)
+        let inMonth: (Date) -> Bool = { cal.isDate($0, equalTo: anchor, toGranularity: .month) }
+
+        var previous = WeekRowShift(dy: 0)
+        if let firstInMonth = week.days.firstIndex(where: inMonth), firstInMonth > 0 {
+            // 上个月：本月 1 号往前退一天就是（跨年由日历自己处理）。
+            let prevMonth = DateUtil.addDays(DateUtil.monthFirst(anchor), -1)
+            let prevWeeks = CalendarLayout.displayedWeekCount(inMonth: prevMonth, ws: weekStart)
+            // 上个月那一块的最后一行在选中行的上一行。
+            previous.dy = -rowH * CGFloat(1 + prevWeeks - rowIndex) * CGFloat(away)
+            for col in 0..<firstInMonth {
+                // 回到自己那一行时按「周几」排：目标列 = 周几。
+                let target = DateUtil.weekdayIndex(week.days[col], weekStart: weekStart)
+                previous.columnShifts[col] = CGFloat(target - col) * CGFloat(away)
+            }
+        }
+        var next = WeekRowShift(dy: 0)
+        if let lastInMonth = week.days.lastIndex(where: inMonth), lastInMonth < week.days.count - 1 {
+            // 下个月那一块的第一行在**选中行的下面几行**。距离 = `thisMonthWeeks − rowIndex`
+            // （**不是**再减 1）：`thisMonthWeeks` 是「本月的第一行」到「下个月的第一行」之间
+            // 的行数，选中行是本月第 `rowIndex` 行，两者相减才是它到下个月第一行的距离。
+            // 减 1 会让它们**少走整整一行**（用户报的「最终位置不对，好像还是本周的位置」）。
+            // 例：9 月 5 行、点第 1 行 → 下个月第一行在它下面 5 行；点第 5 行（9/28–10/4，
+            // 那一行本身就含 10 月 1–4 日）→ 下个月第一行就在它下面 1 行。
+            next.dy = rowH * CGFloat(thisMonthWeeks - rowIndex) * CGFloat(away)
+            for col in (lastInMonth + 1)..<week.days.count {
+                let target = DateUtil.weekdayIndex(week.days[col], weekStart: weekStart)
+                next.columnShifts[col] = CGFloat(target - col) * CGFloat(away)
+            }
+        }
+        return (previous, next)
+    }
+
     private func rowView(_ i: Int, row: MonthFlowMorphSource.Row, selectedTop: CGFloat,
                          rowH: CGFloat, headH: CGFloat,
                          mMetrics: DayMetrics, wMetrics: DayMetrics) -> some View {
@@ -261,10 +326,27 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
         var y: CGFloat
         var alpha: Double
         var metrics = mMetrics
+        // 选中行里「相邻月的日期」**各走各的路线**（月视图里它们根本不属于这一行：上个月的
+        // 那几天在上面那一块的最后一行、下个月的那几天在下面那一块的第一行）。
+        // 起点 = 周条里它现在的位置，终点 = 它在自己那一块里的真实位置，两条路径按同一条
+        // S 形曲线从「周视图」走到「月视图」；`progress = 1`（周视图）时位移为 0，
+        // 所以端点上两边完全重合。
+        var previousShift = WeekRowShift(dy: 0)
+        var nextShift = WeekRowShift(dy: 0)
+        var previousSolid: Double = 0
+        var nextSolid: Double = 0
         if isSelected {
             y = CL.lerp(row.top, headH, progress)
             alpha = 1
             metrics = DayMetrics.lerp(mMetrics, wMetrics, progress)
+            let away = CL.smoothstep(Double(CL.clamp01(1 - progress)))
+            let shifts = adjacentShifts(row: row, rowH: rowH, away: away)
+            previousShift = shifts.previous
+            nextShift = shifts.next
+            // 「变实」跟位移用同一条曲线：走到自己那个月的那一行时正好变成实色，
+            // 与真实月视图里画的一模一样，收尾不再「由虚变实」。
+            previousSolid = away
+            nextSolid = away
         } else if row.top < selectedTop {
             // 选中行**上方**的行：往上滑出屏幕。
             y = row.top - CGFloat(progress) * (row.top + rowH)
@@ -285,10 +367,17 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
                              // 日期；其余行和月视图一样只画本月的。否则月份边界那一周会在
                              // 两行里各画一遍（9 月最后一行与 10 月第一行本来就是同一周），
                              // 动画中間会看到同一批日期出现两次。
-                             adjacentAlpha: progress,
+                             // 相邻月日期**不淡入淡出**，只做移动（用户要求「就按照原本的样式」）。
+                             adjacentAlpha: 1,
+                             previousShift: previousShift,
+                             nextShift: nextShift,
+                             previousSolid: previousSolid,
+                             nextSolid: nextSolid,
                              showAdjacent: isSelected,
                              onTapDay: nil)
             .frame(width: size.width, height: metrics.cellH)
             .offset(y: y)
     }
 }
+
+

@@ -90,13 +90,23 @@ enum DayDraw {
                      flags: Set<String>,
                      anchorMonth: Date?,
                      isDark: Bool,
-                     adjacentAlpha: Double = 1) {
+                     adjacentAlpha: Double = 1,
+                     adjacentRise: CGFloat = 0,
+                     adjacentColumnShift: CGFloat = 0,
+                     adjacentSolid: Double = 0) {
         let dayKey = DateUtil.dayKeyOf(day)
         let isSelected = dayKey == selectedKey
         let isToday = dayKey == todayKey
         let isFuture = dayKey > todayKey
         let inMonth = anchorMonth.map { DateUtil.calendar.isDate(day, equalTo: $0, toGranularity: .month) } ?? true
         var cellAlpha = alpha
+        // 相邻月的日期可以**整格搬到别处**（只影响相邻月的那几格）：
+        // 周↔月 morph 里它们要沿自己的路线走回「上面那一块的最后一行 / 下面那一块的第一行」
+        // （见 `MonthWeekMorphView.rowView` 的 `WeekRowShift`）。必须在算行内位置之前就搬走，
+        // 否则整格（含选中圆、农历）只挪一半。
+        let rowY = inMonth ? rowY : rowY - adjacentRise
+        let cx = inMonth ? (CGFloat(col) + 0.5) * m.cellW
+                         : (CGFloat(col) + adjacentColumnShift + 0.5) * m.cellW
         if isFuture {
             cellAlpha *= 0.35
         } else if !inMonth {
@@ -109,7 +119,6 @@ enum DayDraw {
         let top = rowY + (m.cellH - contentH) / 2
         let numY = top + m.dayFont / 2
         let lunarY = top + m.dayFont + 4 + lineH / 2
-        let cx = (CGFloat(col) + 0.5) * m.cellW
         let circleC = top + contentH / 2
         // 选中圆比内容再大一圈，让「选中」比「今天」更醒目；但受格宽/格高夹住，
         // 相邻两格之间不会碰在一起。
@@ -140,8 +149,15 @@ enum DayDraw {
             textColor = Theme.onSurface()
             colorKey = 2
         } else {
-            textColor = Theme.onSurface().opacity(0.5)
-            colorKey = 3
+            // 相邻月的日期：**往回走（周↔月 morph）时渐渐「变实」**。
+            //
+            // 灰掉（opacity 0.5）表达的是「这不是本月的日期」；可一旦它沿自己的路线回到
+            // **它自己那个月的那一行**，它就是那个月的正常日期了 —— 真实月视图里画的是
+            // `onSurface()` 实色。morph 里若不跟着变实，收尾换回真图层时那一格会突然
+            // 「由虚变实」（用户报的「动画过程中总是虚的，最后才变实」）。
+            // `adjacentSolid` 由 morph 按进度给（0 = 周视图那一侧的灰、1 = 落到自己月里的实）。
+            textColor = Theme.onSurface().opacity(0.5 + 0.5 * adjacentSolid)
+            colorKey = adjacentSolid > 0.5 ? 2 : 3
         }
 
         let dayNum = DateUtil.calendar.component(.day, from: day)
@@ -290,6 +306,22 @@ struct MonthCanvas: View {
     }
 }
 
+/// 周↔月 morph 里「相邻月的日期」自己的位移（屏幕坐标，正数 = 往下 / 往右）。
+///
+/// 选中那一周若跨月，左边几格是上个月的日期、右边几格是下个月的日期：它们在月视图里
+/// 分别属于**上面那一块的最后一行**与**下面那一块的第一行**（上个月的往左上走、
+/// 下个月的往右下走），所以不能跟着选中行走，得沿自己的路线回去。
+///
+/// 横向**必须逐格算、不能整组平移**：那几天回到自己那一块时是按「周几」重新排的，
+/// 每一格的列号都不一样（例：8/31 是周日 → 第 7 列；9/1 是周二 → 第 3 列，
+/// 这两格同属一组，但一个要往右挪 6 列、一个只挪 1 列）。纵向整组一致。
+struct WeekRowShift: Equatable {
+    /// 纵向（屏幕坐标，正数 = 往下）。
+    var dy: CGFloat
+    /// 逐格横向位移（键 = 这一格在周条里的列号，值 = 整列位移）。
+    var columnShifts: [Int: CGFloat] = [:]
+}
+
 struct WeekRowCanvas: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.diaryDynamicTypeSize) private var typeSize
@@ -302,6 +334,13 @@ struct WeekRowCanvas: View {
     var showDivider: Bool = false
     var anchorMonth: Date? = nil
     var adjacentAlpha: Double = 1
+    /// 相邻月日期各自的位移：`.previous` = 上个月那几天（回上面那一块的最后一行），
+    /// `.next` = 下个月那几天（回下面那一块的第一行）。两侧可以各走各的路线。
+    var previousShift = WeekRowShift(dy: 0)
+    var nextShift = WeekRowShift(dy: 0)
+    /// 相邻月日期「变实」的进度（0 = 灰、1 = 实色）：跟着各自的位移一起给。
+    var previousSolid: Double = 0
+    var nextSolid: Double = 0
     /// 是否画相邻月的日期。连续月历流里**不画**（与参考一致：月份边界那一周由两个月
     /// 各画自己那一半，另一边留白），周条与 morph 里要画（那里的 `anchorMonth` 为 nil）。
     var showAdjacent: Bool = true
@@ -334,13 +373,28 @@ struct WeekRowCanvas: View {
                                          cellW: metrics.cellW, alpha: metrics.dividerAlpha * alpha)
             }
             for (col, day) in week.days.enumerated() {
-                if !showAdjacent, let anchorMonth,
-                   !DateUtil.calendar.isDate(day, equalTo: anchorMonth, toGranularity: .month) {
-                    continue
+                let inMonth = anchorMonth.map {
+                    DateUtil.calendar.isDate(day, equalTo: $0, toGranularity: .month)
+                } ?? true
+                if !showAdjacent, !inMonth { continue }
+                // 相邻月的那几格走自己那一组的位移（`dy` 正数往下、`columnShifts[col]` 是列数）。
+                var dy: CGFloat = 0
+                var dcx: CGFloat = 0
+                var solid: Double = 0
+                if !inMonth {
+                    let isPrevious = day < (anchorMonth ?? day)
+                    let shift = isPrevious ? previousShift : nextShift
+                    dy = shift.dy
+                    dcx = shift.columnShifts[col] ?? 0
+                    solid = isPrevious ? previousSolid : nextSolid
                 }
                 DayDraw.draw(context, day: day, col: col, rowY: 0, m: metrics, alpha: alpha,
                              selectedKey: selectedKey, todayKey: todayKey, flags: flags,
-                             anchorMonth: anchorMonth, isDark: colorScheme == .dark, adjacentAlpha: adjacentAlpha)
+                             anchorMonth: anchorMonth, isDark: colorScheme == .dark,
+                             adjacentAlpha: adjacentAlpha,
+                             adjacentRise: -dy,
+                             adjacentColumnShift: dcx,
+                             adjacentSolid: solid)
             }
         }
         .contentShape(Rectangle())
@@ -524,7 +578,7 @@ struct YearPageView: View {
                     }
                 }
             }
-            .padding(.top, 8)
+            .padding(.top, CalendarLayout.yearTopPad)
             .padding(.horizontal, CalendarLayout.yearPad)
         }
         .frame(width: containerSize.width, height: containerSize.height, alignment: .top)

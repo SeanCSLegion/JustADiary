@@ -104,6 +104,19 @@ enum CL {
     }
 
     static func clamp01(_ x: Double) -> Double { min(1, max(0, x)) }
+
+    /// 平滑的 S 形（ease-in-out）插值参数，输入会被夹到 0…1：`6t⁵ − 15t⁴ + 10t³`。
+    ///
+    /// 月↔周 morph 里「相邻月的日期」用它而不是线性 `progress`：线性参数要到动画最后一帧
+    /// 才走完，于是那批日期的位移、淡出、被裁剪边切掉三件事结束时间对不上，收尾显得突然。
+    ///
+    /// 用五次（smootherstep）而不是三次（smoothstep）：三次在两端仍有肉眼可见的加速度
+    /// 突变，中段爬升也偏快；五次曲线的一、二阶导数在两端都为 0，起步和收尾都更「软」，
+    /// 中段（0.25→0.75）走完 84%，其余时间留给两头的缓入缓出。
+    static func smoothstep(_ x: Double) -> Double {
+        let t = clamp01(x)
+        return t * t * t * (t * (t * 6 - 15) + 10)
+    }
 }
 
 struct DayMetrics {
@@ -162,6 +175,10 @@ enum CalendarLayout {
     static let yearPad: CGFloat = 16
     /// 月与月之间的空隙：从 10 收到 6，给迷你月里的字号留出空间。
     static let yearSpacing: CGFloat = 6
+    /// 年历页**最上面一行卡片**与标题分隔线之间的留白（`YearPageView` 的 `.padding(.top, 8)`）。
+    /// 抽出来是为了让 `yearCardRect` 与年历页用同一个数 —— 两边各写一个字面量的话，
+    /// 「月→年」morph 的终点会与真实年历差几 pt。
+    static let yearTopPad: CGFloat = 8
 
     static func monthCellW(width: CGFloat) -> CGFloat { width / 7 }
 
@@ -213,7 +230,7 @@ enum CalendarLayout {
 
     static func yearCardSize(in size: CGSize) -> CGSize {
         CGSize(width: (size.width - yearPad * 2 - yearSpacing * 2) / 3,
-               height: (size.height - yearTitleH - 8 - yearSpacing * 3) / 4)
+               height: (size.height - yearTitleH - yearTopPad - yearSpacing * 3) / 4)
     }
 
     /// 年历里迷你日期字号：格子变小的时候按格宽收缩，避免相邻日期叠在一起。
@@ -231,7 +248,7 @@ enum CalendarLayout {
         let col = CGFloat((month - 1) % 3)
         let row = CGFloat((month - 1) / 3)
         return CGRect(x: yearPad + col * (card.width + yearSpacing),
-                      y: yearTitleH + 8 + row * (card.height + yearSpacing),
+                      y: yearTitleH + yearTopPad + row * (card.height + yearSpacing),
                       width: card.width,
                       height: card.height)
     }
@@ -283,6 +300,22 @@ enum CalendarLayout {
                           dividerAlpha: 0)
     }
 
+    /// 「年→月」morph 里那条**下个月预告**（小标题 + 第一行日期）的几何。
+    ///
+    /// `MonthFlowView` 的连续流里，下个月的块 = 本月 `rows` 行 + 块首那条 `flowMonthGap`；
+    /// morph 的网格也是按 6 行画（`fullRect.height / 6`），所以两边的尺子完全一样：
+    ///
+    ///     nextRowTop   = fullRect.minY + rows × rowH + flowMonthGap   ← 下个月第一行的顶
+    ///     labelBottom  = nextRowTop − flowLabelTightGap               ← 小标题底边（贴分割线）
+    ///
+    /// **再减一次 `flowMonthGap` 就错了**（实测小标题会高 16pt，收尾换回真图层时往上跳）：
+    /// 它是 morph 层与真实流最容易对不上的一个数，所以抽出来给 `MorphViews` 和测试共用。
+    static func peekGeometry(fullRect: CGRect, rows: Int) -> (nextRowTop: CGFloat, labelBottom: CGFloat) {
+        let rowH = fullRect.height / 6
+        let nextRowTop = fullRect.minY + CGFloat(max(1, rows)) * rowH + flowMonthGap
+        return (nextRowTop, nextRowTop - flowLabelTightGap)
+    }
+
     static func fullMonthGridRect(in size: CGSize) -> CGRect {
         CGRect(x: 0,
                y: bigTitleH + weekdayHeaderH,
@@ -311,10 +344,40 @@ enum CalendarLayout {
     /// 用户看过第一版（一个整行高 ≈ 94pt）说「间隔太多」，看过第二版（35pt）又说
     /// 「还是太高，应该紧贴月份高度」，所以这里不再加任何上下留白：
     /// 竖屏 15pt 字 → **21pt**；横屏紧凑 13pt 字 → **18pt**。
-    /// 上下看起来的空白来自日期行自身的垂直居中留白，不需要带子再让一份。
+    /// 上下看起来的空白来自 `flowMonthGap` 与日期行自身的垂直居中留白，不需要带子再让一份。
     static func flowLabelBandHeight(compact: Bool) -> CGFloat {
         (flowLabelFontSize(compact: compact) * 1.4).rounded()
     }
+
+    /// 小标题底边与它下面那条分割线（= 本月第一行的顶）之间的间隙 ——「紧贴」的那个「紧」。
+    ///
+    /// 三处必须用同一个数：`MonthFlowView` 画小标题、`MonthFlowView.morphSource` 冻结
+    /// 小标题位置、`YearMonthMorphView` 的「下个月那一条」。各写一份的话，morph 收尾
+    /// 换回真实图层时小标题会挪一下。
+    static let flowLabelTightGap: CGFloat = 3
+
+    /// 连续月历流里**月份之间那条真正的空隙**（插在上一块与下一块之间，小标题就画在这里）。
+    ///
+    /// 16pt 是量出来的：竖屏一行 93.8pt、日期内容上下各留 26.9pt 白边，小标题高 21pt +
+    /// 贴线 3pt；16 − (26.9 − 21 − 3) ≈ 13pt 的净间隙落在「上个月最后一行数字」与
+    /// 「小标题」之间（横屏一行 40.5pt 时约 10pt），两个月因此不再挤在一起。
+    ///
+    /// 这一版之前，两个月的周行是**紧挨着**的（`下一块的 top == 上一块的 bottom`），小标题
+    /// 借用上一行底部的留白画在分割线上方 —— 于是「占满一行」的月份里，小标题离上一行的
+    /// 日期只有那点留白，看着太挤（用户：「两个月之间的间隔窄了一点，小月份会和上一行的
+    /// 日期太近了」）。现在每个月的块首自带这条空隙：
+    ///
+    ///     上一块的日期（最后一行，垂直居中，下面还有 contentTop ≈ 27pt 的留白）
+    ///     ─┬─ 空隙 16pt：小标题画在这里，底边贴分割线 3pt
+    ///      │  上个月最后一行数字底 → 小标题上沿 ≈ 13pt（竖屏；横屏 ≈ 10pt）
+    ///     ─┴─ 分割线（= 本块第一行的顶，也就是 `Block.top`）
+    ///        小标题底 → 本月数字顶 ≈ 30pt（竖屏；横屏 ≈ 14pt）
+    ///
+    /// 三条不变量都没变，变的是「下一块的 `top` = 上一块的 `bottom` + 这个空隙」：
+    /// `restOffset` 仍取 `Block.top`（静止时第一行顶到视口顶，画面与改造前逐像素一致），
+    /// 年↔月 morph 的终点也就不用重新推导。横屏左栏一行只有 40pt、上留白 ~11pt，
+    /// 原来放不下 18pt 的小标题（会压进上一行那一格约 10pt），这条空隙也顺手把它收住了。
+    static let flowMonthGap: CGFloat = 16
 
     /// 小标题该站在哪一列：**当月 1 号所在的那一列**（用户要求「小月份在 1 号的上方」，
     /// 不是整行居中）。列号 = 1 号是星期几（按周起始设置换算）。
