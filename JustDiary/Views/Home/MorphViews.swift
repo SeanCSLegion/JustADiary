@@ -343,10 +343,12 @@ struct MonthWeekMorphView<Content: View>: View, Animatable {
             let shifts = adjacentShifts(row: row, rowH: rowH, away: away)
             previousShift = shifts.previous
             nextShift = shifts.next
-            // 「变实」跟位移用同一条曲线：走到自己那个月的那一行时正好变成实色，
-            // 与真实月视图里画的一模一样，收尾不再「由虚变实」。
-            previousSolid = away
-            nextSolid = away
+            // 相邻月的日期**从头到尾都是实色**：灰（0.5）表达的是「这不是本月的日期」，
+            // 而 morph 一开始它们就在往自己那个月的那一行走 —— 再挂着这层灰，整段动画
+            // 看起来都是「虚的」，直到收尾换回真图层才突然变实（用户报的「还不是从头到尾
+            // 都实」）。这里直接给 1：整段保持实色，收尾与真实月视图一致，不再有突变。
+            previousSolid = 1
+            nextSolid = 1
         } else if row.top < selectedTop {
             // 选中行**上方**的行：往上滑出屏幕。
             y = row.top - CGFloat(progress) * (row.top + rowH)
