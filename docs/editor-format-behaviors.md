@@ -59,10 +59,11 @@
 | 情形 | 行为 |
 |---|---|
 | 无选区 | **行作用域**：整行切到该样式。行内已有的加粗/斜体保留 |
-| 无选区、且当前行是空行 | **打字态**：不动任何已有文字（尤其**不动上一行**），只让「之后输入的文字」是该样式 |
-| 有选区 | **选区作用域**：选中的每一行都切到该样式 |
+| 无选区、且当前行是空行 | **打字态**：不动任何已有文字（尤其**不动上一行**），只让「之后输入的文字」是该样式。同时把这一行**自己的换行符**换成该样式的行样式（字号 / 行距 / 段距 / 引用底色）—— 空行的行盒就是由它排出来的，不换的话这一行与光标会停在旧样式里（B22） |
+| 有选区 | **选区作用域**：选中的每一行都切到该样式。摘掉行首标记会让行变短一格，光标**与选区**都按摘掉的字数回位（选区只缩短，不会把没选中的字圈进来，B23） |
 | 换行 | 新行**延续**该行样式（引用延续底色，标题延续字号）；要在新行取消，就选菜单里的「正文」或再点一次「引用」 |
-| 取消 | 菜单选「正文」/ 再点「引用」：只作用于当前行（或选中各行）。空行上取消 = 打字态，**上一行保持不变** |
+| 取消 | 菜单选「正文」/ 再点「引用」：只作用于当前行（或选中各行）。空行上取消 = 打字态 + 这一行自己的换行符一起换回正文，**上一行保持不变** |
+| 对齐 | 标题 / 正文沿用这一行原来的对齐（居中可以与它们共存）；引用强制左对齐（空行上也一样） |
 | 互斥 | 列表 / 待办行切成文本行样式时，行首标记被移除；引用强制左对齐（与居中互斥） |
 | 空行 | 空行不入库（`PartsCodec.parts(from:)` 跳过空行），所以「空行」只存在于编辑过程中的光标位置 |
 
@@ -71,9 +72,9 @@
 | 情形 | 行为 |
 |---|---|
 | 无选区 | 给当前行加/去行首标记。**加**标记时该行先回到正文（去掉大标题/小标题/引用/居中），再去/加标记 |
-| 有选区 | **选区作用域**：选中的每一行统一加/去标记（方向由光标所在行决定） |
+| 有选区 | **选区作用域**：选中的每一行统一加/去标记（方向由光标所在行决定）；去标记同样按摘掉的字数回位光标与选区（B23） |
 | 换行（当前行有文字） | **另起一项**：新行自动带同种标记（待办新项为未完成），光标落在标记之后 |
-| 换行（当前行只有标记、没有文字） | **结束列表**：标记被移除，这一行留作空正文行（它自己的换行还在）；再按一次回车得到新的空行 |
+| 换行（当前行只有标记、没有文字） | **结束列表**：标记被移除，这一行留作空正文行（它自己的换行还在，行样式也换回正文，光标留在这一行）；再按一次回车得到新的空行 |
 | 取消 | 再点一次按钮：只去当前行（或选中各行）的标记。**之前的行不受影响** |
 | 列表 ⇄ 待办 | 直接切换（移除旧标记、插入新标记），不产生两种标记并存的行 |
 
@@ -82,8 +83,8 @@
 | 情形 | 行为 |
 |---|---|
 | 无选区 | **行作用域**：当前行居中/取消居中 |
-| 无选区、当前行是空行 | **打字态**：只改后续输入（既有实现已正确，本次只补选区一致性） |
-| 有选区 | **选区作用域**：选中每一行 |
+| 无选区、当前行是空行 | **打字态**：只改后续输入；空行**自己的换行符**也跟着换对齐，否则光标停在旧对齐里（取消居中不左对齐 / 开启居中不居中，B22）。文本**末尾**那条空行没有自己的字符，由 `typingAttributes` 直接排版，一直是对的 |
+| 有选区 | **选区作用域**：选中每一行（含选区里的空行 —— 空行的对齐写在它自己的换行符上）；其中引用 / 列表 / 待办 / 图片行**跳过**（按钮在这类行上本来就置灰，图片行另有编解码固定的居中，B24） |
 | 互斥 | 列表 / 引用 / 待办行上按钮置灰；居中不能与它们共存 |
 | 居中空行上回车 | 被忽略（既有设计，防止连出一串空居中行），见 `shouldBlockNewline(at:)` |
 
@@ -122,6 +123,9 @@ Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —�
 - 高亮（active）来自 `controller.activeStyles()` / `isCenterActive()` / `isListActive()` / `isQuoteActive()` /
   `isTodoActive()` / `currentBlockStyle()`，由 `formatTick` 驱动重算（`RichTextView.swift` 的 `.onChange(of: controller.formatTick)`）。
 - 有选区时，字符样式的高亮只看**选区首字符**（B8）；行样式的高亮只看**选区起点那一行**（B8）。
+- **「字号 / 段落样式」按钮只认大标题 / 小标题**（B21）：引用有自己的按钮，字号也是引用自己管的
+  （15pt），所以光标落在引用行上时这一栏不该亮 —— 它只负责大标题 / 小标题 / 正文这三档。
+  点亮状态同时挂在无障碍的 `isSelected` 上（原来只有底色，UI 测试与旁白都读不到）。
 - 列表 / 引用 / 待办三者互斥，且都与居中互斥：处于这三类行上时，「居中」按钮 `disabled`（`blockStyleActive`）。
 
 ---
@@ -210,6 +214,13 @@ Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —�
 | **B12** | 中 | `DiaryViewModel.handleBack` | 编辑到一半点返回，整个日记页被关掉、掉回首页日历 | `!isRead` 时直接 `onDismiss()` | 返回只退出**编辑**，回到这一天的阅读页；有未保存内容仍先确认 | ✅ 修 |
 | **B13** | 中 | `PartsCodec` / `insertImage` / `DiaryImageView` | 横屏下图片不随列宽放大（阅读区还多出上下空带），编辑区图片靠左 | 宽度取 `min(存储宽, 可用宽)` 且段落左对齐；阅读区外层比例盒按列宽、内层图按存储宽 | 图片按列宽等比放大并居中；存储的 `w/h` 只当比例 | ✅ 修 |
 | **B14** | 低 | `FontToolbar` | 横屏格式栏拉满整行，比正文列还长 | `ScrollView` 自己占满可用宽度 | 按内容宽度居中（`ViewThatFits`：放得下就不滚，放不下才横滑） | ✅ 修 |
+| **B25** | 中 | `MarkerAttachment` / `PartsCodec.appendMarkerLine` / `toggleMarker` / `handleReturn` | 列表 / 待办行**丢了正文的行距**：折行推进 20.29pt，而正文（同样 17pt）是 22.5pt —— 文档里写的「列表 / 待办 = 正文属性（2.2）」在排版上没生效 | 行首标记是这一行的**第一个字符**，而段落样式取自段落第一个字符；标记是 `NSAttributedString(attachment:)`，**不带任何属性**，整段于是退回默认段落属性，文本 run 上的 `lineSpacing` 白写了 | 新增 `MarkerAttachment.attributed(kind:done:typeSize:paragraphStyle:)`：把行段落样式挂在标记上（字号仍来自附件自己的 bounds），编码器与编辑器插入标记的三处统一走它 | ✅ 修 |
+| **B26** | 高 | `DiaryPageView.applyCaretReveal` | **内容超过一页之后，再输入或切样式，界面会跳到上面去**；而且光标永远差一截藏在格式栏（键盘在它下面）下面：每个按键都再请求一次滚动，中文输入法候选栏一出现/消失就改一次键盘高度、带动画重试几次，跳得尤其明显 | ① `ScrollPosition.scrollTo(y:)` 用的是**内容坐标**（内容顶端 = 0），而基数取的是 `contentOffset.y`（静止时是 `-contentInset.top`）—— 两者差一个顶部安全区，实测 62pt：请求 `target=1019` 却停在 `contentOffset.y = 957`，光标永远差 62pt 露不出来；② 基数是 `onScrollGeometryChange` 的上一帧状态，一次点按里连着触发几次 reveal（formatTick 一次、末尾占位一次、键盘重试几次）会把同一个 delta 加几遍 | 基数改成**当前**内容坐标：从输入区的父视图往上找到 SwiftUI 的 `UIScrollView`，读 `contentOffset.y + adjustedContentInset.top`（只读不写，滚动仍走 `ScrollPosition`）。绝对目标对同一状态**幂等**：滚动落地后光标矩形与基数一起更新，delta 自然归零 | ✅ 修 |
+| **B27** | 高 | `RichEditorController.ensureCaretGeometry()`（`RichTextEngine.swift`） | **引用 / 换字号之后光标画在上一行的末尾，输入却落在下一行**（用户报的：先输入一行待办，回车后不输入内容直接点引用，光标跳到上一行末尾）。十来行混合格式就能复现，且**不会自己恢复**（实测 10 秒不变） | 文档以换行结尾时，最后那个**空段落没有字符**，TextKit 2 也就不给它排版片段（实测 `textLayoutFragment(for: 文档末尾) = nil`，`usageBounds` 正好停在上一行底部）。这时 UIKit 的光标几何退回「**上一个已排版片段的末尾**」—— 上一行文字的结尾，所以画在那里；逻辑位置（`selectedRange`）一直是对的，所以打字落在下一行。摘掉末尾列表项的标记（引用 / 换字号 / 回车结束列表）正好造成这个状态 | 新增 `ensureCaretGeometry()`：切换之后把「光标那一段 → 文档末尾」这一段 **`invalidateLayout` + `ensureLayout` + `layoutViewport`**（只 `ensureLayout` 无效 —— TextKit 认为它已经排完了，实测片段仍是 nil），并在下一轮 runloop 再排一次；末尾那一行排出来后，UIKit 的光标几何自然落到行首。**注意不能抖选区**：那会按光标前一个字符重新同步 `typingAttributes`，把引用的打字态冲掉 | ✅ 修 |
+| **B21** | 中 | `FontToolbar.styleMenu` | 点完「引用」，「字号 / 段落样式」按钮跟着被点亮（两个按钮同时是选中态） | 高亮判定写成 `current != .body`，而 `currentBlockStyle()` 在引用行上如实返回 `.quote` —— 引用被当成了字号菜单里的一档 | 字号菜单只有大标题 / 小标题 / 正文三档，引用有自己的按钮与字号；高亮只认大标题 / 小标题，并把状态挂到无障碍的 `isSelected` 上 | ✅ 修 |
+| **B22** | 高 | `RichEditorController.toggleCenter` / `applyBlockStyle` / `toggleQuote` | **空行上开 / 关居中或引用，光标不动**：取消居中了光标还在中间、开启居中了光标还在行首；引用点亮了但这一行没有任何变化（用户："不是每次都准确"） | 空段落的行盒由**它自己的换行符**排出（TextKit 取段落第一个字符的段落样式），而这几处只改 `typingAttributes` —— 那只管「之后输入的字」，管不到空行自己的行盒；只有文本**末尾**那条空行没有自己的字符、由 `typingAttributes` 排版，所以它一直是对的（"有时候"就是这么来的） | 新增 `emptyParagraphTerminator(in:at:)` / `styleEmptyParagraph(...)` / `syncEmptyParagraphWithTypingAttributes()`：把行样式写进空行自己的那个换行符（字号 / 行距 / 段距 / 对齐 / 引用底色），一个字都不动、相邻行不受影响、空行本来也不入库 | ✅ 修 |
+| **B23** | 高 | `RichEditorController.toggleQuote` / `applyBlockStyle`（`apply` 的光标还原） | **列表 / 待办的空项上点「引用」后光标不在这一行**：标记被摘掉（行短了一格），`apply` 只能把光标夹进新的文本长度 —— 在末尾几段上会被推到**下一行**（用户："光标会停在上一行的末尾"）；夹在正文中间时则掉到下一行的行首 | 摘掉标记是「光标之前少了一个真实字符」，而还原用的是 `min(光标, 新长度)` | 新增 `keepCaretOnItsLine(_:lineStart:lengthBefore:)`：按净长度变化平移光标，并夹在这一段的范围内，光标始终留在它原来那一行 | ✅ 修 |
+| **B24** | 低 | `RichEditorController.restyle` / `toggleCenter` | ① 编辑区里点「大标题」得到的行**没有标题的段前留白**（9.8pt），保存后重新打开才有 —— 同一条标题在两条链路上长得不一样；② 选中多行（含引用 / 列表行）点「居中」，会把本来置灰的引用行也居中了 | ① `restyle` 只重算了 `lineSpacing` 与 `paragraphSpacing`，漏了 `paragraphSpacingBefore`（编解码那条链路有）；② 居中只按 `paragraphRanges` 逐行改，没有跳过不能居中的行 | ① `restyle` 一并写入 `paragraphSpacingBefore`；② 新增 `centerIsAllowed(in:at:)`，居中跳过引用 / 列表 / 待办行 | ✅ 修 |
 | **B11** | 高 | `DiaryPageView` / `FontToolbar` | 横屏进编辑时格式栏是**竖排**的一列，比屏幕还高：整条被裁掉、贴在全屏底部中间，与正文列对不上 | `fontToolbarVertical = layout.splitsMasterDetail`，横屏走 `VStackLayout`；9 个按钮竖排约 454pt > 横屏可用高度 402pt | 与备忘录一致：横竖屏都是键盘上方的**横排**一条 | ✅ 修（`editor.formatBar` 的 frame 断言守住） |
 
 ### B1 的细节（为什么「行首」这个位置这么常见）
@@ -248,6 +259,13 @@ paragraphRanges 的循环：
 | B13 | 图片按列宽等比排版（`PartsCodec` 的 `w = maxW`、`insertImage` 去掉 343pt 上限）、段落 `.center`；`DiaryImageView` 去掉 `GeometryReader` + 固定宽，改成按比例填满 | `testImageFillsTheColumnAndStaysCentred`、`testImageStoredSizeIsAnAspectRatioNotALayoutSize`、`testReaderImageFillsTheWidthItIsGiven` |
 | B14 | 格式栏改成 `ViewThatFits { barRow; ScrollView { barRow } }`，按钮间距 6 → 4（默认字号下 9 个按钮约 360pt，整条放得下） | `EditorFlowUITests.testFormatBarFitsInOnePieceAtTheDefaultTextSize` |
 
+| B25 | `MarkerAttachment.attributed(...)` 统一了「编码器 / 点列表 / 回车续项」三处标记的构造，标记带上行段落样式 | `EditorSpacingTests.testMarkerLinesWrapWithTheBodyLineSpacing` |
+| B26 | `DiaryPageView`：新增 `editorScrollView()` / `contentScrollY()`，`applyCaretReveal` 的基数改成当前内容坐标；新增测试探针 `editor.scroll`（`contentOffset.y,格式栏上沿,键盘高度`） | `EditorFlowUITests.testTypingAtTheBottomOfALongEntryKeepsTheCaretAboveTheFormatBar`（改动前必失败：光标 535 > 格式栏 481-8） |
+| B27 | `RichEditorController.ensureCaretGeometry()` / `layOutThroughDocumentEnd(in:)`：作废并重排「光标段 → 文档末尾」，在 `applyBlockStyle` / `toggleQuote` / `toggleCenter` / `toggleMarker` / `removeMarker` 收尾各调一次 | `EditorCaretDrawingUITests.testQuoteOnAnEmptyListItemDrawsTheCaretOnThatLine`（按用户步骤走一遍，**故意不开** `-ui-test-editor-caret`：那条探针会替 App 把末尾排出来、把问题遮住；只看截图像素里画出来的光标 + 输入落点） |
+| B21 | `FontToolbar.styleMenu` 的 active 改成「只认大标题 / 小标题」，并补 `.accessibilityAddTraits(.isSelected)` | `EditorStyleButtonUITests.testQuoteDoesNotSelectTheParagraphStyleMenu` |
+| B22 | 新增 `emptyParagraphTerminator(in:at:)` / `styleEmptyParagraph(...)` / `syncEmptyParagraphWithTypingAttributes()`（`RichTextEngine.swift`），并在 `toggleCenter` / `applyBlockStyle` / `toggleQuote` / `toggleMarker` / `removeMarker` / `handleReturn`（空引用行）末尾调用 | `EditorEmptyLineTests`（`testCenterOnAnEmptyLineInTheMiddleMovesTheCaret`、`testCenterOnTheLastEmptyLineMovesTheCaret`、`testQuoteOnAnEmptyMiddleLineStylesThatLine`、`testReturnOnAnEmptyQuotedLineAlsoClearsTheLineItself`）、`EditorStyleButtonUITests.testCenterMovesTheCaretOnAnEmptyLineInTheMiddle` |
+| B23 | 新增 `keepCaretOnItsLine(_:lineStart:lengthBefore:)`，`applyBlockStyle` / `toggleQuote` 在 `apply` 之后按净长度变化把光标放回原行 | `EditorEmptyLineTests`（`testQuoteOnAMarkerOnlyItemKeepsTheCaretOnThatLine`、`…InAReopenedEntryKeepsTheCaretOnThatLine`、`…InTheMiddleLeavesBothNeighboursAlone`）、`EditorStyleButtonUITests.testQuoteOnAMarkerOnlyLineKeepsTheCaretOnThatLine` |
+| B24 | ① `restyle` 补 `style.paragraphSpacingBefore = block.paragraphSpacingBefore`；② 新增 `centerIsAllowed(in:at:)`，`toggleCenter` 跳过引用 / 列表 / 待办行 | `EditorFormatBehaviorTests.testStyleAppliedInTheEditorMatchesALoadedOne`、`EditorFormatBehaviorTests.testCenterAppliesToEverySelectedLine` |
 | B20 | `PlaceholderTextView.layoutSubviews` 的 `onTextWidthChange` 回调 + `RichEditorController.handleTextWidthChange(_:)`（插入图片与 `refitImages` 统一按「输入区宽度 − 左右内缩」定宽） | `EditorFlowUITests.testImageKeepsTheColumnWidthAfterRotatingFromLandscapeToPortrait`（横屏进编辑自动插一张 2:1 测试图 → 转竖屏 → 图片宽度必须仍等于正文列宽）；`EditorSpacingTests.testInsertedImageIsSpacedLikeALoadedOne` |
 | B19 | `Screen.keyboardObscuredHeight(screenFrame:)`（窗口坐标求交集）+ `DiaryPageView.applyCaretReveal`（窗口坐标算 delta，`ScrollPosition.scrollTo(y:)` 落地，键盘弹起时 `retries: [0.15, 0.3, 0.5, 0.75, 1.0, 1.4]`）；`RichEditorController.caretRectInWindow()` 给探针与计算共用 | `EditorFlowUITests.testEditingAnExistingBlockKeepsTheCaretVisibleAboveTheKeyboard`（编辑已有卡片：关掉自动弹键盘 → 点正文靠下 → 键盘弹起 → 光标必须在键盘**与浮动格式栏**之上） |
 | B18 | `DiaryPageView` 的正文列统一成 `contentColumn(660)`，不再按 `isRead` 分支 | `EditorFlowUITests.testReadAndEditContentColumnsHaveTheSameWidth`（竖屏 / 横屏都比一遍阅读与编辑的输入区） |
@@ -322,10 +340,15 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
    `ContentPart.style` 的延续（连续的列表行会被合并成一个 `list` part）。
 8. **键盘的收起路径**（B17）：点内容空白、点顶栏空白、下拉内容；格式栏按钮是有意
    例外 —— 点它会 `becomeFirstResponder`，把焦点还给编辑器（连续排版不该被收键盘打断）。
-9. **光标永远在格式栏之上**（B19）：键盘、格式栏、悬浮顶栏都不该盖住正在输入的位置。
+9. **光标永远在格式栏之上**（B19）：键盘、格式栏、悬浮顶栏都不该盖住正在输入的位置。长文里这条靠 `applyCaretReveal` 的滚动保证 —— 它的基数必须是**当前**的内容坐标（B26），否则每次都少滚一个顶部安全区、光标永远差一截露不出来。
 10. **阅读态与编辑态的正文列同宽**（都是 660 上限，B18）：进出编辑时卡片不会跳。输入区
    宽度仍差 4pt（卡片内边距 12 vs 10），编辑区文字还另有 12pt 的输入内缩。
-11. **光标停在「列表项下一行的空行」上时回车不续列表**：那一行自己没有标记，而 R3 只在
+11. **空行自己的换行符 = 这一行的行样式**（B22）：空段落没有字形，但它的行盒由它自己的换行符
+    排出（段落样式取段落第一个字符），所以开 / 关居中、引用、大标题时，除了 `typingAttributes`
+    还要把行样式写进那个换行符 —— 否则「这一行」与光标会停在旧样式里。写入的只是一个不可见的
+    换行符，不动任何已输入的文字，也不影响相邻段落；空行本来就不入库。
+12. **末尾空段落的光标几何**（B27）：文档以换行结尾时，最后那个空段落没有字符、TextKit 2 也不给它片段，UIKit 会把光标几何退回上一行末尾 —— 所以每次切换行样式之后都要 `ensureCaretGeometry()` 把这一段作废重排。
+13. **光标停在「列表项下一行的空行」上时回车不续列表**：那一行自己没有标记，而 R3 只在
    「当前行有标记且标记后还有文字」时另起一项。这是有意的 —— 否则空项回车刚结束列表，
    下一次回车又被上一行的标记续上，用户永远退不出列表。要续列表，把光标放回带标记的
    那一行（在那行末尾按回车）。
@@ -336,23 +359,28 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
 
 | 行为 | 文件:行 |
 |---|---|
-| 字体栏的组装与 active 态（含 `editor.formatBar` 标识） | `JustDiary/Views/Diary/RichTextView.swift:203-350` |
-| 键盘事件入口（回车拦截、B6） | `JustDiary/Views/Diary/RichTextView.swift:160-180` |
-| 编辑器宽度变化（B10 所在） | `JustDiary/Views/Diary/RichTextView.swift:114-140` |
+| 字体栏的组装与 active 态（含 `editor.formatBar` 标识、B21 的字号按钮高亮） | `JustDiary/Views/Diary/RichTextView.swift:234-391` |
+| 键盘事件入口（回车拦截、B6） | `JustDiary/Views/Diary/RichTextView.swift:181-226` |
+| 编辑器宽度变化（B10 所在） | `JustDiary/Views/Diary/RichTextView.swift:114-143` |
 | 字符样式：加粗 / 斜体 / 删除线 / 下划线（B5） | `RichTextEngine.swift:257-378` |
-| 段落样式：样式菜单（B1/B2） | `RichTextEngine.swift:380-395` |
-| `restyle`（单行改写，跳过图片行） | `RichTextEngine.swift:420-458` |
+| 段落样式：样式菜单（B1/B2，B23 的光标/选区回位） | `RichTextEngine.swift:380-406`（对齐沿用 409-435） |
+| `restyle`（单行改写，跳过图片行；空行写自己的换行符、B24 的段前距） | `RichTextEngine.swift:458-518` |
 | `paragraphRanges`（B1 所在） | `RichTextEngine.swift:480-503` |
-| 居中（B3） | `RichTextEngine.swift:504-540` |
-| 列表 / 待办标记（B4） | `RichTextEngine.swift:581-640` |
-| `handleReturn`（B6：换行续行、空项结束） | `RichTextEngine.swift:642-712` |
-| 引用（B1/B2） | `RichTextEngine.swift:714-744` |
-| 空行 / 段落范围判定 | `RichTextEngine.swift:746-797` |
-| `activeStyles`（B8） | `RichTextEngine.swift:798-815` |
-| `refitImages`（B10） | `RichTextEngine.swift:888-917` |
-| `apply`（含选区还原） | `RichTextEngine.swift:924-944` |
-| `imageParagraphStyle` / `readerChunk`（行距与图片留白） | `RichTextEngine.swift:1048-1090` |
-| 落库解析（B9 所在） | `RichTextEngine.swift:1153-1245` |
+| 居中（B3，B22 空行、B24 跳过引用/列表/图片行） | `RichTextEngine.swift:557-615`（`centerIsAllowed` 在 606） |
+| 列表 / 待办标记（B4，B22 空项结尾、B25 标记自带段落样式） | `RichTextEngine.swift:665-704` |
+| `handleReturn`（B6：换行续行、空项结束；空引用行 B22） | `RichTextEngine.swift:733-780` |
+| 引用（B1/B2，B23 光标/选区留在这一行） | `RichTextEngine.swift:816-855` |
+| 空行 / 段落范围判定 | `RichTextEngine.swift:857-925` |
+| 空行自己的换行符：取位置 / 写行样式 / 写对齐 / 跟打字态同步（B22） | `RichTextEngine.swift:927-1016` |
+| 光标 / 选区按摘掉的标记回位（B23） | `RichTextEngine.swift:1020-1063` |
+| 末尾空段落的排版与光标几何（**B27**） | `RichTextEngine.swift:420-470` |
+| `activeStyles`（B8） | `RichTextEngine.swift:1065-1082` |
+| `refitImages`（B10） | `RichTextEngine.swift:1179-1211` |
+| `apply`（含选区还原） | `RichTextEngine.swift:1256-1272` |
+| `MarkerAttachment.attributed`（B25：标记也带行段落样式） | `RichTextEngine.swift:1330-1352` |
+| `imageParagraphStyle` / `readerChunk`（行距与图片留白） | `RichTextEngine.swift:1409-1451` |
+| 落库解析（B9 所在） | `RichTextEngine.swift:1516-1614` |
 | 阅读区块渲染（图片 padding、块间距 0） | `JustDiary/Views/Diary/MediaViews.swift:61-92` |
 | 阅读块规范化（去结尾空行 / 去图片段距） | `JustDiary/Views/Diary/ReadTextView.swift:91-95` |
 | 格式栏位置（键盘上方、横竖屏一致，B11） | `JustDiary/Views/Diary/DiaryPageView.swift:16-28` |
+| 光标 reveal 的滚动（B19 / **B26**：基数取当前内容坐标） | `JustDiary/Views/Diary/DiaryPageView.swift:206-300` |

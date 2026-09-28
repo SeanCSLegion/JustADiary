@@ -173,6 +173,48 @@ final class EditorSpacingTests: XCTestCase {
                        "两段正文之间只有正常行距，没有额外段距")
     }
 
+    /// 列表 / 待办行按正文属性排版：行内换行也要有正文的 `lineSpacing`。
+    ///
+    /// 行首标记是这一行的**第一个字符**，而段落样式取自段落第一个字符 —— 标记上不带
+    /// 段落样式时，整条列表项会退回默认段落属性，把正文的 2.2pt 行距悄悄丢掉
+    /// （实测折行推进 20.29pt，正文是 22.5pt）。所以 `MarkerAttachment.attributed`
+    /// 会把行段落样式挂在标记上。
+    func testMarkerLinesWrapWithTheBodyLineSpacing() {
+        let long = String(repeating: "字", count: 40)
+        let bodyHeight = lineFragmentHeights(doc([body(long)]), width: 200).first
+        let listHeight = lineFragmentHeights(doc([ContentPart(style: ContentPartStyle.list, items: [long])]),
+                                            width: 200).first
+        let todoHeight = lineFragmentHeights(doc([ContentPart(style: ContentPartStyle.todo, items: [long],
+                                                              done: [false])]),
+                                            width: 200).first
+
+        XCTAssertNotNil(bodyHeight)
+        XCTAssertEqual(listHeight ?? 0, bodyHeight ?? -1, accuracy: 0.01,
+                       "列表项折行推进应与正文一致（标记也要带行段落样式）")
+        XCTAssertEqual(todoHeight ?? 0, bodyHeight ?? -1, accuracy: 0.01,
+                       "待办项折行推进应与正文一致")
+    }
+
+    /// 每一行折行片的高度（`lineFragmentRect`）；用来量行内换行的推进。
+    private func lineFragmentHeights(_ attributed: NSAttributedString, width: CGFloat) -> [CGFloat] {
+        guard attributed.length > 0 else { return [] }
+        let storage = NSTextStorage(attributedString: attributed)
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        storage.addLayoutManager(manager)
+        manager.addTextContainer(container)
+        manager.ensureLayout(for: container)
+        var heights: [CGFloat] = []
+        var index = 0
+        while index < manager.numberOfGlyphs {
+            var range = NSRange()
+            heights.append(manager.lineFragmentRect(forGlyphAt: index, effectiveRange: &range).height)
+            index = range.location + range.length
+        }
+        return heights
+    }
+
     // MARK: - The rules, in the layout
 
     func testHeadingPushesTheTextAboveItFurtherThanTheTextBelow() {

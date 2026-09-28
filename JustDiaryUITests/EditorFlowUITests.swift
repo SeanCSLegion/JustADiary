@@ -45,10 +45,15 @@ final class EditorFlowUITests: XCTestCase {
     }
 
     /// 触控键盘当前是否真的露在屏幕里（接了硬件键盘时它“存在”但在屏幕下方）。
+    ///
+    /// 用 `snapshot()` 而不是 `exists` + `frame`：键盘正在弹出 / 收起的那一帧里
+    /// `exists` 可能还是 true，紧接着查 `frame` 会直接把这条例程判失败
+    /// （"Failed to get matching snapshot"）。`snapshot()` 是 throwing 的，取不到就按
+    /// 「没露出来」处理。
     private func keyboardIsVisible() -> Bool {
-        let kb = app.keyboards.firstMatch
-        guard kb.exists else { return false }
-        return kb.frame.minY < app.windows.firstMatch.frame.maxY - 1
+        guard let window = try? app.windows.firstMatch.snapshot(),
+              let keyboard = try? app.keyboards.firstMatch.snapshot() else { return false }
+        return keyboard.frame.minY < window.frame.maxY - 1
     }
 
     /// 等触控键盘真的露出来（接了硬件键盘时它可能在屏幕下方，或者根本不弹）。
@@ -404,5 +409,70 @@ final class EditorFlowUITests: XCTestCase {
         XCTAssertLessThan(portraitSize!.width, landscapeSize!.width,
                           "竖屏的正文列比横屏窄，图片也应跟着变小")
         XCUIDevice.shared.orientation = .portrait
+    }
+
+    // MARK: - 长文末尾的光标（格式栏 / 键盘之上）
+
+    /// 滚动探针（`editor.scroll`）：`"contentOffset.y,格式栏上沿,键盘高度"`。
+    private func scrollProbe() -> (offset: CGFloat, barTop: CGFloat, keyboard: CGFloat)? {
+        let probe = app.staticTexts["editor.scroll"]
+        guard probe.waitForExistence(timeout: 6) else { return nil }
+        let parts = probe.label.split(separator: ",").compactMap { Double($0) }
+        guard parts.count == 3 else { return nil }
+        return (CGFloat(parts[0]), CGFloat(parts[1]), CGFloat(parts[2]))
+    }
+
+    /// 长文末尾继续输入时：光标必须露在格式栏（键盘在它下面）之上，而且不能把内容
+    /// 一次次往上推 —— 用户报的「内容超过一页之后，再输入或切样式，界面跳到上面去」。
+    ///
+    /// 量的是**窗口坐标**：光标下沿要落在格式栏上沿之上。改动前 `scrollTo(y:)` 用的是
+    /// 内容坐标，而基数取的是 `contentOffset.y`，两者差一个顶部安全区（实测 62pt）：
+    /// 每次 reveal 都少滚 62pt，光标永远差那一截藏在格式栏下面，于是每个按键都再请求
+    /// 一次滚动；带着动画的重试就是用户看到的「跳」。
+    func testTypingAtTheBottomOfALongEntryKeepsTheCaretAboveTheFormatBar() throws {
+        launch(resetData: true, extraArguments: ["-ui-test-editor-caret", "-ui-test-editor-scroll"])
+        openWriteMode()
+        let editor = app.textViews["editor.text"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "编辑态的输入区")
+        editor.tap()
+
+        // 40 行 × 约 22.5pt ≈ 900pt，键盘在时可视区只有 400 多 pt：一定滚得起来。
+        for i in 1...40 {
+            editor.typeText("第\(i)行文字内容")
+            editor.typeText("\n")
+        }
+        usleep(1_200_000)
+
+        let built = try XCTUnwrap(scrollProbe(), "滚动探针")
+        XCTAssertGreaterThan(built.offset, 100,
+                             "长文应该已经滚起来了，否则这条用例什么也没测到（\(built)）")
+
+        for round in 1...3 {
+            editor.typeText("继续输入")
+            usleep(700_000)
+            let caret = try XCTUnwrap(caretRect(), "第 \(round) 次输入后的光标")
+            let probe = try XCTUnwrap(scrollProbe(), "第 \(round) 次输入后的滚动探针")
+            XCTAssertLessThanOrEqual(caret.maxY, probe.barTop - 6,
+                                     "光标必须露在格式栏之上：光标 \(caret)，格式栏上沿 \(probe.barTop)"
+                                     + "（第 \(round) 次）")
+            XCTAssertGreaterThan(caret.minY, 0, "光标不能跑到屏幕上方之外")
+        }
+
+        // 切样式（引用）同样要把光标留在格式栏之上。
+        app.buttons["引用"].tap()
+        usleep(1_200_000)
+        let afterStyle = try XCTUnwrap(caretRect(), "点引用后的光标")
+        let probe = try XCTUnwrap(scrollProbe(), "点引用后的滚动探针")
+        XCTAssertLessThanOrEqual(afterStyle.maxY, probe.barTop - 6,
+                                 "切样式后光标仍要露在格式栏之上：光标 \(afterStyle)，"
+                                 + "格式栏上沿 \(probe.barTop)")
+
+        // 再输入也必须还看得见。
+        editor.typeText("引")
+        usleep(900_000)
+        let typed = try XCTUnwrap(caretRect(), "输入引用文字后的光标")
+        let last = try XCTUnwrap(scrollProbe(), "输入引用文字后的滚动探针")
+        XCTAssertLessThanOrEqual(typed.maxY, last.barTop - 6,
+                                 "引用行上继续输入时光标要可见：光标 \(typed)，格式栏上沿 \(last.barTop)")
     }
 }

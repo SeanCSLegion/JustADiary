@@ -20,6 +20,9 @@ struct DiaryPageView: View {
     /// 滚动位置交给 SwiftUI 管：直接改底下那个 `UIScrollView` 的 `contentOffset` 会被
     /// 下一次布局覆盖回去（实测滚动没有任何效果），所以用 `ScrollPosition` 驱动。
     @State private var scrollPosition = ScrollPosition()
+    /// 最近一次几何回调报出的 `contentOffset.y`。**不再**用来算 reveal 的滚动目标
+    /// （它是上一帧的，见 `applyCaretReveal` 的注释）：留给 UI 测试的 `editor.scroll`
+    /// 探针，同时兼作「滚动变了就重画一次」的触发器。
     @State private var scrollOffsetY: CGFloat = 0
 
     var body: some View {
@@ -134,8 +137,28 @@ struct DiaryPageView: View {
                     .allowsHitTesting(false)
                     .accessibilityIdentifier("editor.state")
             }
+            if ProcessInfo.processInfo.arguments.contains("-ui-test-editor-scroll") {
+                // 外层滚动视图的位置探针：`"contentOffset.y,格式栏上沿,键盘高度"`。
+                // 给「长文末尾输入时光标要露在格式栏之上」那条用例断言（见
+                // `EditorFlowUITests.testTypingAtTheBottomOfALongEntryKeepsTheCaretAboveTheFormatBar`）。
+                Text(scrollProbeText())
+                    .diaryFont(1)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.02)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("editor.scroll")
+            }
         }
         .appAlert(item: $vm.alertItem)
+    }
+
+    /// UI-test-only: `"contentOffset.y,格式栏上沿,键盘高度"`（格式栏还没报出位置时是 -1）。
+    ///
+    /// `formatBarTop` 在格式栏报出位置之前是 `.greatestFiniteMagnitude`：`Int()` 直接转它
+    /// 会崩（与 `caretRectInWindow` 里那条 NaN 备注同一类问题）。
+    private func scrollProbeText() -> String {
+        let barTop = formatBarTop < .greatestFiniteMagnitude ? Int(formatBarTop) : -1
+        return "\(Int(scrollOffsetY)),\(barTop),\(Int(vm.keyboardHeight))"
     }
 
     /// UI-test-only: 正文里第一张图片的 `"宽,高"`，没有图片时是 `"none"`。
@@ -156,11 +179,15 @@ struct DiaryPageView: View {
         }
     }
 
-    /// UI-test-only: 光标在窗口坐标里的 `"minY,maxY"`，没有光标时是 `"none"`。
+    /// UI-test-only: 光标在窗口坐标里的 `"minY,maxY|minX,maxX"`，没有光标时是 `"none"`。
+    ///
+    /// 纵坐标在前（既有用例取 `split("|").first` 就是它），横坐标在后：行首光标的
+    /// x ≈ 正文列左边界，居中行在列的中间 —— 「空行上开启 / 取消居中，光标跟着走了吗」
+    /// 要看的就是 x（见 `EditorStyleButtonUITests`）。
     private func caretProbeText() -> String {
         _ = vm.controller.formatTick
         guard let caret = vm.controller.caretRectInWindow() else { return "none" }
-        return "\(Int(caret.minY)),\(Int(caret.maxY))"
+        return "\(Int(caret.minY)),\(Int(caret.maxY))|\(Int(caret.minX)),\(Int(caret.maxX))"
     }
 
     /// UI-test-only: `"<block types>|<text>"` for the open editor, or
@@ -199,6 +226,21 @@ struct DiaryPageView: View {
         }
     }
 
+    /// 长文里输入 / 切样式时，「让光标露在格式栏之上」这件事必须一次到位。
+    ///
+    /// 这里踩过两个坑，都会表现成「界面自己跳到上面去」：
+    ///
+    /// 1. **坐标不是同一套**：`ScrollPosition.scrollTo(y:)` 用的是内容坐标（内容顶端 =
+    ///    0），而 `contentOffset.y` 静止时是 `-contentInset.top` —— 差一个顶部安全区
+    ///    （实测 62pt）。旧代码把两者相加，每次 reveal 都少滚 62pt，光标永远差那一截
+    ///    露在格式栏下面，于是每个按键都再请求一次滚动。
+    /// 2. **基数可能是上一帧的**：`scrollOffsetY`（`onScrollGeometryChange` 的状态）
+    ///    在滚动落地前还是旧值，一次点按里连着触发几次 reveal（formatTick 一次、末尾
+    ///    占位一次、键盘重试几次）就会把同一个 delta 加几遍。中文输入法的候选栏一出现
+    ///    一消失就改一次键盘高度，重试那几次都是带动画的，跳得尤其明显。
+    ///
+    /// 现在基数取底层 `UIScrollView` 的**当前**位置并换算成内容坐标，于是同一状态下
+    /// 重复调用是幂等的：滚动落地后光标矩形与基数一起更新，delta 自然变成 0。
     private func applyCaretReveal(animated: Bool) {
         // 键盘在格式栏下面，所以「让开栏的上沿」就同时让开了键盘。
         guard formatBarTop < .greatestFiniteMagnitude,
@@ -212,12 +254,35 @@ struct DiaryPageView: View {
             delta = caret.minY - topLimit
         }
         guard abs(delta) > 1 else { return }
-        let target = max(0, scrollOffsetY + delta)
+        // 基数取**当前**内容坐标（理由见上面的方法注释）。
+        guard let base = contentScrollY() else { return }
+        let target = max(0, base + delta)
         if animated {
             withAnimation(.diaryQuick) { scrollPosition.scrollTo(y: target) }
         } else {
             scrollPosition.scrollTo(y: target)
         }
+    }
+
+    /// 正文所在的那个 SwiftUI 滚动视图（底层就是 `UIScrollView`）。
+    ///
+    /// 只用来**读**位置：直接写它的 `contentOffset` 会被下一次布局覆盖回去（B19 的结论），
+    /// 滚动仍然走 `ScrollPosition`。`UITextView` 自己也是 `UIScrollView`（而且不能滚），
+    /// 所以从它的父视图往上找。
+    private func editorScrollView() -> UIScrollView? {
+        var view: UIView? = vm.controller.textView?.superview
+        while let current = view {
+            if let scrollView = current as? UIScrollView { return scrollView }
+            view = current.superview
+        }
+        return nil
+    }
+
+    /// 光标所在滚动视图的**内容坐标**（内容顶端 = 0），与 `scrollTo(y:)` 同一套坐标。
+    /// `contentOffset.y` 静止时是 `-contentInset.top`，差的就是顶部安全区那 62pt。
+    private func contentScrollY() -> CGFloat? {
+        guard let scrollView = editorScrollView() else { return nil }
+        return scrollView.contentOffset.y + scrollView.adjustedContentInset.top
     }
 
     private func handleKeyboard(_ note: Notification) {

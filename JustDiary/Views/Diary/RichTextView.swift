@@ -123,6 +123,10 @@ struct RichTextView: UIViewRepresentable {
         let tv = PlaceholderTextView(frame: .zero, textContainer: nil)
         tv.backgroundColor = .clear
         tv.isScrollEnabled = false
+        // 编辑态里可能同时存在阅读态的正文块（`app.textViews.firstMatch` 也会命中它），
+        // 所以给输入区一个固定标识：UI 测试要点的、要量的都是这一个（横屏/旋转的
+        // 用例本来就在和 `ReadTextView` 抢 `firstMatch`）。
+        tv.accessibilityIdentifier = "editor.text"
         // 左右不再内缩：卡片自己的内边距（12）已经让出位置，再缩 12 会让编辑态的正文
         // 比阅读态窄 24pt（图片也跟着窄）。上下留 10pt 给首行与光标一点余量。
         tv.textContainerInset = UIEdgeInsets(top: 10, left: 0, bottom: 10, right: 0)
@@ -259,7 +263,11 @@ struct FontToolbar: View {
     /// between h1 and body — an h2 was reachable only in imported documents.
     private var styleMenu: some View {
         let current = controller.currentBlockStyle()
-        let active = current != .body
+        // 这一栏只管大标题 / 小标题 / 正文：引用有自己的按钮，字号也是引用自己管的
+        // （15pt），所以光标落在引用行上时它**不该**跟着亮起来 —— 这正是用户报的
+        // 「点完引用，字号按钮也被选中了」。列表 / 待办行上 `currentBlockStyle()`
+        // 报的是正文，本来就不会点亮。
+        let active = current == .title || current == .heading
         return Menu {
             ForEach(EditorBlockStyle.menuStyles, id: \.self) { style in
                 Button {
@@ -292,6 +300,8 @@ struct FontToolbar: View {
         .menuOrder(.fixed)
         .accessibilityLabel(L10n.str("editor_tool_style"))
         .accessibilityValue(L10n.str(current.localizationKey))
+        // 与其它按钮一致：点亮状态要能被无障碍（和 UI 测试）读到，光靠底色只能看。
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     /// The buttons at their intrinsic width.

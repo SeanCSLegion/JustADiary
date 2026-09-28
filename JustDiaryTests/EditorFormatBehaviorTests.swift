@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import SwiftUI
 @testable import JustDiary
 
 /// Pins the *scope* of every format-bar button: what a tap changes, how far it
@@ -329,5 +330,34 @@ final class EditorFormatBehaviorTests: XCTestCase {
 
         XCTAssertEqual(tv.textStorage.string, "甲\n乙\n")
         XCTAssertEqual(tv.selectedRange, NSRange(location: 3, length: 0))
+    }
+
+    // MARK: - 编辑区里换上的行样式 = 重新打开时排出来的那一个
+
+    /// 样式按钮换掉的是**行样式**，它的行距 / 段前距 / 段后距必须和
+    /// `PartsCodec`（重新打开这篇日记时的排版）算出的一模一样。
+    ///
+    /// 段前距以前漏了：编辑区里点「大标题」得到的行没有标题的 9.8pt 段前留白，而
+    /// 保存后重新打开却带着 —— 同一条标题在两条链路上长得不一样。
+    func testStyleAppliedInTheEditorMatchesALoadedOne() {
+        for block in EditorBlockStyle.allCases {
+            let (controller, tv) = makeEditor([body("甲")])
+            tv.selectedRange = NSRange(location: 0, length: 0)
+            controller.applyBlockStyle(block)
+
+            let applied = tv.textStorage.attribute(.paragraphStyle, at: 0,
+                                                   effectiveRange: nil) as? NSParagraphStyle
+            let loaded = PartsCodec
+                .attributedString(from: [line(block.partStyle, "甲")], typeSize: .large)
+                .attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+
+            XCTAssertEqual(applied?.lineSpacing ?? -1, loaded?.lineSpacing ?? -2, accuracy: 0.01,
+                           "\(block.rawValue) 行距")
+            XCTAssertEqual(applied?.paragraphSpacing ?? -1, loaded?.paragraphSpacing ?? -2, accuracy: 0.01,
+                           "\(block.rawValue) 段后距")
+            XCTAssertEqual(applied?.paragraphSpacingBefore ?? -1,
+                           loaded?.paragraphSpacingBefore ?? -2, accuracy: 0.01,
+                           "\(block.rawValue) 段前距")
+        }
     }
 }

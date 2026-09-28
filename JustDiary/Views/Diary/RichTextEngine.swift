@@ -379,7 +379,11 @@ final class RichEditorController {
     /// whole line.
     func applyBlockStyle(_ block: EditorBlockStyle) {
         guard let tv = textView else { return }
-        let ranges = paragraphRanges(covering: tv.selectedRange)
+        let caret = tv.selectedRange
+        let lineStart = paragraphRange(in: tv.textStorage, around: caret.location).location
+        let lengthBefore = tv.textStorage.length
+        let ranges = paragraphRanges(covering: caret)
+        let dropped = markerDrops(in: tv.textStorage, ranges: ranges, caret: caret)
         if !ranges.isEmpty {
             apply { attributed in
                 // Back to front: restyling a paragraph can drop its list/todo
@@ -391,7 +395,87 @@ final class RichEditorController {
         } else {
             notifyFormatChange()
         }
+        keepCaretOnItsLine(caret, lineStart: lineStart, lengthBefore: lengthBefore, dropped: dropped)
         tv.typingAttributes = typingAttributes(for: block)
+        carryEmptyLineAlignment(of: block, into: tv)
+        syncEmptyParagraphWithTypingAttributes()
+        ensureCaretGeometry()
+    }
+
+    /// 空行上换行样式时的对齐：标题 / 正文保留这一行原来的对齐（居中可以与它们共存），
+    /// 引用强制左对齐 —— 与 `restyle` 对整行的规则一致。
+    ///
+    /// 少了这一步，一条居中的空行选完「大标题」会跳回左边；引用那条也不能只靠
+    /// `NSMutableParagraphStyle` 默认的 `.natural`（RTL 文本里那是右对齐）。
+    private func carryEmptyLineAlignment(of block: EditorBlockStyle, into tv: UITextView) {
+        if block == .quote {
+            Self.setTypingAlignment(.left, in: tv)
+            return
+        }
+        if let alignment = emptyLineAlignment() {
+            Self.setTypingAlignment(alignment, in: tv)
+        }
+    }
+
+    /// 把光标所在那一段（以及文档末尾）排出来，并让 UIKit 重算一次光标几何。
+    ///
+    /// TextKit 2 是**懒排版**，而且「文档以换行结尾时最后那个空段落」不会被自动排到：
+    /// `textLayoutFragment(for: 文档末尾)` 是 nil（实测 usageBounds 正好停在上一行底部）。
+    /// 这时 UIKit 的光标几何会退回「最后一个已排版片段的**末尾**」—— 也就是**上一行文字的
+    /// 结尾**：光标画在上一行末尾，而逻辑位置（`selectedRange`）一直是最后那一行，所以打字
+    /// 又落在下一行。摘掉末尾列表项的标记（引用 / 换字号 / 回车结束列表）之后正好是这个状态，
+    /// 而且不会自己恢复（实测 10 秒不变）。
+    ///
+    /// 两步：① 把「光标那一段 → 文档末尾」这一段排出来（增量，不整篇重排）；
+    /// ② 在**下一轮 runloop**再让 UIKit 重取一次几何 —— 切换那一瞬间布局还没算完，
+    /// 早做无效（上一轮试过「切换时立刻抖选区」，确认没用）。
+    func ensureCaretGeometry() {
+        guard let tv = textView else { return }
+        layOutThroughDocumentEnd(in: tv)
+        DispatchQueue.main.async { [weak self, weak tv] in
+            guard let self, let tv, tv.isFirstResponder else { return }
+            self.layOutThroughDocumentEnd(in: tv)
+        }
+    }
+
+
+
+    /// 从光标那一段（往前一格，含它的换行符）一路排到文档末尾。
+    ///
+    /// **必须先 `invalidateLayout`**：末尾那个空段落没有字符、也没有片段，而 TextKit 认为
+    /// 它「已经排完了」—— 只调 `ensureLayout` 什么都不会发生（实测：片段仍然是 nil）。
+    /// 作废之后重排，末尾那一行才会被真正排出来（实测线框高度正好多出一行、光标几何随之
+    /// 落到行首）。作废范围只取光标往后这一小段，不是整篇。
+    private func layOutThroughDocumentEnd(in tv: UITextView) {
+        guard let layoutManager = tv.textLayoutManager,
+              let contentManager = layoutManager.textContentManager else { return }
+        let length = tv.textStorage.length
+        guard length > 0 else { return }
+        let caret = min(max(0, tv.selectedRange.location), length)
+        let paragraph = paragraphRange(in: tv.textStorage, around: caret)
+        let from = max(0, min(paragraph.location, length - 1) - 1)
+        guard let start = contentManager.location(contentManager.documentRange.location, offsetBy: from),
+              let end = contentManager.location(start, offsetBy: length - from),
+              let range = NSTextRange(location: start, end: end) else { return }
+        layoutManager.invalidateLayout(for: range)
+        layoutManager.ensureLayout(for: range)
+        layoutManager.textViewportLayoutController.layoutViewport()
+    }
+
+    /// 光标所在**空行**当前的对齐；光标不在空行上时为 nil。
+    ///
+    /// 空行的对齐在它自己的换行符上；文本末尾那条空行没有自己的字符，对齐在打字态里。
+    private func emptyLineAlignment() -> NSTextAlignment? {
+        guard let tv = textView else { return nil }
+        if let range = emptyParagraphTerminator(in: tv.textStorage, at: tv.selectedRange.location) {
+            let style = tv.textStorage.attribute(.paragraphStyle, at: range.location,
+                                                 effectiveRange: nil) as? NSParagraphStyle
+            return style?.alignment
+        }
+        guard Self.paragraphIsEmpty(in: tv.textStorage, location: tv.selectedRange.location) else {
+            return nil
+        }
+        return (tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.alignment
     }
 
     /// The paragraph style at the caret, for the format bar's menu state.
@@ -434,7 +518,18 @@ final class RichEditorController {
             attributed.replaceCharacters(in: NSRange(location: range.location, length: 1), with: "")
         }
         let para = paragraphRange(in: attributed, around: range.location)
-        guard para.length > 0 else { return }
+        guard para.length > 0 else {
+            // An empty paragraph has no text to rewrite, but it still has a line
+            // box — and TextKit builds that box from the paragraph's *own*
+            // terminator (the paragraph style comes from the paragraph's first
+            // character, `docs/editor-typography.md` §5.2). Writing the style
+            // there is what makes "open a new line, then pick a style" show up on
+            // the line the caret is on, instead of only on the first typed
+            // character. The paragraph that ends the text has no character of its
+            // own; `typingAttributes` already lay that one out.
+            styleEmptyParagraph(in: attributed, at: range.location, to: block, cancelCenter: cancelCenter)
+            return
+        }
         attributed.enumerateAttribute(.font, in: para) { value, r, _ in
             guard let font = value as? UIFont else { return }
             let traits = font.fontDescriptor.symbolicTraits
@@ -460,6 +555,10 @@ final class RichEditorController {
             }
             style.lineSpacing = block.lineSpacing
             style.paragraphSpacing = block.paragraphSpacing
+            // 段前距也要跟着换：少了这一句，编辑区里「选大标题」得到的行没有标题的
+            // 段前留白，而重新打开这篇日记（走 `PartsCodec.paragraphStyle`）却带着
+            // 9.8pt —— 同一条标题在两条链路上长得不一样。
+            style.paragraphSpacingBefore = block.paragraphSpacingBefore
             attributed.addAttribute(.paragraphStyle, value: style, range: r)
         }
     }
@@ -515,8 +614,20 @@ final class RichEditorController {
         if !ranges.isEmpty {
             apply { attributed in
                 for range in ranges.reversed() {
+                    // A selection may well cover a quote / list / to-do line, where
+                    // this button is disabled on purpose: skip those lines instead
+                    // of centring them behind the user's back.
+                    guard Self.centerIsAllowed(in: attributed, at: range.location) else { continue }
                     let para = self.paragraphRange(in: attributed, around: range.location)
-                    guard para.length > 0 else { continue }
+                    guard para.length > 0 else {
+                        // An empty line covered by the selection is a line too: its
+                        // alignment lives on its own terminator (see the empty-line
+                        // helpers below). Leaving it out made two identical empty
+                        // lines end up in different alignments after one tap.
+                        self.setEmptyParagraphAlignment(center ? .left : .center,
+                                                        in: attributed, at: range.location)
+                        continue
+                    }
                     let existing = (attributed.attribute(.paragraphStyle, at: para.location, effectiveRange: nil) as? NSParagraphStyle) ?? NSParagraphStyle()
                     let style = existing.mutableCopy() as! NSMutableParagraphStyle
                     style.alignment = center ? .left : .center
@@ -529,6 +640,26 @@ final class RichEditorController {
             notifyFormatChange()
         }
         Self.setTypingAlignment(center ? .left : .center, in: tv)
+        // …and the empty line itself has to follow, or the caret stays in the old
+        // alignment until the first character is typed.
+        syncEmptyParagraphWithTypingAttributes()
+        ensureCaretGeometry()
+    }
+
+    /// Center cannot coexist with a list/to-do marker or a quote (the toolbar
+    /// disables the button on those lines). An image is skipped for the same
+    /// reason `restyle` skips it: its paragraph is centred by the codec, so a
+    /// left-aligned image line would only exist until the entry is re-opened.
+    private static func centerIsAllowed(in storage: NSAttributedString, at location: Int) -> Bool {
+        guard location >= 0, location < storage.length else { return false }
+        let attrs = storage.attributes(at: location, effectiveRange: nil)
+        if let payload = (attrs[.attachment] as? PayloadAttachment)?.payload,
+           payload.kind == "bullet" || payload.kind == "todo" || payload.kind == "image" {
+            return false
+        }
+        if EditorFont.blockStyle(of: attrs) == .quote { return false }
+        if let bg = attrs[.backgroundColor] as? UIColor, !bg.isEqual(UIColor.clear) { return false }
+        return true
     }
 
     /// Points the *next typed* paragraph at `alignment`, keeping the rest of the
@@ -602,7 +733,11 @@ final class RichEditorController {
                     // Turning on: cancel heading / quote / other marker / center first.
                     self.restyle(attributed, range: NSRange(location: lineStart, length: 0),
                                  to: .body, cancelCenter: true)
-                    attributed.insert(NSAttributedString(attachment: MarkerAttachment.attachment(kind: kind, typeSize: self.dynamicTypeSize)), at: lineStart)
+                    attributed.insert(MarkerAttachment.attributed(
+                        kind: kind,
+                        typeSize: self.dynamicTypeSize,
+                        paragraphStyle: self.typingAttributes(for: .body)[.paragraphStyle] as? NSParagraphStyle
+                    ), at: lineStart)
                 }
             }
         }
@@ -618,6 +753,10 @@ final class RichEditorController {
         // onto the next line is `handleReturn(at:)`'s job — the marker is a
         // real character and typing attributes cannot carry it.
         tv.typingAttributes = typingAttributes(for: .body)
+        // Toggling the marker *off* can leave an empty line behind; toggling it on
+        // puts a marker on the line, so there is nothing left to sync there.
+        syncEmptyParagraphWithTypingAttributes()
+        ensureCaretGeometry()
     }
 
     /// The list/to-do marker at `location`, if there is one.
@@ -662,9 +801,14 @@ final class RichEditorController {
             // Start a new item: a newline plus the marker for the next line, so
             // what is typed next belongs to a fresh item of the same kind.
             let insertAt = min(max(location, contentStart), contentEnd)
+            let bodyAttributes = typingAttributes(for: .body)
             let insertion = NSMutableAttributedString()
-            insertion.append(NSAttributedString(string: "\n", attributes: typingAttributes(for: .body)))
-            insertion.append(NSAttributedString(attachment: MarkerAttachment.attachment(kind: kind, typeSize: dynamicTypeSize)))
+            insertion.append(NSAttributedString(string: "\n", attributes: bodyAttributes))
+            insertion.append(MarkerAttachment.attributed(
+                kind: kind,
+                typeSize: dynamicTypeSize,
+                paragraphStyle: bodyAttributes[.paragraphStyle] as? NSParagraphStyle
+            ))
             storage.insert(insertion, at: insertAt)
             tv.selectedRange = NSRange(location: insertAt + insertion.length, length: 0)
             tv.typingAttributes = typingAttributes(for: .body)
@@ -676,6 +820,9 @@ final class RichEditorController {
         // plain empty paragraph and this Return is consumed.
         if contentEnd <= lineStart, isQuoteActive() {
             tv.typingAttributes = baseTypingAttributes()
+            // The line itself has to stop looking like a quote too, not just the
+            // next typed character.
+            syncEmptyParagraphWithTypingAttributes()
             notifyFormatChange()
             return true
         }
@@ -698,6 +845,10 @@ final class RichEditorController {
             tv.selectedRange = NSRange(location: target, length: 0)
         }
         tv.typingAttributes = baseTypingAttributes()
+        // Ending a list/to-do leaves an empty line the caret is on: it has to be
+        // laid out as a plain paragraph, not as the item that just ended.
+        syncEmptyParagraphWithTypingAttributes()
+        ensureCaretGeometry()
         notifyFormatChange()
     }
 
@@ -714,7 +865,11 @@ final class RichEditorController {
     func toggleQuote() {
         guard let tv = textView else { return }
         let block: EditorBlockStyle = isQuoteActive() ? .body : .quote
-        let ranges = paragraphRanges(covering: tv.selectedRange)
+        let caret = tv.selectedRange
+        let lineStart = paragraphRange(in: tv.textStorage, around: caret.location).location
+        let lengthBefore = tv.textStorage.length
+        let ranges = paragraphRanges(covering: caret)
+        let dropped = markerDrops(in: tv.textStorage, ranges: ranges, caret: caret)
         if !ranges.isEmpty {
             apply { attributed in
                 for range in ranges.reversed() {
@@ -724,7 +879,14 @@ final class RichEditorController {
         } else {
             notifyFormatChange()
         }
+        // Turning a list/to-do line into a quote drops its marker — a real
+        // character — so the caret (or the selection) has to be put back on this
+        // line by hand.
+        keepCaretOnItsLine(caret, lineStart: lineStart, lengthBefore: lengthBefore, dropped: dropped)
         tv.typingAttributes = typingAttributes(for: block)
+        carryEmptyLineAlignment(of: block, into: tv)
+        syncEmptyParagraphWithTypingAttributes()
+        ensureCaretGeometry()
     }
 
     func isQuoteActive() -> Bool {
@@ -793,6 +955,161 @@ final class RichEditorController {
         // line's newline and restyle it.
         let end = min(ns.length, paraEnd)
         return NSRange(location: paraStart, length: end - paraStart)
+    }
+
+    // MARK: - The empty line the caret sits in
+    //
+    // An empty paragraph has no glyphs, but it does have a line box, and TextKit
+    // builds that box from the paragraph's *own* terminator — the paragraph style
+    // comes from the paragraph's first character, which for an empty paragraph is
+    // the newline itself (`docs/editor-typography.md` §5.2). So a toggle that only
+    // rewrote `typingAttributes` left the empty line — and the caret drawn inside
+    // it — in the *old* style: cancelling center kept the caret in the middle,
+    // turning it on kept it at the left edge, and cancelling a list item left the
+    // caret one line off. Writing the new style onto the terminator fixes the line
+    // without touching a single visible character, and an empty line is never
+    // persisted (`PartsCodec.parts(from:)` skips it), so nothing stored changes.
+
+    /// The empty paragraph's own terminator at `location`, when the caret sits on
+    /// an empty line that has one. `nil` for a non-empty paragraph, and for the
+    /// paragraph that ends the text (it has no character of its own — that one is
+    /// laid out from `typingAttributes`, which is what makes it work already).
+    private func emptyParagraphTerminator(in storage: NSAttributedString, at location: Int) -> NSRange? {
+        let ns = storage.string as NSString
+        guard ns.length > 0 else { return nil }
+        let clamped = min(max(0, location), ns.length)
+        if clamped >= ns.length, ns.character(at: ns.length - 1) == 0x0A { return nil }
+        let searchPos = min(clamped, ns.length - 1)
+        var paraStart = searchPos, paraEnd = searchPos, contentStart = 0
+        ns.getParagraphStart(&paraStart, end: &paraEnd, contentsEnd: &contentStart,
+                             for: NSRange(location: searchPos, length: 0))
+        guard contentStart == paraStart, paraEnd > paraStart else { return nil }
+        return NSRange(location: paraStart, length: paraEnd - paraStart)
+    }
+
+    /// Writes `block`'s line style onto an empty paragraph's own terminator: the
+    /// line box (size, spacing, alignment, quote background) then matches the
+    /// paragraph that is about to be typed there. Only that one character is
+    /// touched, so no neighbouring line moves.
+    private func styleEmptyParagraph(in attributed: NSMutableAttributedString, at location: Int,
+                                     to block: EditorBlockStyle, cancelCenter: Bool) {
+        guard let range = emptyParagraphTerminator(in: attributed, at: location) else { return }
+        let existing = (attributed.attribute(.paragraphStyle, at: range.location,
+                                            effectiveRange: nil) as? NSParagraphStyle) ?? NSParagraphStyle()
+        let style = existing.mutableCopy() as! NSMutableParagraphStyle
+        if cancelCenter || block == .quote { style.alignment = .left }
+        style.lineSpacing = block.lineSpacing
+        style.paragraphSpacing = block.paragraphSpacing
+        style.paragraphSpacingBefore = block.paragraphSpacingBefore
+        // 行内样式（加粗 / 斜体）在这一行的重设里保留，与 `restyle` 对整行的规则一致。
+        let existingFont = attributed.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont
+        let traits = existingFont?.fontDescriptor.symbolicTraits ?? []
+        var attrs = EditorFont.attributes(block.designSize, block: block,
+                                          weight: traits.contains(.traitBold) ? .bold : .regular,
+                                          italic: traits.contains(.traitItalic),
+                                          typeSize: dynamicTypeSize)
+        attrs[.paragraphStyle] = style
+        attrs[.backgroundColor] = block == .quote ? Theme.quoteBgUIColor() : UIColor.clear
+        attributed.addAttributes(attrs, range: range)
+    }
+
+    /// Sets the alignment of an empty paragraph's own terminator — the character
+    /// its line box is laid out from — keeping the rest of that line's style.
+    private func setEmptyParagraphAlignment(_ alignment: NSTextAlignment,
+                                           in attributed: NSMutableAttributedString, at location: Int) {
+        guard let range = emptyParagraphTerminator(in: attributed, at: location) else { return }
+        let existing = (attributed.attribute(.paragraphStyle, at: range.location,
+                                            effectiveRange: nil) as? NSParagraphStyle) ?? NSParagraphStyle()
+        let style = existing.mutableCopy() as! NSMutableParagraphStyle
+        style.alignment = alignment
+        attributed.addAttribute(.paragraphStyle, value: style, range: range)
+    }
+
+    /// Copies the paragraph-level part of "the next typed character" onto the
+    /// empty line the caret is on, so that line is drawn (and the caret placed)
+    /// exactly where the text will be typed. Called after every toggle that can
+    /// change what the caret's empty line should look like.
+    ///
+    /// Writing the attributes directly is deliberately cheaper than routing this
+    /// through `apply`: a full-storage replacement would collapse and restore the
+    /// selection on every tap, which is the very thing that used to move the
+    /// caret off its line.
+    @discardableResult
+    private func syncEmptyParagraphWithTypingAttributes() -> Bool {
+        guard let tv = textView,
+              let range = emptyParagraphTerminator(in: tv.textStorage, at: tv.selectedRange.location)
+        else { return false }
+        let typing = tv.typingAttributes
+        var attrs: [NSAttributedString.Key: Any] = [
+            // Set explicitly: leaving the key out would keep an old quote
+            // background on the line after the quote was cancelled.
+            .backgroundColor: (typing[.backgroundColor] as? UIColor) ?? UIColor.clear
+        ]
+        for key in [NSAttributedString.Key.font, .diaryDesignSize, .diaryBlockStyle] {
+            if let value = typing[key] { attrs[key] = value }
+        }
+        // 行内样式也跟上打字态（写成 0 = 关）：勾选过的待办会给这一行留下删除线，
+        // 取消待办 / 换样式之后它不该继续挂在空行的换行符上。
+        attrs[.strikethroughStyle] = typing[.strikethroughStyle] as? Int ?? 0
+        attrs[.underlineStyle] = typing[.underlineStyle] as? Int ?? 0
+        // Copy the style: `typingAttributes` can hold an object that stored text
+        // also references (same note as `setTypingAlignment`).
+        if let style = typing[.paragraphStyle] as? NSParagraphStyle {
+            attrs[.paragraphStyle] = style.mutableCopy()
+        }
+        tv.textStorage.addAttributes(attrs, range: range)
+        notifyFormatChange()
+        return true
+    }
+
+    /// How many line-start markers this toggle is about to drop, split into the
+    /// ones before the caret/selection and the ones inside it.
+    ///
+    /// Needed before the mutation: afterwards the markers are gone and the only
+    /// thing left is a shorter string.
+    private func markerDrops(in storage: NSAttributedString, ranges: [NSRange],
+                             caret: NSRange) -> (before: Int, inside: Int) {
+        var before = 0
+        var inside = 0
+        for range in ranges where Self.markerKind(in: storage, at: range.location) != nil {
+            if range.location < caret.location {
+                before += 1
+            } else if range.location < caret.location + caret.length {
+                inside += 1
+            }
+        }
+        return (before, inside)
+    }
+
+    /// Puts the caret back on the line it was on after a style toggle dropped
+    /// that line's list/to-do marker.
+    ///
+    /// The marker is a real character, so removing it shortens the paragraph. The
+    /// generic restore in `apply` can only clamp the caret into the new text
+    /// length, which on the entry's last paragraphs pushed it onto the *next*
+    /// line — reported as "after tapping quote the caret is not on the line any
+    /// more". Shifting by the dropped markers (and clamping to the paragraph)
+    /// keeps the caret where the user left it; a selection shrinks by the markers
+    /// dropped inside it instead of growing over text the user never selected.
+    private func keepCaretOnItsLine(_ caret: NSRange, lineStart: Int, lengthBefore: Int,
+                                    dropped: (before: Int, inside: Int) = (0, 0)) {
+        guard let tv = textView else { return }
+        let storage = tv.textStorage
+        guard storage.length != lengthBefore || dropped.before + dropped.inside > 0 else { return }
+
+        if caret.length > 0 {
+            let location = min(max(0, caret.location - dropped.before), storage.length)
+            let length = min(max(0, caret.length - dropped.inside), storage.length - location)
+            tv.selectedRange = NSRange(location: location, length: length)
+            return
+        }
+        let start = min(max(0, lineStart), storage.length)
+        // An empty paragraph has no content range of its own: its terminator is as
+        // far as the caret may go without leaving the line.
+        let para = paragraphRange(in: storage, around: start)
+        let end = para.length > 0 ? para.location + para.length : min(storage.length, start + 1)
+        let target = min(max(start, caret.location - dropped.before), max(start, end))
+        tv.selectedRange = NSRange(location: target, length: 0)
     }
 
     func activeStyles() -> (bold: Bool, italic: Bool, strike: Bool, underline: Bool) {
@@ -1058,6 +1375,27 @@ enum MarkerAttachment {
         attachment.bounds = CGRect(x: 0, y: -2, width: 15 * scale, height: 15 * scale)
         return attachment
     }
+
+    /// A marker as the string that goes into the text storage.
+    ///
+    /// The marker is the line's **first** character, and TextKit takes a
+    /// paragraph's style from that character — a bare marker made the whole item
+    /// fall back to the default paragraph style, silently dropping the body line
+    /// spacing (measured: a wrapped list line advanced 20.29pt instead of the
+    /// body's 22.5pt, while `docs/editor-typography.md` §5.1 documents 列表 /
+    /// 待办 as the body's 2.2). So the marker carries the line's paragraph style;
+    /// its size still comes from the attachment's own bounds, not from a font.
+    static func attributed(kind: String, done: Bool = false,
+                           typeSize: DynamicTypeSize = .large,
+                           paragraphStyle: NSParagraphStyle?) -> NSAttributedString {
+        let string = NSMutableAttributedString(attachment: attachment(kind: kind, done: done,
+                                                                     typeSize: typeSize))
+        if let paragraphStyle {
+            string.addAttribute(.paragraphStyle, value: paragraphStyle,
+                                range: NSRange(location: 0, length: string.length))
+        }
+        return string
+    }
 }
 
 enum PartsCodec {
@@ -1177,8 +1515,8 @@ enum PartsCodec {
             attrs[.strikethroughStyle] = 1
             attrs[.foregroundColor] = Theme.onSurfaceUIColor().withAlphaComponent(0.45)
         }
-        result.append(NSAttributedString(attachment: MarkerAttachment.attachment(kind: kind, done: done,
-                                                                               typeSize: typeSize)))
+        result.append(MarkerAttachment.attributed(kind: kind, done: done, typeSize: typeSize,
+                                                  paragraphStyle: style))
         result.append(NSAttributedString(string: text, attributes: attrs))
         result.append(NSAttributedString(string: "\n", attributes: attrs))
     }
