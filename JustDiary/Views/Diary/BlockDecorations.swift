@@ -64,6 +64,18 @@ enum BlockMetrics {
         drawnBodySize(typeSize) * 0.32
     }
 
+    /// 显示缩放的兜底值。
+    ///
+    /// `UIScreen.main` 在 iOS 26 起已废弃（官方给的替代就是「用上下文里的 trait」），
+    /// 而 trait 里的 `displayScale` 只有在视图挂进窗口后才有值 —— 那之前用当前环境的
+    /// 首选格式缩放顶上。第一次布局后 `DiaryTextView` 会用 trait 里的真值再设一次。
+    static let fallbackDisplayScale: CGFloat = UIGraphicsImageRendererFormat.preferred().scale
+
+    /// 一个 trait 环境下的显示缩放（拿不到就用兜底）。
+    static func displayScale(of traits: UITraitCollection) -> CGFloat {
+        traits.displayScale > 0 ? traits.displayScale : fallbackDisplayScale
+    }
+
     // MARK: 正文输入区
 
     /// 正文文本视图的内缩：阅读态的每个正文块和编辑态的输入区**共用**这一个值。
@@ -90,8 +102,7 @@ enum MarkerGlyph {
         let canvas = canvasSize(kind: kind, font: font, typeSize: typeSize)
         let centerY = font.ascender - BlockMetrics.markerCenterAboveBaseline(typeSize)
         let format = UIGraphicsImageRendererFormat()
-        let displayScale = traits.displayScale > 0 ? traits.displayScale : UIScreen.main.scale
-        format.scale = displayScale
+        format.scale = BlockMetrics.displayScale(of: traits)
         format.opaque = false
         return UIGraphicsImageRenderer(size: canvas, format: format).image { context in
             if kind == "todo" {
@@ -261,9 +272,7 @@ class DiaryTextView: UITextView {
         refreshBlockDecorations()
     }
 
-    private var displayScale: CGFloat {
-        traitCollection.displayScale > 0 ? traitCollection.displayScale : UIScreen.main.scale
-    }
+    private var displayScale: CGFloat { BlockMetrics.displayScale(of: traitCollection) }
 
     /// 就地重画正文里所有列表 / 待办标记的图形；尺寸不变，所以不会挪动任何一行。
     func refreshMarkerGlyphs(typeSize: DynamicTypeSize) {
@@ -288,6 +297,7 @@ class DiaryTextView: UITextView {
     /// 重画引用块。文本、宽度、字号档位或外观一变就调一次；只读布局，不改文本。
     func refreshBlockDecorations() {
         let typeSize = contentTypeSize
+        blockDecorations.contentsScale = displayScale
         // 装饰层是**子层**，不是子视图：`UITextView` 可以随时把自己的文本层插到
         // 前面，所以每次布局都把它按回最底下（不是最底下时那一次插入才会真的动）。
         if let first = layer.sublayers?.first, first !== blockDecorations {
