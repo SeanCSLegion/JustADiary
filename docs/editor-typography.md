@@ -24,7 +24,7 @@ Subheading / Body），字号由系统「文字大小」经 `UIFontMetrics` 解�
 | Quote | 引用 | `quote` | 15 | Subheadline |
 
 - 格式栏左侧的「样式」菜单（SF Symbol `textformat.size`，中文环境渲染为「大小」）
-  负责选择大标题 / 小标题 / 正文；引用另有 `text.quote` 按钮（它同时是引用的底色标记）。
+  负责选择大标题 / 小标题 / 正文；引用另有 `text.quote` 按钮（块类型本身就是引用的标记，底色与竖条由 `DiaryTextView` 的装饰层画，见第七节）。
 - 行距、段后距都按字号比例计算（引用 0.5×，其余 0.13×；标题/引用有段后距），
   不再写死 2pt / 7pt。
 - 正文 15 → 17 是 HIG 对 iOS 正文的默认值；放大字号时正文约 25.5pt（AX5）。
@@ -157,6 +157,9 @@ UI 用例通过 `-ui-test-editor-state` 探针读取「编辑器将要落库的�
 | 列表 / 待办 | 17（正文属性） | 2.2 | 0 | 0 |
 | 图片 | — | — | **10.2** | **10.2** |
 
+（缩进是另一回事：引用另有 `firstLineHeadIndent = headIndent = 16`，列表 / 待办另有
+`headIndent = 18 / 26`、`firstLineHeadIndent = 0` —— 悬挂缩进，见第七节。）
+
 > 行首标记（列表 / 待办）是这一行的**第一个字符**，而段落样式取自段落第一个字符 ——
 > 所以标记自己也带着这条段落样式（`MarkerAttachment.attributed`）。不带的话整条列表项会
 > 退回默认段落属性，把正文的 2.2pt 行距白丢掉（实测折行推进 20.29pt vs 正文 22.5pt，B25）。
@@ -189,7 +192,9 @@ payload 里的原值，列宽变化不会改写它。横屏列变宽时图片跟
      以前每个文本块末尾都白多这么一行，读起来就是「图片前面莫名一大段空白」。
   2. **去掉图片块的段落样式**。图片自己就是一块，上下留白由 `DiaryPartsView` 的
      `.padding(.vertical, EditorDesignSize.imageSpacing)` 给，段落样式会重复计一次。
-  见 `PartsCodec.readerChunk(from:typeSize:)`。
+  见 `PartsCodec.readerChunk(from:typeSize:traits:)`。
+  3. **上下内缩与编辑区一致**：阅读块的 `textContainerInset` 与编辑区共用
+     `BlockMetrics.textContainerInset`（6pt），两个模式的正文字形落在同一个位置。
 - **分享长图**：`ImageShareService` 有自己的一套（`gapBefore` 20 / 标题 26，按 720pt
   宽绘制，约等于手机上的 10 / 13pt），方向与这里一致：标题离上文远、离下文近。
   它是独立版面，不共用这些常量。
@@ -228,3 +233,81 @@ payload 里的原值，列宽变化不会改写它。横屏列变宽时图片跟
   字号会和系统设置打架。
 - **等宽（Monospaced）样式**：编辑器仍未提供。它需要新的 `ContentPart.style` 取值
   以及阅读、分享长图两条渲染链路的支持，超出本次范围。
+
+---
+
+## 七、列表 / 待办 / 引用怎么画（2026-09-30）
+
+这三种块原先各画各的，且**编辑态与阅读态对不上**：
+
+* 列表圆点是一个 15pt 的实心圆、紧贴正文，没有悬挂缩进 —— 换行后第二行顶到圆点底下；
+* 待办复选框同样紧贴文字（`☑验证标题层级`）；
+* 引用只是一段 `.backgroundColor`：底色**只跟着字走**，行尾参差、没有内边距、没有竖条，
+  读起来像荧光笔而不是引用块。
+
+现在几何集中在一处（`JustDiary/Views/Diary/BlockDecorations.swift` 的 `BlockMetrics`），
+两条链路（`PartsCodec` 装配、`RichEditorController` 实时输入）都从这里取；默认档位下的
+数值如下，全部乘 `BlockMetrics.scale(typeSize)`（正文 17pt 的动态字号系数）：
+
+| 块 | 几何 |
+|---|---|
+| 列表 | 圆点 ⌀6.5，圆心在列左 5.5 处；文字缩进 18，`lineSpacing / 段距` 同正文 |
+| 待办 | 复选框 16×16（圆角 0.28×边长，描边 1.2 / 勾 2.1），圆心在列左 9 处；文字缩进 26 |
+| 引用 | 底色块横跨整列、圆角 9、上下各外扩 6；左竖条宽 3、距列左 6、上下各内缩 5；文字缩进 16 |
+
+### 7.1 标记 = 一张「宽度等于缩进」的透明画布
+
+`MarkerGlyph` 把圆点 / 复选框画进一张画布里，**画布宽度就是这一行的左缩进**，图形画在
+画布左侧 —— 与正文的间距来自画布本身。这样标记仍然只是**一个附件字符**，编辑器里
+「标记 = 行首一个附件」的所有光标 / 选区算术（`toggleMarker` / `handleReturn` /
+`markerDrops` / `keepCaretOnItsLine`）一个字都不用改（换成「标记 + 制表符」就要改）。
+
+两个必须守住的细节：
+
+1. **画布高度必须精确等于 `ascender + |descender|`，不能向上取整。** 行高由字体与附件
+   尺寸取大者决定，多取整最多 1pt，带标记的行折行推进就和正文对不上了
+   （`EditorSpacingTests.testMarkerLinesWrapWithTheBodyLineSpacing` 量到 0.01pt）。
+2. **图形中心在基线之上 `0.32 × 正文磅值`。** 汉字字面中心约 0.36em、西文 x-height 中心
+   约 0.26em，0.32 是两边都能接受的位置（与改造前复选框的落点一致，只是换成了精确的
+   基线换算：画布下沿落在 descent 上，图形画在 `ascender − 中心` 处）。
+
+颜色在生成位图时按当前 trait 解析并烤进像素（`MarkerGlyph.image`），所以深浅色切换要由
+`DiaryTextView.installDecorations()` 里注册的
+`registerForTraitChanges([UITraitUserInterfaceStyle.self])` 触发一次
+`refreshMarkerGlyphs(typeSize:)` 就地重画（尺寸不变，不挪动任何一行）；
+引用块的图层颜色同一次回调里一起重算。
+
+### 7.2 引用 = 文字后面的一层装饰
+
+引用的判据是**块类型**（`.diaryBlockStyle == quote`，落库为 `ContentPart.style`）；
+`.backgroundColor` 退休，只有旧内容 / 导入内容还靠它兜底（`attributesAreQuote`）。
+底色块与竖条由 `BlockDecorationLayer` 画在文本视图**自己的子层最底下**：
+
+* 段落样式里给 `firstLineHeadIndent = headIndent = 16`，文字让开竖条；
+* 装饰层按 TextKit 2 的 `layoutFragmentFrame` 取这一段的排版框（只排这一段，
+  `enumerateTextLayoutFragments(from:options:.ensuresLayout)` 走到段尾就停），
+  并集之后往外扩 6pt、横跨整列。
+
+三个坑：
+
+| 坑 | 现象 | 处理 |
+|---|---|---|
+| `CALayer` 默认尺寸是 0 | 几何算得再对也什么都画不出来 | 每次刷新按 `bounds` ∪ 所有块的并集设 `frame` |
+| 子层顺序会被 `UITextView` 改 | 文本层插到前面，底色盖在字上 | 每次布局把装饰层按回 `index 0`（已经不是第一个时那一次插入才真的动） |
+
+装饰层是**子层**而不是子视图：它不参与 `layoutSubviews` 的尺寸协商，也自然跟着滚动内容
+一起走。
+
+### 7.3 编辑态 == 阅读态
+
+两条链路共用 `PartsCodec.paragraphStyle(_:center:typeSize:)` 与
+`markerParagraphStyle(typeSize:kind:)`，`typingAttributes` / `restyle` /
+`styleEmptyParagraph` 都走同一处（B27 那类「编辑时一个样、重开一个样」的根因就是这里
+各写一份）。阅读块的 `textContainerInset` 也与编辑区统一为
+`BlockMetrics.textContainerInset`（各 6pt）—— 以前是 2 / 10，同一个块进出编辑时正文
+上下会跳 8pt。
+
+`JustDiaryTests/BlockStyleRenderingTests` 逐条钉住：标记画布宽度 = 缩进、图形比画布窄、
+画布不撑高行盒、引用缩进与装饰块几何、装饰层在最底下、字号档位跟着长、点按钮开的列表 /
+引用与装配链路几何相同，最后**把同一个块分别用阅读链路和编辑链路渲染成图，要求逐像素
+相同**（0 个像素不同；编辑器末尾那条空段落不属于正文，比较公共高度）。

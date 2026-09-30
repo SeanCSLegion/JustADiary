@@ -95,8 +95,8 @@ final class EditorFormatBehaviorTests: XCTestCase {
         controller.toggleQuote()
 
         XCTAssertEqual(styles(controller), [ContentPartStyle.quote])
-        XCTAssertNotNil(tv.typingAttributes[.backgroundColor],
-                        "the next typed paragraph is what changes")
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .quote,
+                       "the next typed paragraph is what changes")
     }
 
     // MARK: - R2: a selection styles every line it touches
@@ -220,8 +220,8 @@ final class EditorFormatBehaviorTests: XCTestCase {
         tv.selectedRange = NSRange(location: 3, length: 0)
         tv.typingAttributes = controller.typingAttributes(for: .quote)
         XCTAssertTrue(controller.handleReturn(at: 3))
-        XCTAssertEqual((tv.typingAttributes[.backgroundColor] as? UIColor)?.isEqual(UIColor.clear), true,
-                       "the next typed paragraph is plain again")
+        XCTAssertNotEqual(EditorFont.blockStyle(of: tv.typingAttributes), .quote,
+                          "the next typed paragraph is plain again")
         XCTAssertEqual(styles(controller), [ContentPartStyle.quote],
                        "the quoted line above is untouched")
     }

@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-final class FittedTextView: UITextView {
+final class FittedTextView: DiaryTextView {
     override var intrinsicContentSize: CGSize {
         let width = bounds.width > 0 ? bounds.width : 320
         let size = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
@@ -95,10 +95,12 @@ struct ReadTextView: UIViewRepresentable {
             // image against the display instead of the column it sits in.
             let inset = tv.textContainerInset
             let available = tv.bounds.width - inset.left - inset.right
+            tv.contentTypeSize = typeSize
             let attributed = NSMutableAttributedString(
                 attributedString: PartsCodec.readerChunk(from: parent.parts,
                                                          imageMaxWidth: available > 40 ? available : nil,
-                                                         typeSize: typeSize)
+                                                         typeSize: typeSize,
+                                                         traits: tv.traitCollection)
             )
             todoRanges = []
             todoCallbacks = []

@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-final class PlaceholderTextView: UITextView {
+final class PlaceholderTextView: DiaryTextView {
     var placeholder: String? {
         didSet { placeholderLabel.text = placeholder }
     }
@@ -127,9 +127,10 @@ struct RichTextView: UIViewRepresentable {
         // 所以给输入区一个固定标识：UI 测试要点的、要量的都是这一个（横屏/旋转的
         // 用例本来就在和 `ReadTextView` 抢 `firstMatch`）。
         tv.accessibilityIdentifier = "editor.text"
-        // 左右不再内缩：卡片自己的内边距（12）已经让出位置，再缩 12 会让编辑态的正文
-        // 比阅读态窄 24pt（图片也跟着窄）。上下留 10pt 给首行与光标一点余量。
-        tv.textContainerInset = UIEdgeInsets(top: 10, left: 0, bottom: 10, right: 0)
+        // 与阅读态**同一个**内缩（`BlockMetrics.textContainerInset`）：输入区曾经上下各留
+        // 10pt、阅读态 2pt，同一个块进出编辑时正文会上下跳 8pt。左右都是 0，卡片自己的
+        // 内边距（`Spacing.card`）已经让出位置 —— 编辑态的正文列与阅读态等宽，图片也跟着等宽。
+        tv.textContainerInset = BlockMetrics.textContainerInset
         tv.textContainer.lineFragmentPadding = 0
         tv.delegate = context.coordinator
         tv.textColor = Theme.onSurfaceUIColor()
@@ -212,6 +213,9 @@ struct RichTextView: UIViewRepresentable {
             if let pv = textView as? PlaceholderTextView {
                 pv.refreshPlaceholder()
             }
+            // 引用块的底色跟着文字走：输入会改动这一段的排版框，装饰要重画
+            // （`layoutSubviews` 也会画一次，这里补的是「内容尺寸没变」的那些输入）。
+            (textView as? DiaryTextView)?.refreshBlockDecorations()
             parent.controller.notifyFormatChange()
         }
 

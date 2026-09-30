@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import SwiftUI
 @testable import JustDiary
 
 /// 光标停在**空行**上时，格式按钮落在这条空行上吗？
@@ -55,9 +56,10 @@ final class EditorEmptyLineTests: XCTestCase {
         tv.textStorage.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle
     }
 
+    /// 这一段是不是引用。判据是块类型（`.diaryBlockStyle`）：引用不再靠
+    /// `.backgroundColor` 标记，底色改由 `DiaryTextView` 的装饰层画在文字后面。
     private func isQuoted(at location: Int) -> Bool {
-        let bg = tv.textStorage.attribute(.backgroundColor, at: location, effectiveRange: nil) as? UIColor
-        return bg != nil && !bg!.isEqual(UIColor.clear)
+        EditorFont.blockStyle(of: tv.textStorage.attributes(at: location, effectiveRange: nil)) == .quote
     }
 
     // MARK: - 居中：空行本身要跟着动
@@ -120,7 +122,9 @@ final class EditorEmptyLineTests: XCTestCase {
         layout()
         XCTAssertEqual(tv.textStorage.string, marker + "甲\n", "空项的标记被摘掉")
         XCTAssertEqual(tv.selectedRange.location, 3, "光标应停在这一行（不是被夹到文本末尾之外）")
-        XCTAssertEqual(caretRect().minX, 0, accuracy: 0.5)
+        // 光标矩形比行盒起点左半个光标宽，所以容差给到 2pt（正文行是 0，两者差得开）。
+        XCTAssertEqual(caretRect().minX, BlockMetrics.quoteTextInset(.large), accuracy: 2,
+                       "引用正文让开左侧竖条，光标落在缩进处")
 
         tv.insertText("引")
         layout()
@@ -145,8 +149,10 @@ final class EditorEmptyLineTests: XCTestCase {
         XCTAssertEqual(tv.textStorage.string, marker + "甲\n\n")
         XCTAssertEqual(tv.selectedRange.location, 3,
                        "标记被摘掉后光标要留在这一行（改动前是 4，即被推到文本末尾那条空段落）")
-        XCTAssertEqual(caretRect().minX, 0, accuracy: 0.5)
-        XCTAssertTrue(isQuoted(at: 3), "这一行自己也要带上引用底色")
+        // 光标矩形比行盒起点左半个光标宽，所以容差给到 2pt（正文行是 0，两者差得开）。
+        XCTAssertEqual(caretRect().minX, BlockMetrics.quoteTextInset(.large), accuracy: 2,
+                       "引用正文让开左侧竖条，光标落在缩进处")
+        XCTAssertTrue(isQuoted(at: 3), "这一行自己也要变成引用行")
 
         tv.insertText("引")
         layout()
@@ -168,7 +174,7 @@ final class EditorEmptyLineTests: XCTestCase {
         layout()
         XCTAssertEqual(tv.textStorage.string, marker + "甲\n\n乙\n")
         XCTAssertEqual(tv.selectedRange.location, 3, "光标留在引用这一行，不掉到「乙」行首")
-        XCTAssertFalse(isQuoted(at: 4), "下一行不能被带上引用底色")
+        XCTAssertFalse(isQuoted(at: 4), "下一行不能被带上引用")
         XCTAssertTrue(isQuoted(at: 3))
 
         tv.insertText("引")
@@ -186,14 +192,15 @@ final class EditorEmptyLineTests: XCTestCase {
 
         controller.toggleQuote()
         layout()
-        XCTAssertTrue(isQuoted(at: 2), "空行自己的换行符要带上引用底色")
-        XCTAssertEqual(caretRect().minX, 0, accuracy: 0.5, "引用是左对齐，光标在行首")
+        XCTAssertTrue(isQuoted(at: 2), "空行自己也要变成引用行")
+        XCTAssertEqual(caretRect().minX, BlockMetrics.quoteTextInset(.large), accuracy: 2,
+                       "引用是左对齐，光标落在引用的文字缩进处（让开竖条）")
         XCTAssertFalse(isQuoted(at: 0))
         XCTAssertFalse(isQuoted(at: 3))
 
         controller.toggleQuote()
         layout()
-        XCTAssertFalse(isQuoted(at: 2), "取消后底色要跟着去掉")
+        XCTAssertFalse(isQuoted(at: 2), "取消后这一行要跟着变回正文")
     }
 
     /// 空引用行上回车 = 结束引用：这一行自己也要恢复成正文，不能只改打字态。

@@ -79,7 +79,7 @@ struct DiaryPartsView: View {
                                  keyword: keyword,
                                  onToggleTodo: { pi, ii in onToggleTodo?(pi + chunk.offset, ii) },
                                  onTapText: onTapText,
-                                 textContainerInset: UIEdgeInsets(top: 2, left: 0, bottom: 2, right: 0))
+                                 textContainerInset: BlockMetrics.textContainerInset)
                 }
             }
         }

@@ -220,19 +220,34 @@ final class RichEditorController {
     /// The user's text-size category, pushed in by `RichTextView`. The editor
     /// cannot read the SwiftUI environment itself, but it must build fonts with
     /// the same metrics the rest of the UI uses.
-    var dynamicTypeSize: DynamicTypeSize = .large
+    var dynamicTypeSize: DynamicTypeSize = .large {
+        didSet {
+            guard dynamicTypeSize != oldValue else { return }
+            // 引用装饰（圆角、内边距）与标记图形都按这个档位换算。
+            (textView as? DiaryTextView)?.contentTypeSize = dynamicTypeSize
+        }
+    }
 
     /// Typing attributes for a paragraph of `block`: what the next typed
     /// character will look like. Also the reset applied after a block toggle.
+    ///
+    /// The paragraph style comes from `PartsCodec`, the same factory the codec
+    /// uses to assemble a stored entry — that is what keeps "what you type" and
+    /// "what you see after reopening" identical (quote indent included).
     func typingAttributes(for block: EditorBlockStyle) -> [NSAttributedString.Key: Any] {
         var attrs = EditorFont.attributes(block.designSize, block: block, typeSize: dynamicTypeSize)
         attrs[.foregroundColor] = Theme.onSurfaceUIColor()
-        let style = NSMutableParagraphStyle()
-        style.lineSpacing = block.lineSpacing
-        style.paragraphSpacing = block.paragraphSpacing
-        style.paragraphSpacingBefore = block.paragraphSpacingBefore
-        attrs[.paragraphStyle] = style
-        attrs[.backgroundColor] = block == .quote ? Theme.quoteBgUIColor() : UIColor.clear
+        attrs[.paragraphStyle] = PartsCodec.paragraphStyle(block, typeSize: dynamicTypeSize)
+        return attrs
+    }
+
+    /// Typing state on a list / to-do line: body attributes plus the marker's
+    /// hanging indent, so the caret and the text after the marker line up under
+    /// the item's own text rather than at the column's edge.
+    func markerTypingAttributes(kind: String) -> [NSAttributedString.Key: Any] {
+        var attrs = EditorFont.attributes(EditorDesignSize.body, block: .body, typeSize: dynamicTypeSize)
+        attrs[.foregroundColor] = Theme.onSurfaceUIColor()
+        attrs[.paragraphStyle] = PartsCodec.markerParagraphStyle(typeSize: dynamicTypeSize, kind: kind)
         return attrs
     }
 
@@ -544,23 +559,41 @@ final class RichEditorController {
                 attributed.addAttribute(key, value: value, range: r)
             }
         }
+        // A quote's background is no longer an attribute: `DiaryTextView` draws
+        // the block (rounded background + bar) behind the paragraph. Any
+        // background left by an older version is dropped here so the old
+        // highlighter look cannot survive an edit.
         attributed.removeAttribute(.backgroundColor, range: para)
-        if block == .quote {
-            attributed.addAttribute(.backgroundColor, value: Theme.quoteBgUIColor(), range: para)
-        }
         attributed.enumerateAttribute(.paragraphStyle, in: para) { value, r, _ in
             let style = ((value as? NSParagraphStyle) ?? NSParagraphStyle()).mutableCopy() as! NSMutableParagraphStyle
-            if cancelCenter || block == .quote {
-                style.alignment = .left
-            }
-            style.lineSpacing = block.lineSpacing
-            style.paragraphSpacing = block.paragraphSpacing
-            // 段前距也要跟着换：少了这一句，编辑区里「选大标题」得到的行没有标题的
-            // 段前留白，而重新打开这篇日记（走 `PartsCodec.paragraphStyle`）却带着
-            // 9.8pt —— 同一条标题在两条链路上长得不一样。
-            style.paragraphSpacingBefore = block.paragraphSpacingBefore
+            Self.applyBlockGeometry(to: style, block: block, cancelCenter: cancelCenter,
+                                    typeSize: dynamicTypeSize)
             attributed.addAttribute(.paragraphStyle, value: style, range: r)
         }
+    }
+
+    /// Writes a block's paragraph-level geometry (gaps and, for a quote, the
+    /// indent its bar needs) onto an existing style.
+    ///
+    /// Both the paragraph restyle and the empty-line helpers go through here:
+    /// the numbers themselves live in `PartsCodec` / `BlockMetrics`, so the
+    /// editor cannot drift from the reader.
+    private static func applyBlockGeometry(to style: NSMutableParagraphStyle, block: EditorBlockStyle,
+                                           cancelCenter: Bool, typeSize: DynamicTypeSize) {
+        if cancelCenter || block == .quote {
+            style.alignment = .left
+        }
+        style.lineSpacing = block.lineSpacing
+        style.paragraphSpacing = block.paragraphSpacing
+        // 段前距也要跟着换：少了这一句，编辑区里「选大标题」得到的行没有标题的
+        // 段前留白，而重新打开这篇日记（走 `PartsCodec.paragraphStyle`）却带着
+        // 9.8pt —— 同一条标题在两条链路上长得不一样。
+        style.paragraphSpacingBefore = block.paragraphSpacingBefore
+        // 引用正文要让开左侧竖条；其它块（列表 / 待办的行会被 `restyle` 先摘掉标记）
+        // 必须显式归零，否则从引用改成正文后整段会留在缩进里。
+        let indent = block == .quote ? BlockMetrics.quoteTextInset(typeSize) : 0
+        style.firstLineHeadIndent = indent
+        style.headIndent = indent
     }
 
     /// Paragraph ranges (terminating newline included) touched by `range`.
@@ -728,6 +761,11 @@ final class RichEditorController {
                     // Only strip a marker we can actually confirm exists.
                     if Self.markerKind(in: attributed, at: lineStart) == kind {
                         attributed.replaceCharacters(in: NSRange(location: lineStart, length: 1), with: "")
+                        // 标记占的缩进挂在**这一行的段落样式**上（`headIndent`，换行后的
+                        // 文字才能对齐首行）。摘掉标记就得把它归零，否则这一行会顶着一份
+                        // 「列表的缩进」继续当正文排（标记没了、文字却还缩着）。
+                        self.restyle(attributed, range: NSRange(location: lineStart, length: 0),
+                                     to: .body)
                     }
                 } else {
                     // Turning on: cancel heading / quote / other marker / center first.
@@ -736,7 +774,8 @@ final class RichEditorController {
                     attributed.insert(MarkerAttachment.attributed(
                         kind: kind,
                         typeSize: self.dynamicTypeSize,
-                        paragraphStyle: self.typingAttributes(for: .body)[.paragraphStyle] as? NSParagraphStyle
+                        traits: tv.traitCollection,
+                        paragraphStyle: self.markerTypingAttributes(kind: kind)[.paragraphStyle] as? NSParagraphStyle
                     ), at: lineStart)
                 }
             }
@@ -749,10 +788,12 @@ final class RichEditorController {
             let target = min(max(0, max(caretLine, selection.location + delta)), tv.textStorage.length)
             tv.selectedRange = NSRange(location: target, length: 0)
         }
-        // Reset typing attributes to a plain block line. Continuing the list
-        // onto the next line is `handleReturn(at:)`'s job — the marker is a
-        // real character and typing attributes cannot carry it.
-        tv.typingAttributes = typingAttributes(for: .body)
+        // Reset typing attributes. Continuing the list onto the next line is
+        // `handleReturn(at:)`'s job — the marker is a real character and typing
+        // attributes cannot carry it. Turning the marker *off* goes back to plain
+        // body attributes: a marker's hanging indent left on a plain paragraph
+        // would indent its wrapped lines for no reason.
+        tv.typingAttributes = isMarked ? baseTypingAttributes() : markerTypingAttributes(kind: kind)
         // Toggling the marker *off* can leave an empty line behind; toggling it on
         // puts a marker on the line, so there is nothing left to sync there.
         syncEmptyParagraphWithTypingAttributes()
@@ -801,17 +842,18 @@ final class RichEditorController {
             // Start a new item: a newline plus the marker for the next line, so
             // what is typed next belongs to a fresh item of the same kind.
             let insertAt = min(max(location, contentStart), contentEnd)
-            let bodyAttributes = typingAttributes(for: .body)
+            let bodyAttributes = markerTypingAttributes(kind: kind)
             let insertion = NSMutableAttributedString()
             insertion.append(NSAttributedString(string: "\n", attributes: bodyAttributes))
             insertion.append(MarkerAttachment.attributed(
                 kind: kind,
                 typeSize: dynamicTypeSize,
+                traits: tv.traitCollection,
                 paragraphStyle: bodyAttributes[.paragraphStyle] as? NSParagraphStyle
             ))
             storage.insert(insertion, at: insertAt)
             tv.selectedRange = NSRange(location: insertAt + insertion.length, length: 0)
-            tv.typingAttributes = typingAttributes(for: .body)
+            tv.typingAttributes = bodyAttributes
             notifyFormatChange()
             return true
         }
@@ -889,20 +931,26 @@ final class RichEditorController {
         ensureCaretGeometry()
     }
 
+    /// Whether these attributes describe a quote paragraph.
+    ///
+    /// The block type is the source of truth. A non-clear `.backgroundColor` is
+    /// how a quote was marked before the decoration layer existed, and imported
+    /// material can still carry only that, so it keeps counting as one.
+    private static func attributesAreQuote(_ attrs: [NSAttributedString.Key: Any]) -> Bool {
+        if EditorFont.blockStyle(of: attrs) == .quote { return true }
+        if let bg = attrs[.backgroundColor] as? UIColor, !bg.isEqual(UIColor.clear) { return true }
+        return false
+    }
+
     func isQuoteActive() -> Bool {
-        guard let tv = textView, tv.textStorage.length > 0 else {
-            let bg = textView?.typingAttributes[.backgroundColor] as? UIColor
-            return bg != nil && !bg!.isEqual(UIColor.clear)
-        }
-        let location = tv.selectedRange.location
-        if Self.paragraphIsEmpty(in: tv.textStorage, location: location) {
-            let tbg = tv.typingAttributes[.backgroundColor] as? UIColor
-            return tbg != nil && !tbg!.isEqual(UIColor.clear)
+        guard let tv = textView else { return false }
+        if tv.textStorage.length == 0
+            || Self.paragraphIsEmpty(in: tv.textStorage, location: tv.selectedRange.location) {
+            return Self.attributesAreQuote(tv.typingAttributes)
         }
         let range = paragraphRange(around: tv.selectedRange)
         guard range.location < tv.textStorage.length else { return false }
-        let bg = tv.textStorage.attribute(.backgroundColor, at: range.location, effectiveRange: nil) as? UIColor
-        return bg != nil && !bg!.isEqual(UIColor.clear)
+        return Self.attributesAreQuote(tv.textStorage.attributes(at: range.location, effectiveRange: nil))
     }
 
     private func paragraphRange(around range: NSRange) -> NSRange {
@@ -997,10 +1045,8 @@ final class RichEditorController {
         let existing = (attributed.attribute(.paragraphStyle, at: range.location,
                                             effectiveRange: nil) as? NSParagraphStyle) ?? NSParagraphStyle()
         let style = existing.mutableCopy() as! NSMutableParagraphStyle
-        if cancelCenter || block == .quote { style.alignment = .left }
-        style.lineSpacing = block.lineSpacing
-        style.paragraphSpacing = block.paragraphSpacing
-        style.paragraphSpacingBefore = block.paragraphSpacingBefore
+        Self.applyBlockGeometry(to: style, block: block, cancelCenter: cancelCenter,
+                                typeSize: dynamicTypeSize)
         // 行内样式（加粗 / 斜体）在这一行的重设里保留，与 `restyle` 对整行的规则一致。
         let existingFont = attributed.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont
         let traits = existingFont?.fontDescriptor.symbolicTraits ?? []
@@ -1009,7 +1055,8 @@ final class RichEditorController {
                                           italic: traits.contains(.traitItalic),
                                           typeSize: dynamicTypeSize)
         attrs[.paragraphStyle] = style
-        attrs[.backgroundColor] = block == .quote ? Theme.quoteBgUIColor() : UIColor.clear
+        // 旧的引用底色在这里清掉（引用现在由块类型 + 装饰层画）。
+        attrs[.backgroundColor] = UIColor.clear
         attributed.addAttributes(attrs, range: range)
     }
 
@@ -1186,8 +1233,10 @@ final class RichEditorController {
 
     func load(parts: [ContentPart]) {
         guard let tv = textView else { return }
+        (tv as? DiaryTextView)?.contentTypeSize = dynamicTypeSize
         tv.textStorage.setAttributedString(
-            PartsCodec.attributedString(from: parts, imageMaxWidth: imageMaxWidth, typeSize: dynamicTypeSize)
+            PartsCodec.attributedString(from: parts, imageMaxWidth: imageMaxWidth,
+                                        typeSize: dynamicTypeSize, traits: tv.traitCollection)
         )
         tv.typingAttributes = baseTypingAttributes()
         tv.selectedRange = NSRange(location: 0, length: 0)
@@ -1204,8 +1253,10 @@ final class RichEditorController {
         let parts = PartsCodec.parts(from: tv.textStorage, typeSize: dynamicTypeSize)
         let caret = tv.selectedRange
         dynamicTypeSize = newSize
+        (tv as? DiaryTextView)?.contentTypeSize = newSize
         tv.textStorage.setAttributedString(
-            PartsCodec.attributedString(from: parts, imageMaxWidth: imageMaxWidth, typeSize: newSize)
+            PartsCodec.attributedString(from: parts, imageMaxWidth: imageMaxWidth,
+                                        typeSize: newSize, traits: tv.traitCollection)
         )
         tv.typingAttributes = baseTypingAttributes()
         tv.selectedRange = NSRange(location: min(caret.location, tv.textStorage.length), length: 0)
@@ -1354,25 +1405,20 @@ final class PayloadAttachment: NSTextAttachment {
 enum MarkerAttachment {
     /// List bullets and todo checkboxes are drawn as text attachments, so they
     /// have to be scaled by hand: a fixed 13pt glyph stayed small next to text
-    /// the user had enlarged. The bounds scale with it so the marker keeps its
-    /// proportion to the line.
+    /// the user had enlarged.
+    ///
+    /// The attachment is a transparent canvas whose **width is the item's
+    /// hanging indent** and whose glyph sits at its left edge (see
+    /// `MarkerGlyph`). That single trick gives the marker its gap to the text
+    /// without inserting a tab character — the marker stays one character, so
+    /// every caret/selection offset in the editor keeps its meaning.
     static func attachment(kind: String, done: Bool = false,
-                           typeSize: DynamicTypeSize = .large) -> PayloadAttachment {
+                           typeSize: DynamicTypeSize = .large,
+                           traits: UITraitCollection = .current) -> PayloadAttachment {
         let attachment = PayloadAttachment(payload: AttachmentPayload(kind: kind, done: done))
-        let symbol: String
-        switch kind {
-        case "todo":
-            symbol = done ? "checkmark.square.fill" : "square"
-        default:
-            symbol = "circle.fill"
-        }
-        let scale = DynamicTypeMetrics.multiplier(for: EditorDesignSize.body, typeSize: typeSize)
-        let config = UIImage.SymbolConfiguration(pointSize: 13 * scale, weight: .regular)
-        let image = UIImage(systemName: symbol, withConfiguration: config)?
-            .withTintColor(done ? Theme.primaryUIColor() : Theme.onSurfaceVariantUIColor(),
-                           renderingMode: .alwaysTemplate)
-        attachment.image = image
-        attachment.bounds = CGRect(x: 0, y: -2, width: 15 * scale, height: 15 * scale)
+        let font = EditorFont.font(EditorDesignSize.body, typeSize: typeSize)
+        attachment.image = MarkerGlyph.image(kind: kind, done: done, typeSize: typeSize, traits: traits)
+        attachment.bounds = MarkerGlyph.bounds(kind: kind, font: font, typeSize: typeSize)
         return attachment
     }
 
@@ -1387,9 +1433,11 @@ enum MarkerAttachment {
     /// its size still comes from the attachment's own bounds, not from a font.
     static func attributed(kind: String, done: Bool = false,
                            typeSize: DynamicTypeSize = .large,
+                           traits: UITraitCollection = .current,
                            paragraphStyle: NSParagraphStyle?) -> NSAttributedString {
         let string = NSMutableAttributedString(attachment: attachment(kind: kind, done: done,
-                                                                     typeSize: typeSize))
+                                                                     typeSize: typeSize,
+                                                                     traits: traits))
         if let paragraphStyle {
             string.addAttribute(.paragraphStyle, value: paragraphStyle,
                                 range: NSRange(location: 0, length: string.length))
@@ -1400,20 +1448,22 @@ enum MarkerAttachment {
 
 enum PartsCodec {
     static func attributedString(from parts: [ContentPart], imageMaxWidth: CGFloat? = nil,
-                                 typeSize: DynamicTypeSize = .large) -> NSAttributedString {
+                                 typeSize: DynamicTypeSize = .large,
+                                 traits: UITraitCollection = .current) -> NSAttributedString {
         let result = NSMutableAttributedString()
         for part in parts {
             switch part.style {
             case ContentPartStyle.list:
                 for item in part.items ?? [] {
-                    appendMarkerLine(kind: "bullet", done: false, text: item, to: result, typeSize: typeSize)
+                    appendMarkerLine(kind: "bullet", done: false, text: item, to: result,
+                                     typeSize: typeSize, traits: traits)
                 }
             case ContentPartStyle.todo:
                 let items = part.items ?? []
                 let done = part.done ?? Array(repeating: false, count: items.count)
                 for (i, item) in items.enumerated() {
                     appendMarkerLine(kind: "todo", done: done.indices.contains(i) && done[i],
-                                     text: item, to: result, typeSize: typeSize)
+                                     text: item, to: result, typeSize: typeSize, traits: traits)
                 }
             case ContentPartStyle.image:
                 if let src = part.src {
@@ -1479,10 +1529,12 @@ enum PartsCodec {
     /// Text paragraphs keep their own spacing: inside a chunk the reader and the
     /// editor lay text out with exactly the same paragraph styles.
     static func readerChunk(from parts: [ContentPart], imageMaxWidth: CGFloat? = nil,
-                            typeSize: DynamicTypeSize = .large) -> NSAttributedString {
+                            typeSize: DynamicTypeSize = .large,
+                            traits: UITraitCollection = .current) -> NSAttributedString {
         let attributed = NSMutableAttributedString(attributedString: attributedString(from: parts,
                                                                                      imageMaxWidth: imageMaxWidth,
-                                                                                     typeSize: typeSize))
+                                                                                     typeSize: typeSize,
+                                                                                     traits: traits))
         if attributed.string.hasSuffix("\n") {
             attributed.deleteCharacters(in: NSRange(location: attributed.length - 1, length: 1))
         }
@@ -1494,20 +1546,45 @@ enum PartsCodec {
         return attributed
     }
 
-    private static func paragraphStyle(_ block: EditorBlockStyle, center: Bool = false) -> NSMutableParagraphStyle {
+    /// The paragraph style of a block: line spacing, the gaps around it, and —
+    /// for a quote — the indent its left bar needs.
+    ///
+    /// Shared by both chains on purpose. The editor's live mutations
+    /// (`RichEditorController.restyle`, `typingAttributes`, the empty-line
+    /// helpers) and this codec must agree, or the same paragraph is drawn one
+    /// way while it is being typed and another way once the entry is reopened.
+    static func paragraphStyle(_ block: EditorBlockStyle, center: Bool = false,
+                               typeSize: DynamicTypeSize = .large) -> NSMutableParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.alignment = center ? .center : .left
         style.lineSpacing = block.lineSpacing
         style.paragraphSpacing = block.paragraphSpacing
         style.paragraphSpacingBefore = block.paragraphSpacingBefore
+        if block == .quote {
+            let inset = BlockMetrics.quoteTextInset(typeSize)
+            style.firstLineHeadIndent = inset
+            style.headIndent = inset
+        }
+        return style
+    }
+
+    /// The paragraph style of a list / to-do item: body attributes plus the
+    /// hanging indent the marker's canvas reserves, so a wrapped line starts
+    /// under the first one's text instead of under the bullet.
+    static func markerParagraphStyle(typeSize: DynamicTypeSize = .large,
+                                     kind: String = "bullet") -> NSMutableParagraphStyle {
+        let style = paragraphStyle(.body, typeSize: typeSize)
+        style.firstLineHeadIndent = 0
+        style.headIndent = BlockMetrics.markerIndent(kind: kind, typeSize)
         return style
     }
 
     private static func appendMarkerLine(kind: String, done: Bool, text: String,
                                          to result: NSMutableAttributedString,
-                                         typeSize: DynamicTypeSize) {
+                                         typeSize: DynamicTypeSize,
+                                         traits: UITraitCollection) {
         let block = EditorBlockStyle.body
-        let style = paragraphStyle(block)
+        let style = markerParagraphStyle(typeSize: typeSize, kind: kind)
         var attrs = EditorFont.attributes(block.designSize, block: block, typeSize: typeSize)
         attrs[.foregroundColor] = Theme.onSurfaceUIColor()
         attrs[.paragraphStyle] = style
@@ -1516,7 +1593,7 @@ enum PartsCodec {
             attrs[.foregroundColor] = Theme.onSurfaceUIColor().withAlphaComponent(0.45)
         }
         result.append(MarkerAttachment.attributed(kind: kind, done: done, typeSize: typeSize,
-                                                  paragraphStyle: style))
+                                                  traits: traits, paragraphStyle: style))
         result.append(NSAttributedString(string: text, attributes: attrs))
         result.append(NSAttributedString(string: "\n", attributes: attrs))
     }
@@ -1536,7 +1613,7 @@ enum PartsCodec {
                                    block: EditorBlockStyle, center: Bool = false,
                                    typeSize: DynamicTypeSize) {
         let line = NSMutableAttributedString()
-        let style = paragraphStyle(block, center: center)
+        let style = paragraphStyle(block, center: center, typeSize: typeSize)
         for run in runs {
             // The size comes from the block, never from the run: a paragraph has
             // one style and that style owns its point size.
@@ -1548,7 +1625,10 @@ enum PartsCodec {
             attrs[.paragraphStyle] = style
             if run.strike == true { attrs[.strikethroughStyle] = 1 }
             if run.underline == true { attrs[.underlineStyle] = 1 }
-            if block == .quote { attrs[.backgroundColor] = Theme.quoteBgUIColor() }
+            // A quote's background is *not* a `.backgroundColor` attribute any
+            // more: that only ever covered the glyphs (ragged right edge, no
+            // padding, no bar). `DiaryTextView` draws the block behind the text
+            // instead, in both the editor and the reader.
             line.append(NSAttributedString(string: run.text, attributes: attrs))
         }
         result.append(line)

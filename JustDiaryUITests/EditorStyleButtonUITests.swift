@@ -150,8 +150,12 @@ final class EditorStyleButtonUITests: XCTestCase {
         usleep(900_000)
         let afterQuote = try XCTUnwrap(waitForCaret(), "点引用后的光标")
         let frame = editor.frame
-        XCTAssertLessThanOrEqual(afterQuote.minX, frame.minX + 4,
-                                 "光标应停在行首（这一行现在是空引用行），实际 \(afterQuote)")
+        // 引用正文让开左侧的竖条（`BlockMetrics.quoteTextInset`，默认字号下 16pt），
+        // 所以光标不再贴着正文列的左边界，而是落在引用的文字缩进处。
+        XCTAssertLessThanOrEqual(afterQuote.minX, frame.minX + 22,
+                                 "光标应停在引用行的文字缩进处（默认 16pt），实际 \(afterQuote)")
+        XCTAssertGreaterThanOrEqual(afterQuote.minX, frame.minX + 8,
+                                    "光标不该还贴在正文列边界上（那是引用块竖条的位置），实际 \(afterQuote)")
         attach("quote-on-empty-item")
         XCTAssertEqual(state(), "list|abc", "空行不入库：探针里仍只有上面那个列表项")
 
