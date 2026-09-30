@@ -73,7 +73,11 @@ struct DiaryPartsView: View {
                     DiaryImageView(src: src, displayW: w, displayH: h) {
                         onImageTap?(src, h / w)
                     }
-                    .padding(.vertical, EditorDesignSize.imageSpacing)
+                    // 读模式里上下留白的「盒级」值要和编辑区一样：正文块自带
+                    // `textContainerInset`、块里的墨迹又离块顶一小段，这两段已经算空白，
+                    // 所以 padding 用扣掉它们之后的 `readerImagePadding`
+                    // （见 `EditorDesignSize.readerImagePadding`）。
+                    .padding(.vertical, EditorDesignSize.readerImagePadding)
                 } else {
                     ReadTextView(parts: chunk.parts,
                                  keyword: keyword,

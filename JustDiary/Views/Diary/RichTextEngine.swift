@@ -32,41 +32,67 @@ enum EditorBlockStyle: String, CaseIterable {
         }
     }
 
-    /// Extra leading between wrapped lines, as a fraction of the design size so
-    /// that it grows with the text. It used to be a flat 2pt (7pt for quotes),
-    /// which read as cramped once the user raised the system text size, and it
-    /// was keyed off "size == quote" — i.e. off the very thing this change
-    /// decouples the block type from.
-    var lineSpacing: CGFloat {
-        self == .quote ? designSize * 0.5 : designSize * 0.13
-    }
-
-    /// Space after the paragraph. Rendered only: like alignment it is derived
-    /// from the block type on load rather than persisted.
+    /// 目标「总行高 ÷ 设计字号」。
     ///
-    /// Together with `paragraphSpacingBefore` this is what makes a heading sit
-    /// *closer to the text below it than to the text above* — the rule the share
-    /// renderer draws with (`ImageShareService.gapBefore`). The editor used to
-    /// have space after only, so a heading hugged the paragraph above it and
-    /// looked like part of it.
-    var paragraphSpacing: CGFloat {
+    /// TextKit 真正画出来的行盒是 `font.lineHeight + lineSpacing`，而系统字体（SF）
+    /// 的 lineHeight 恒为 ≈1.193 × 字号。这个倍率由三个**可查的来源**一起定
+    /// （推导与实测见 `docs/editor-typography.md` 第八节）：
+    ///
+    /// * **HIG「iOS built-in text styles」的行高是下限**：Title 1 28→34（1.21）、
+    ///   Title 2 22→28（1.27）、Body 17→22（1.29）、Subheadline 15→20（1.33）。
+    /// * **中日韩正文要容得下真正画字的字体**。系统字体给的行盒只有 20.29pt（17pt），
+    ///   而 PingFang SC 自己的行高是 23.80pt（1.40em，模拟器实测）—— 差 3.5pt，汉字
+    ///   上下几乎贴在一起，这就是「中文看着挤」的原因。1.40 是 CJK 的硬下限。
+    /// * **HIG 明确要求长段落用松行距**：*"when you display text in wide columns or long
+    ///   passages, more space between lines (loose leading) can make it easier for people
+    ///   to keep their place while moving from one line to the next."* 日记正是长段落。
+    ///
+    /// 于是正文取 1.50（17pt → 25.5pt），比三个下限都宽；标题 / 小标题是短行，
+    /// 贴着 HIG 的梯级走，保持「字号越大行距越紧」的层次。
+    var lineHeightRatio: CGFloat {
         switch self {
-        case .title: return designSize * 0.15
-        case .heading: return designSize * 0.15
-        case .quote: return designSize * 0.4
-        case .body: return 0
+        case .title: return 1.25
+        case .heading: return 1.32
+        case .body: return 1.50
+        case .quote: return 1.60
         }
     }
 
-    /// Space before the paragraph: a title/heading is separated from what it
-    /// follows, a quote gets the same breathing room as below it, and body text
-    /// stays tight against body text.
+    /// Extra leading between wrapped lines: whatever the target line height needs
+    /// on top of the font's own. Proportional to the design size, so it follows
+    /// the system text size like everything else.
+    var lineSpacing: CGFloat {
+        designSize * (lineHeightRatio - EditorDesignSize.systemLineHeightRatio)
+    }
+
+    /// **段间距全部由「段前距」承担，段后距一律为 0。**
+    ///
+    /// 这不是随手选的：TextKit 把段前距折进**这一段自己的行盒**，把段后距折进
+    /// **上一段的盒底**，而一行文字下面本来就还压着 `lineSpacing`（行盒每行都加，
+    /// 最后一行也加）。所以两段之间的实际空隙是：
+    ///
+    ///     上一段的 lineSpacing + 上一段的段后距 + 这一段的段前距
+    ///
+    /// 两件事因此变简单：
+    /// * **图片上下的可见留白能配平**：图片的段前距 / 段后距只要各扣掉「行盒与墨迹之间
+    ///   那两段看不见的空白」（`imageTopSlack` / `imageBottomSlack`，见
+    ///   `imageParagraphStyle()`），肉眼上下的空白就一样多；
+    /// * **贴边的段距会被丢掉**。读模式每个块是独立的文本视图，文档第一段的段前距与
+    ///   最后一段的段后距都不生效 —— 段前距承担间距时，块首块尾不会多出空白，正好。
+    ///
+    /// 标题仍然是「离上文比离下文远」：它自己的段后距是 0，下面由正文的段前距撑开，
+    /// 而上面的空隙还要再加上正文的 `lineSpacing`（见 `EditorSpacingTests` 的实测）。
+    var paragraphSpacing: CGFloat { 0 }
+
+    /// 这一段的段前距 —— 段间距的实际来源。
+    ///
+    /// 正文 0.5×17 = 8.5pt（半行上下），标题 / 小标题更大，引用与正文对称。
     var paragraphSpacingBefore: CGFloat {
         switch self {
-        case .title: return designSize * 0.35
-        case .heading: return designSize * 0.35
-        case .quote: return designSize * 0.4
-        case .body: return 0
+        case .title: return designSize * 0.55
+        case .heading: return designSize * 0.55
+        case .body: return designSize * 0.50
+        case .quote: return designSize * 0.60
         }
     }
 
@@ -112,6 +138,20 @@ enum EditorDesignSize {
     static let body = EditorBlockStyle.body.designSize
     static let quote = EditorBlockStyle.quote.designSize
 
+    /// 中日韩字体自己的 `lineHeight ÷ 字号`：PingFang SC 在 17pt 实测 23.80（1.40），
+    /// 而系统字体给的行盒只有 1.193em —— 汉字会在这个盒子里上下贴住，所以**成段的
+    /// CJK 正文行高不能低于它**（见 `EditorBlockStyle.lineHeightRatio`）。
+    static let cjkLineHeightRatio: CGFloat = 1.40
+
+    /// 系统字体（SF）的 `lineHeight ÷ 字号`。实测 11–28pt 恒定 1.193（17pt → 20.29、
+    /// 22pt → 26.25、28pt → 33.41），所以「目标行高」可以直接按比例换算成
+    /// `lineSpacing`，不需要为每个字号查表。
+    static let systemLineHeightRatio: CGFloat = 1.193
+
+    /// 列表 / 待办项之间的间距，比正文段距小得多（同一个列表的几项是一组，
+    /// 挨紧一点才像一组，但仍然分得开、点得准）。
+    static let markerSpacing = body * 0.15
+
     /// Breathing room above and below an image, in design points.
     ///
     /// Expressed through the image paragraph's spacing so the editor gets it
@@ -119,7 +159,32 @@ enum EditorDesignSize {
     /// image chunk. Before this existed the editor gave an image 0pt (it was
     /// glued to the text above and below) while the reader added a stack gap
     /// plus a phantom line — the same entry looked different in the two.
-    static let imageSpacing = body * 0.6
+    ///
+    /// 0.8 个正文：一段正文之间的实际空隙是 `lineSpacing + 段前距` = 13.7pt，
+    /// 图片是单独一块，留白不该比段落之间还小。
+    static let imageSpacing = body * 0.8
+
+    /// 图片上下各有一次「看不见的空白」，按正文字号等比（17pt 实测值写在注释里）。
+    ///
+    /// TextKit 2 把附件放在**基线**上，于是行盒与墨迹不重合：
+    /// * 图片**上方**：上一段的行盒底比它的墨迹低 `0.153em`（约 2.6pt）—— 这段空白
+    ///   眼睛看不到，图片的段前距要把它补上；
+    /// * 图片**下方**：下面那一行的墨迹从自己的行盒顶往下 `0.735em`（约 12.5pt）才开始
+    ///   （CJK 字面远低于 ascent）—— 这段同样看不到，图片的段后距要把它扣掉。
+    ///
+    /// 修正之后，**肉眼**上下的空白才真的一样多（`EditorSpacingTests` 的像素用例逐行量
+    /// 过）。这两个数是字体几何，不是设计偏好：换字体 / 换书写系统要重新实测。
+    static let imageTopSlack = body * 0.153
+    static let imageBottomSlack = body * 0.735
+
+    /// 读模式里图片**外面**那一圈 padding：`DiaryPartsView` 用它。
+    ///
+    /// 读模式的正文块自己带 `BlockMetrics.textContainerInset`（上下各 6pt），块里的墨迹
+    /// 又离块顶 `imageTopSlack`（≈2.6pt）—— 这两段都算「已经给了的空白」，所以 padding
+    /// 要比 `imageSpacing` 小这么多，图片上下才是同样的 `imageSpacing`。
+    static var readerImagePadding: CGFloat {
+        max(0, imageSpacing - BlockMetrics.textContainerInset.top - imageTopSlack)
+    }
 
     /// Every size the editor authors, for exact recovery of a design size from
     /// a drawn one. See `EditorFont.designSize(of:typeSize:)`.
@@ -1451,7 +1516,9 @@ enum PartsCodec {
                                  typeSize: DynamicTypeSize = .large,
                                  traits: UITraitCollection = .current) -> NSAttributedString {
         let result = NSMutableAttributedString()
+        var previousWasImage = false
         for part in parts {
+            defer { previousWasImage = part.style == ContentPartStyle.image }
             switch part.style {
             case ContentPartStyle.list:
                 for item in part.items ?? [] {
@@ -1497,7 +1564,7 @@ enum PartsCodec {
                 }
             default:
                 appendLine(part, to: result, block: EditorBlockStyle(partStyle: part.style),
-                           typeSize: typeSize)
+                           typeSize: typeSize, followsImage: previousWasImage)
             }
         }
         return result
@@ -1509,8 +1576,12 @@ enum PartsCodec {
     static func imageParagraphStyle() -> NSMutableParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.alignment = .center
-        style.paragraphSpacingBefore = EditorDesignSize.imageSpacing
-        style.paragraphSpacing = EditorDesignSize.imageSpacing
+        // 目标是**肉眼**上下一样多（`imageTopSlack` / `imageBottomSlack` 见上）。
+        // 图片后面那一段的段前距会被 `appendLine` 归零（`followsImage`：图片自己已经
+        // 把间距给足了，读模式里那一段本来就是新的一块、段前距同样不生效），所以下面
+        // 只需要扣掉字体几何那一份。
+        style.paragraphSpacingBefore = max(0, EditorDesignSize.imageSpacing - EditorDesignSize.imageTopSlack)
+        style.paragraphSpacing = max(0, EditorDesignSize.imageSpacing - EditorDesignSize.imageBottomSlack)
         return style
     }
 
@@ -1576,6 +1647,11 @@ enum PartsCodec {
         let style = paragraphStyle(.body, typeSize: typeSize)
         style.firstLineHeadIndent = 0
         style.headIndent = BlockMetrics.markerIndent(kind: kind, typeSize)
+        // 列表 / 待办项之间用更小的间距：同一个列表的几项是一组，挨紧一点才像一组，
+        // 但也不能贴死（每一项都是可以点的）。
+        let scale = BlockMetrics.scale(typeSize)
+        style.paragraphSpacing = 0
+        style.paragraphSpacingBefore = EditorDesignSize.markerSpacing * scale
         return style
     }
 
@@ -1599,21 +1675,29 @@ enum PartsCodec {
     }
 
     private static func appendLine(_ part: ContentPart, to result: NSMutableAttributedString,
-                                   block: EditorBlockStyle, typeSize: DynamicTypeSize) {
+                                   block: EditorBlockStyle, typeSize: DynamicTypeSize,
+                                   followsImage: Bool = false) {
         let runs = part.runs ?? []
         let center = part.align == "center"
         if runs.isEmpty, let text = part.text {
-            appendLine([TextRun(text: text)], to: result, block: block, center: center, typeSize: typeSize)
+            appendLine([TextRun(text: text)], to: result, block: block, center: center,
+                       typeSize: typeSize, followsImage: followsImage)
         } else {
-            appendLine(runs, to: result, block: block, center: center, typeSize: typeSize)
+            appendLine(runs, to: result, block: block, center: center,
+                       typeSize: typeSize, followsImage: followsImage)
         }
     }
 
     private static func appendLine(_ runs: [TextRun], to result: NSMutableAttributedString,
                                    block: EditorBlockStyle, center: Bool = false,
-                                   typeSize: DynamicTypeSize) {
+                                   typeSize: DynamicTypeSize,
+                                   followsImage: Bool = false) {
         let line = NSMutableAttributedString()
         let style = paragraphStyle(block, center: center, typeSize: typeSize)
+        // 紧跟在图片后面的那一段不再加自己的段前距：图片自己已经把上下留白给足了，
+        // 而且读模式里这一段本来就是新的一块 —— TextKit 会丢掉块首段的段前距。
+        // 不归零的话，编辑区里图片下面会多出 8.5pt，两个模式对不上。
+        if followsImage { style.paragraphSpacingBefore = 0 }
         for run in runs {
             // The size comes from the block, never from the run: a paragraph has
             // one style and that style owns its point size.

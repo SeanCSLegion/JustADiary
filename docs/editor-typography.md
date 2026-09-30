@@ -148,6 +148,10 @@ UI 用例通过 `-ui-test-editor-state` 探针读取「编辑器将要落库的�
 只给其中一个就会出现「贴上文还是贴下文」的方向问题。全部按设计字号的比例算，跟随
 设置 › 文字大小：
 
+> **2026-09-30 起这张表已按 Apple 的规范重定**（行距取 HIG 的行高与 CJK 字体行高中的
+> 更宽者，段距改由**段前距**承担），最新数值与依据见第八节；下表保留改造前的模型说明，
+> 便于对照「为什么当时是那样」。
+
 | 样式 | 设计字号 | lineSpacing（段内换行） | paragraphSpacingBefore（段前） | paragraphSpacing（段后） |
 |---|---|---|---|---|
 | 大标题 `title` | 28 | 0.13 × 28 = 3.6 | 0.35 × 28 = **9.8** | 0.15 × 28 = 4.2 |
@@ -311,3 +315,102 @@ payload 里的原值，列宽变化不会改写它。横屏列变宽时图片跟
 画布不撑高行盒、引用缩进与装饰块几何、装饰层在最底下、字号档位跟着长、点按钮开的列表 /
 引用与装配链路几何相同，最后**把同一个块分别用阅读链路和编辑链路渲染成图，要求逐像素
 相同**（0 个像素不同；编辑器末尾那条空段落不属于正文，比较公共高度）。
+
+---
+
+## 八、行距与段距：照 Apple 的规范重定（2026-09-30）
+
+用户反馈「行间距 / 段间距看着太小」。查证下来不是感觉问题：正文的行盒只有
+**1.19em**，而真正画汉字的 PingFang SC 自己的行高是 **1.40em** —— 汉字上下几乎是贴住的；
+两段正文之间更是**一点额外间距都没有**（`paragraphSpacing` = 0），用户按两次回车分段，
+存下来之后那段空隙直接消失（空行不入库）。
+
+### 8.1 三个可查的依据
+
+1. **HIG › Typography ›「iOS built-in text styles」的行高**（[developer.apple.com/design/human-interface-guidelines/typography](https://developer.apple.com/design/human-interface-guidelines/typography)）。
+   表里给的是 Size + Line height，也就是**下限**：
+
+   | 文本样式 | 本应用的块 | Size → Line height | 倍率 |
+   |---|---|---|---|
+   | Title 1 | 大标题 `title` | 28 → 34 | 1.21 |
+   | Title 2 | 小标题 `heading` | 22 → 28 | 1.27 |
+   | Body | 正文 `body` | 17 → 22 | 1.29 |
+   | Subheadline | 引用 `quote` | 15 → 20 | 1.33 |
+
+   （模拟器实测 `UIFont.preferredFont(forTextStyle:)`：Body 17pt → `lineHeight` 20.29 +
+   `leading` 1.72 = 22.01，与表一致。）
+
+2. **HIG 同一页明确要求长段落用松行距**：
+
+   > "when you display text in wide columns or long passages, more space between lines
+   > (loose leading) can make it easier for people to keep their place while moving from
+   > one line to the next."
+
+   日记正是「long passages」，所以正文不能只贴着 1.29 的下限走。
+
+3. **中日韩正文必须容得下真正画字的字体**（模拟器实测）：
+
+   | 字体 | `lineHeight ÷ 字号` | 17pt 时的行高 |
+   |---|---|---|
+   | 系统字体 SF（行盒按它算） | 1.193 | 20.29 |
+   | PingFang SC（真正画汉字的） | **1.400** | **23.80** |
+
+   差值 3.5pt：汉字的字面几乎顶满行盒，这就是「中文看着挤」。1.40 是 CJK 的硬下限。
+
+### 8.2 模型
+
+```swift
+EditorBlockStyle.lineHeightRatio   // 目标「总行高 ÷ 字号」
+EditorBlockStyle.lineSpacing       // = 字号 × (lineHeightRatio − 1.193)
+```
+
+| 块 | lineHeightRatio | 行高（默认字号） | 依据 |
+|---|---|---|---|
+| 大标题 | 1.25 | 35.0（28pt） | HIG 1.21 之上留一点余量 |
+| 小标题 | 1.32 | 29.0（22pt） | HIG 1.27 之上留一点余量 |
+| 正文 | **1.50** | **25.5（17pt）** | 长段落松行距（HIG）+ 高于 CJK 下限 1.40 |
+| 引用 | **1.60** | **24.0（15pt）** | 引用是「引文」，比正文再松一点 |
+
+段距**全部由段前距承担**（`paragraphSpacing` 一律为 0），因为 TextKit 把段前距折进**这一段
+自己的行盒**、段后距折进上一段的盒底，而每一行下面本来就还压着 `lineSpacing`。选段前距有
+三个好处：两段之间的实际空隙算得清（上一段的 `lineSpacing` + 这一段的段前距）、图片上下
+能配平、**贴边的段距会被 TextKit 丢掉**（读模式每块是独立文本视图，块首块尾因此不会多出
+空白）。
+
+| 块 | 段前距（默认字号） | 两段之间的实际空隙 |
+|---|---|---|
+| 正文 `body` | 0.50 × 17 = **8.5** | 5.2 + 8.5 = **13.7**（半行多一点） |
+| 小标题 `heading` | 0.55 × 22 = 12.1 | 上面 17.3 / 下面 11.3（仍然「离上文远」） |
+| 大标题 `title` | 0.55 × 28 = 15.4 | 上面 20.6 / 下面 10.1 |
+| 引用 `quote` | 0.60 × 15 = 9.0 | 上下都 ≈ 14（对称） |
+| 列表 / 待办项 | 0.15 × 17 = **2.55** | 4.3 + 2.6 = **6.8**（同一组，挨紧） |
+
+### 8.3 图片：两次「看不见的空白」
+
+TextKit 2 把附件放在**基线上**，于是行盒和墨迹不重合。17pt 正文实测：
+
+* 图片**上方**：上一段的行盒底比它的墨迹低 **2.6pt**（0.153em）—— 眼睛看不到；
+* 图片**下方**：下面那一行的墨迹从自己的行盒顶往下 **12.5pt**（0.735em）才开始
+  （CJK 字面远低于 ascent）—— 同样看不到。
+
+所以图片的段前距要 **+2.6**、段后距要 **−12.5**，肉眼上下的空白才真的一样多（都是一段
+正文之间的 13.6pt）。读模式那一侧由 `DiaryPartsView` 的 padding 给，值同样扣掉了正文块
+自己的 `textContainerInset` 与那 2.6pt（`EditorDesignSize.readerImagePadding`），两个模式
+因此画出同样的留白。另外**紧跟在图片后面的那一段不再加段前距**（`appendLine(followsImage:)`）
+—— 图片自己已经把间距给足，而且读模式里那一段本来就是新的一块、段前距同样不生效。
+
+这些常数是**字体几何**（换字体 / 换书写系统要重新实测），不是设计偏好；
+`EditorSpacingTests.testImageIsNotGluedToTheTextAroundIt` 把它画成位图逐行量过。
+
+### 8.4 测试
+
+`JustDiaryTests/EditorSpacingTests` 现在钉住：
+
+* 段后距一律为 0、段前距 > 0，且 大标题 > 小标题 > 正文（`testParagraphSpacingComesFromTheSpaceBefore`）；
+* 每个块的行高 ≥ HIG 的行高，成段的块 ≥ CJK 下限，正文 = 1.50
+  （`testLineHeightFollowsTheAppleLadderAndTheCJKFloor`）；
+* 真排一遍：两段正文之间的空隙 = 段前距（`testBodyParagraphsAreSeparatedByHalfALine`）、
+  小标题离上文比离下文远（`testHeadingKeepsMoreRoomAboveThanBelow`）、图片上下的**可见**
+  留白一样多且等于 `imageSpacing`（`testImageIsNotGluedToTheTextAroundIt`，按像素量）、
+  编辑区与读模式图片留白同值（`testImageIsVisuallyBalancedByTheModel`）；
+* 读模式块内的段距与编辑区逐段相等（`testReaderTextChunkKeepsItsParagraphGaps`）。
