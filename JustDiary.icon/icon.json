@@ -39,6 +39,13 @@
         }
       ],
       "lighting" : "combined",
+      "position" : {
+        "scale" : 1.25,
+        "translation-in-points" : [
+          0,
+          0
+        ]
+      },
       "refractivity" : {
         "depth" : 0.5,
         "enabled" : true,
@@ -56,6 +63,7 @@
     },
     {
       "blur-material" : null,
+      "hidden" : true,
       "layers" : [
         {
           "blend-mode" : "normal",
