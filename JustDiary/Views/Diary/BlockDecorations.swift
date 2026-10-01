@@ -361,7 +361,8 @@ class DiaryTextView: UITextView {
             if paragraphLength > 0, isQuoteParagraph(at: lineStart),
                let textFrame = textFrame(layoutManager: layoutManager,
                                          contentManager: contentManager,
-                                         location: lineStart, length: paragraphLength) {
+                                         location: lineStart, length: paragraphLength,
+                                         emptyParagraph: contentLength == 0) {
                 blocks.append(block(for: textFrame))
             }
             lineStart = lineEnd + 1
@@ -403,9 +404,9 @@ class DiaryTextView: UITextView {
             for line in fragment.textLineFragments where line.characterRange.length == 0 {
                 let bounds = line.typographicBounds.offsetBy(dx: origin.x, dy: origin.y)
                 guard bounds.minY.isFinite else { continue }
-                // 高度换成这一档字号自己的行高：extra line fragment 的高度带着行距，
-                // 直接用它会让这一块比有字时高一行距（和 `textFrame` 里同一条规则）。
-                let lineBox = CGRect(x: bounds.minX, y: bounds.minY, width: 0, height: quoteLineHeight)
+                // 高度换成这一档字号自己的行高、并贴下沿摆：extra line fragment 的行框
+                // 比真实行高出一份行距（和 `textFrame` 里同一条规则，见 `emptyLineBox`）。
+                let lineBox = emptyLineBox(extra: bounds, origin: .zero)
                 frame = frame.map { $0.union(lineBox) } ?? lineBox
             }
             return false
@@ -419,6 +420,19 @@ class DiaryTextView: UITextView {
     /// 引用字号画出来的行高（空段落的那一块用它当高度）。
     private var quoteLineHeight: CGFloat {
         EditorFont.font(EditorBlockStyle.quote.designSize, typeSize: contentTypeSize).lineHeight
+    }
+
+    /// 空段落那条 extra line fragment 对应的**行框**（文本容器坐标）。
+    ///
+    /// 空行没有字形，TextKit 给它的这条行框比「真的输入一个字之后」那一行**高出一份
+    /// 行距**，而且是从下沿往上长的：实测同一条空引用行，空着时行框是 [26.90, 50.91]、
+    /// 输入一个字之后是 [33.01, 50.91]（下沿一样、上沿差 6.11pt，正好是引用的行距）。
+    /// 所以这里**取下沿当基准**、高度换成这一档字号的正常行高 —— 照上沿摆的话，块会比
+    /// 输入之后偏高一份行距（用户报的「新行的引用背景偏高，一打字才落到位」）。
+    private func emptyLineBox(extra: CGRect, origin: CGPoint) -> CGRect {
+        let bounds = extra.offsetBy(dx: origin.x, dy: origin.y)
+        return CGRect(x: bounds.minX, y: bounds.maxY - quoteLineHeight,
+                      width: 0, height: quoteLineHeight)
     }
 
     /// 这一段是不是引用：看块类型（`.diaryBlockStyle`），再看旧的底色属性（导入内容
@@ -444,9 +458,13 @@ class DiaryTextView: UITextView {
     ///
     /// 只并真实行（`characterRange.length > 0`）之后，块只跟这一段文字有关，与前后文
     /// 无关。TextKit 2 是懒排版，这里只把这一段排出来，不会牵动整篇。
+    ///
+    /// `emptyParagraph` 交给调用方判：**空段落**（只有它自己的换行符）的那条行框比真实行
+    /// 高出一份行距，要按 `emptyLineBox` 贴下沿摆，否则块会比输入之后偏高一份行距。
     private func textFrame(layoutManager: NSTextLayoutManager,
                            contentManager: NSTextContentManager,
-                           location: Int, length: Int) -> CGRect? {
+                           location: Int, length: Int,
+                           emptyParagraph: Bool = false) -> CGRect? {
         let documentStart = contentManager.documentRange.location
         guard let start = contentManager.location(documentStart, offsetBy: location),
               let end = contentManager.location(start, offsetBy: length),
@@ -467,11 +485,12 @@ class DiaryTextView: UITextView {
             let realLines = lines.filter { $0.characterRange.length > 0 }
             if realLines.isEmpty {
                 // 空段落（刚点「引用」还没输入）只有一条 extra line fragment：它的高度
-                // 带着行距，直接用会让块比有字时高一行距（一打字就变矮）。所以只用它
-                // 定位，高度换成这一档字号自己的行高。
+                // 带着行距，直接用会让块比有字时高一行距（一打字就变矮）。所以高度换成
+                // 这一档字号自己的行高，并且**贴它的下沿**摆 —— 这一条的下沿与「真的
+                // 输入一个字之后」那一行的下沿重合，而它的上沿比真实行高出一份行距，
+                // 照它摆整块会偏高（用户报的：新行的引用背景偏高，一打字才落到位）。
                 if let extra = lines.first?.typographicBounds {
-                    let bounds = CGRect(x: extra.minX + origin.x, y: extra.minY + origin.y,
-                                        width: 0, height: quoteLineHeight)
+                    let bounds = emptyLineBox(extra: extra, origin: origin)
                     rect = rect.map { $0.union(bounds) } ?? bounds
                 } else {
                     let bounds = CGRect(x: origin.x, y: origin.y, width: 0, height: quoteLineHeight)
@@ -486,7 +505,9 @@ class DiaryTextView: UITextView {
                 // （`CGRect.isEmpty` 对宽度为 0 也成立，用它当守卫会把空引用行漏掉）。
                 guard !bounds.isNull, bounds.height > 0,
                       bounds.minY.isFinite, bounds.height.isFinite else { continue }
-                rect = rect.map { $0.union(bounds) } ?? bounds
+                // 空段落的那条行框比真实行高出一份行距：按 `emptyLineBox` 贴下沿摆。
+                let box = emptyParagraph ? emptyLineBox(extra: line.typographicBounds, origin: origin) : bounds
+                rect = rect.map { $0.union(box) } ?? box
             }
             return true
         }

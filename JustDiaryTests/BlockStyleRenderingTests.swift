@@ -302,6 +302,30 @@ final class BlockStyleRenderingTests: XCTestCase {
                              "空行的块在引用行下面")
     }
 
+    /// 空引用行的底色块要摆**将来输入文字的那个位置**上：没输入之前不能偏高（用户报的
+    /// 「换行之后、还没输入内容之前，新行的引用背景偏高，输入内容后才落到位」）。
+    ///
+    /// 空段落那条 extra line fragment 的行框比真实行高出一份行距（实测空着 [26.90, 50.91]、
+    /// 有字 [33.01, 50.91]，下沿一样），所以块要贴**下沿**摆、高度换成正常行高。
+    func testEmptyQuoteLineBlockSitsWhereTheTypedLineWillBe() {
+        let (controller, editor) = makeEditor([quote("甲"), body("乙")])
+        editor.selectedRange = NSRange(location: 1, length: 0) // 引用文字末尾
+        controller.resyncBlockAttributesWithCaret()
+        XCTAssertTrue(controller.handleReturn(at: 1), "回车：中间那条空引用行")
+        layout(editor)
+        let empty = editor.blockDecorations.quotes.last?.frame
+        XCTAssertNotNil(empty, "空引用行也要有块")
+
+        editor.insertText("丙")
+        layout(editor)
+        let typed = editor.blockDecorations.quotes.last?.frame
+
+        XCTAssertEqual(empty?.minY ?? -1, typed?.minY ?? -2, accuracy: 0.5,
+                       "空着的时候块就该在输入之后的位置上（修复前偏高一份行距 6.11pt）")
+        XCTAssertEqual(empty?.height ?? -1, typed?.height ?? -2, accuracy: 0.5,
+                       "高度也要一样（修复前多出一份行距）")
+    }
+
     /// 装饰层在**文字后面**：文本视图的子层顺序不能把底色盖在字上面。
     func testDecorationLayerStaysBehindTheText() {
         let tv = makeReader([quote("引用")])

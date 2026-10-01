@@ -374,6 +374,35 @@ final class EditorFormatBehaviorTests: XCTestCase {
         XCTAssertTrue(controller.handleReturn(at: 2), "空引用行上的回车被吃掉（结束引用）")
     }
 
+    /// 在续出来的空引用行上**取消引用 → 输入文字 → 再把文字删掉**：这一行还是正文。
+    ///
+    /// 文末那条空行没有自己的字符，样式只活在 `typingAttributes` 里；UIKit 每次光标 /
+    /// 文字变化都会按**上一段的换行符**重算那份字典、把块类型抹掉 —— 于是取消掉的引用
+    /// 自己又回来了（用户报的）。所以编辑器为这一行记一份「用户最后挑的样式」。
+    func testCancelledQuoteOnTheTrailingEmptyLineDoesNotComeBack() {
+        let (controller, tv) = makeEditor([])
+        controller.toggleQuote()
+        tv.insertText("甲")
+        XCTAssertTrue(controller.handleReturn(at: 1), "回车：新行接着引用")
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .quote)
+
+        controller.toggleQuote() // 在这条空引用行上取消引用
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .body)
+
+        tv.insertText("乙")
+        controller.resyncBlockAttributesWithCaret() // 真实链路里由光标变化回调调
+        XCTAssertEqual(styles(controller), [ContentPartStyle.quote, ContentPartStyle.body])
+
+        tv.deleteBackward()
+        controller.resyncBlockAttributesWithCaret()
+        XCTAssertEqual(tv.textStorage.string, "甲\n")
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .body,
+                       "取消掉的引用不该因为把字删掉又回来")
+        XCTAssertFalse(controller.isQuoteActive(), "引用按钮也不该自己亮起来")
+        XCTAssertEqual((tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? -1, 0,
+                       "也不该留下引用的缩进")
+    }
+
     /// 文末那条空行接着**列表 / 待办**时：块类型是正文，但 UIKit 从上一段的换行符推出
     /// 的段落几何还带着标记的悬挂缩进（18 / 26pt）与更小的段距 —— 在那里打字得到的是
     /// 正文，折行却缩进 18pt、段间距也不对。按块类型重排一遍。

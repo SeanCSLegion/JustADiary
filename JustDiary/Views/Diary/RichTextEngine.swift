@@ -321,7 +321,7 @@ final class RichEditorController {
     }
 
     func refreshTypingAttributes() {
-        textView?.typingAttributes = baseTypingAttributes()
+        if let tv = textView { setTypingAttributes(baseTypingAttributes(), in: tv) }
         notifyFormatChange()
     }
 
@@ -476,7 +476,7 @@ final class RichEditorController {
             notifyFormatChange()
         }
         keepCaretOnItsLine(caret, lineStart: lineStart, lengthBefore: lengthBefore, dropped: dropped)
-        tv.typingAttributes = typingAttributes(for: block)
+        setTypingAttributes(typingAttributes(for: block), in: tv)
         carryEmptyLineAlignment(of: block, into: tv)
         syncEmptyParagraphWithTypingAttributes()
         ensureCaretGeometry()
@@ -593,7 +593,19 @@ final class RichEditorController {
     /// 只有**文末那条空行**例外，见下。
     func resyncBlockAttributesWithCaret() {
         guard let tv = textView, let caret = caretBlockStyle() else { return }
-        let block = caret.block
+        let block: EditorBlockStyle
+        if caret.trailingEmptyLine, let line = trailingEmptyLineBreak(in: tv) {
+            // 文末那条空行：它的样式只活在打字态里，而 UIKit 每次光标 / 文字变化都会把
+            // 自定义键抹掉、按上一段的换行符重算 —— 于是「在它上面取消引用 → 输入文字 →
+            // 再把文字删掉」之后，取消掉的引用自己又回来了（用户报的）。
+            // 所以这一行以「用户最后一次为它挑的样式」为准（`trailingEmptyLineStyle`），
+            // 没记过才退回「延续上一段」。
+            let remembered = trailingEmptyLineStyle?.breakIndex == line ? trailingEmptyLineStyle?.block : nil
+            block = EditorFont.blockStyle(of: tv.typingAttributes) ?? remembered ?? caret.block
+            trailingEmptyLineStyle = (line, block)
+        } else {
+            block = caret.block
+        }
         if EditorFont.blockStyle(of: tv.typingAttributes) != block {
             tv.typingAttributes[.diaryBlockStyle] = block.rawValue
         }
@@ -608,6 +620,37 @@ final class RichEditorController {
         let alignment = (tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.alignment
         tv.typingAttributes[.paragraphStyle] = PartsCodec.paragraphStyle(
             block, center: alignment == .center && block != .quote, typeSize: dynamicTypeSize)
+    }
+
+    /// 文末那条**没有自己字符**的空行当前的块类型记录（见 `trailingEmptyLineStyle`）。
+    ///
+    /// `breakIndex` 是文档最后一个换行的位置：那一个换行换了，这一行就是「另一条空行」了。
+    private var trailingEmptyLineStyle: (breakIndex: Int, block: EditorBlockStyle)?
+
+    /// 光标是不是停在**文末那条没有自己字符的空行**上；是的话给出文档最后一个换行的位置。
+    ///
+    /// 「文末那条空行」= 文档以换行结尾（或整篇为空）时的最后一段。它没有字符，样式只能
+    /// 放在打字态里，UIKit 又会按上一段的换行符重算 —— 所以这一段要单独认。
+    private func trailingEmptyLineBreak(in tv: UITextView) -> Int? {
+        let storage = tv.textStorage
+        guard tv.selectedRange.length == 0, tv.selectedRange.location >= storage.length else { return nil }
+        let ns = storage.string as NSString
+        guard ns.length == 0 || ns.character(at: ns.length - 1) == 0x0A else { return nil }
+        return ns.length - 1
+    }
+
+    /// 记下「用户为文末那条空行挑的样式」。设置打字态的地方都经过 `setTypingAttributes`，
+    /// 所以光标停在这一行上时挑的样式都会被记住。
+    private func rememberTrailingEmptyLineStyle() {
+        guard let tv = textView, let line = trailingEmptyLineBreak(in: tv),
+              let block = EditorFont.blockStyle(of: tv.typingAttributes) else { return }
+        trailingEmptyLineStyle = (line, block)
+    }
+
+    /// 设置打字态，并顺手记下文末空行的样式（见 `trailingEmptyLineStyle`）。
+    private func setTypingAttributes(_ attrs: [NSAttributedString.Key: Any], in tv: UITextView) {
+        tv.typingAttributes = attrs
+        rememberTrailingEmptyLineStyle()
     }
 
     /// 光标所在那一段的块类型，以及它是不是**文末那条没有自己字符的空行**。
@@ -925,7 +968,7 @@ final class RichEditorController {
         // attributes cannot carry it. Turning the marker *off* goes back to plain
         // body attributes: a marker's hanging indent left on a plain paragraph
         // would indent its wrapped lines for no reason.
-        tv.typingAttributes = isMarked ? baseTypingAttributes() : markerTypingAttributes(kind: kind)
+        setTypingAttributes(isMarked ? baseTypingAttributes() : markerTypingAttributes(kind: kind), in: tv)
         // Toggling the marker *off* can leave an empty line behind; toggling it on
         // puts a marker on the line, so there is nothing left to sync there.
         syncEmptyParagraphWithTypingAttributes()
@@ -1003,7 +1046,7 @@ final class RichEditorController {
             ))
             storage.insert(insertion, at: insertAt)
             tv.selectedRange = NSRange(location: insertAt + insertion.length, length: 0)
-            tv.typingAttributes = bodyAttributes
+            setTypingAttributes(bodyAttributes, in: tv)
             notifyFormatChange()
             return true
         }
@@ -1019,7 +1062,7 @@ final class RichEditorController {
         if contentEnd <= lineStart, quoted {
             // 空行上只有它自己的换行符可选；真选了就交回 UIKit（替换换行符 = 并段）。
             guard range.length == 0 else { return false }
-            tv.typingAttributes = baseTypingAttributes()
+            setTypingAttributes(baseTypingAttributes(), in: tv)
             // The line itself has to stop looking like a quote too, not just the
             // next typed character.
             syncEmptyParagraphWithTypingAttributes()
@@ -1043,7 +1086,7 @@ final class RichEditorController {
                                             : min(max(location, lineStart), contentEnd)
             storage.insert(NSAttributedString(string: "\n", attributes: attrs), at: insertAt)
             tv.selectedRange = NSRange(location: insertAt + 1, length: 0)
-            tv.typingAttributes = attrs
+            setTypingAttributes(attrs, in: tv)
             // 文档中间那条新空行有自己的换行符，行样式要一并写成引用（B22）；文末那条
             // 空行没有字符，它的行盒本来就由打字态排出。
             syncEmptyParagraphWithTypingAttributes()
@@ -1076,7 +1119,7 @@ final class RichEditorController {
             let target = min(max(0, max(location, selection.location + delta)), tv.textStorage.length)
             tv.selectedRange = NSRange(location: target, length: 0)
         }
-        tv.typingAttributes = baseTypingAttributes()
+        setTypingAttributes(baseTypingAttributes(), in: tv)
         // Ending a list/to-do leaves an empty line the caret is on: it has to be
         // laid out as a plain paragraph, not as the item that just ended.
         syncEmptyParagraphWithTypingAttributes()
@@ -1115,7 +1158,7 @@ final class RichEditorController {
         // character — so the caret (or the selection) has to be put back on this
         // line by hand.
         keepCaretOnItsLine(caret, lineStart: lineStart, lengthBefore: lengthBefore, dropped: dropped)
-        tv.typingAttributes = typingAttributes(for: block)
+        setTypingAttributes(typingAttributes(for: block), in: tv)
         carryEmptyLineAlignment(of: block, into: tv)
         syncEmptyParagraphWithTypingAttributes()
         ensureCaretGeometry()
@@ -1421,7 +1464,7 @@ final class RichEditorController {
             style.paragraphSpacingBefore = 0
             typing[.paragraphStyle] = style
         }
-        tv.typingAttributes = typing
+        setTypingAttributes(typing, in: tv)
         notifyFormatChange()
     }
 
@@ -1439,6 +1482,8 @@ final class RichEditorController {
         )
         tv.typingAttributes = baseTypingAttributes()
         tv.selectedRange = NSRange(location: 0, length: 0)
+        // 整篇换掉了：文末空行的记忆跟着作废（键是「文档最后那个换行的位置」）。
+        trailingEmptyLineStyle = nil
         notifyFormatChange()
     }
 
@@ -1466,6 +1511,7 @@ final class RichEditorController {
         guard let tv = textView else { return }
         tv.textStorage.setAttributedString(NSAttributedString())
         tv.typingAttributes = baseTypingAttributes()
+        trailingEmptyLineStyle = nil
         notifyFormatChange()
     }
 
