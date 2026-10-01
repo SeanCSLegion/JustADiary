@@ -256,6 +256,11 @@ class DiaryTextView: UITextView {
 
     private func installDecorations() {
         blockDecorations.contentsScale = displayScale
+        // **尺寸变了要重画**（B30）。这一层的高度跟着输入区走（输入区的高度又跟着行数长），
+        // 而 CALayer 在 bounds 变化时默认**不重画**，只把上一次画好的内容拉伸填满新尺寸 ——
+        // 于是引用底色块被越拉越高：顶边不动、底边一路往下跑，下面的正文行数越多偏得越多。
+        // 打开这个开关之后，每次尺寸变化都会重新按当前几何画一遍。
+        blockDecorations.needsDisplayOnBoundsChange = true
         // 插在最底下：文本是后面的子层画的，装饰在文字后面。
         layer.insertSublayer(blockDecorations, at: 0)
         // 深浅色一换，引用块的图层颜色与标记图形的位图都要重画 —— 它们都是按当时的

@@ -15,7 +15,7 @@
 > `JustDiary/Views/Diary/RichTextEngine.swift`。其中 `paragraphRanges(covering:)`
 > 一段的范围判定有缺陷，是「样式没及时生效 / 影响范围不对」的主要来源（见第五节 B1）。
 >
-> **状态：R1–R4 已按本文实现并验证**（B1–B11、B12–B29 全部修复，见第五、六、七节；
+> **状态：R1–R4 已按本文实现并验证**（B1–B11、B12–B30 全部修复，见第五、六、七节；
 > 只有 B15 的第 ② 项是「接受为已知限制」）。
 > 第二、三节的表格是**规范**（应该是什么样），第四、五节保留**修复前的现状**，
 > 便于回看问题从哪来。
@@ -229,6 +229,7 @@ Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —�
 | **B11** | 高 | `DiaryPageView` / `FontToolbar` | 横屏进编辑时格式栏是**竖排**的一列，比屏幕还高：整条被裁掉、贴在全屏底部中间，与正文列对不上 | `fontToolbarVertical = layout.splitsMasterDetail`，横屏走 `VStackLayout`；9 个按钮竖排约 454pt > 横屏可用高度 402pt | 与备忘录一致：横竖屏都是键盘上方的**横排**一条 | ✅ 修（`editor.formatBar` 的 frame 断言守住） |
 | **B28** | 中 | `BlockDecorations.swift` `textFrame(...)` / `RichTextView.Coordinator.notifyFormatChange()` / `RichEditorController.insertImage` | 编辑时引用块的**蓝底高度随后续输入变高变矮**（用户报）：同一段引用在文档末尾块高 78.0、后面接一段内容后 45.0，而单行引用应该是 29.9；点完「引用」还没输入时看不到底色；刚插入图片后接着打字的那一段多 8.5pt 段前距 | 装饰层拿整段的 `layoutFragmentFrame` 当块的框，把三样**不属于这一行文字**的东西都算了进来：段落自己的段前距（引用 9pt）、段后距与行距、以及段落结尾那条空行（`characterRange` 为空的 extra line fragment —— 文档末尾的引用天然带着它，实测 +24pt，后面一有内容就消失）；空引用行的行框**宽度是 0**，而 `CGRect.isEmpty` 对宽度 0 也成立，守卫把它当空框跳过 | ① 块只并这一段**真实行**（`characterRange.length > 0`）的 `typographicBounds`，只跟这一段文字有关（单行 29.9 / 两行 53.9）；② 空引用行改看纵向（`height > 0`），只有 extra line fragment 时用它的位置 + 这一档字号的正常行高；③ `insertImage` 把图片后面那一段的段前距一并置 0 | ✅ 修（346e722；细节见 `docs/editor-typography.md` §7.2） |
 | **B29** | 高 | `RichEditorController.handleReturn(in:)` / `resyncBlockAttributesWithCaret()`（`RichTextEngine.swift`）、`DiaryTextView.quoteBlocks()`（`BlockDecorations.swift`） | **引用行上回车得到的是「顶着引用缩进的正文」**（用户报）：新行自动不再是引用（底色没了、引用按钮灭了），缩进与光标却还留在引用那一份，而且**再回车也还是这份缩进**，得点一次别的格式再取消才回得来。同一条路还会漏出别的残留：在文末那条空行上接着列表 / 待办打字，段落拿到的是标记的悬挂缩进（18 / 26pt）。另外点完「引用」还没输入时，这一行看不到底色 | ① 回车交给 UIKit 时，新行只继承 `typingAttributes`，而 UIKit 每次都按光标处的文字重算这个字典、**只认自己认识的键** —— `.diaryBlockStyle`（块类型）被抹掉，「引用」就只剩 15pt 与 16pt 缩进；② 文末那条空行**没有自己的字符**，它的行盒完全由打字态排出（`quoteBlocks()` 按字符遍历，走不到它），而 UIKit 推导这份打字态时看的是上一段的换行符 —— 上一段是列表 / 待办时，标记的悬挂缩进与更小的段距就留在这一行上 | ① 引用行的回车由编辑器自己处理：插入一个带**引用整套属性**的换行符（块类型、字号、段落几何、行距），空引用行上再回车才结束引用并 `ensureCaretGeometry()` 让光标从缩进退回列首；② 新增 `resyncBlockAttributesWithCaret()`，光标一落定就按**光标所在那一段**把块类型补回打字态（有字看段落第一个字符、中间空行看它自己的换行符、文末空行看上一段的延续），文末空行另外按块类型重排段落几何；③ `quoteBlocks()` 补上文末那条空行：光标停在它上面且打字态是引用时，用文末片段末尾那条 extra line fragment 画底色块（空文档没有片段，取容器顶端）；④ 顺手修掉这条路上「有选区时回车」的老问题：`handleReturn` 改成收 `NSRange`（`shouldChangeTextIn` 给的那个），自己插换行的两条路径（引用 / 列表）先把选区删掉再插 —— 它们不把编辑交回 UIKit，不删的话新行会插在选中文字中间；空行上只有一个换行符可选，真选了就返回 false 交回 UIKit | ✅ 修 |
+| **B30** | 高 | `BlockDecorations.swift` `installDecorations()` / `refreshBlockDecorations()` | **引用底色块的位置会随下面的行数漂**（用户报）：一行引用后面接着写正文，正文行数越多，引用块的底边越往下跑（顶边不动）——实测同一段单行引用：刚写完时 89px，下面写满 6 段正文后 234px；底色块甚至盖住了下面第一段正文 | 输入区的高度跟着行数长，装饰层的 frame 也跟着长；而 **CALayer 在 bounds 变化时默认不重画**，只把上一次画好的内容**拉伸**填满新尺寸（`needsDisplayOnBoundsChange` 默认 false）。`refreshBlockDecorations()` 只在 `quotes` 数组变化时调 `setNeedsDisplay()`，而「同一段引用 + 输入区变高」时数组一个字都没变 —— 于是那张旧图被越拉越高。几何本身一直是对的（`quoteBlocks()` 每次算出来的 frame 都稳定在 29.9pt） | `BlockDecorationLayer` 开 `needsDisplayOnBoundsChange = true`：尺寸一变就按当前几何重画 | ✅ 修 |
 
 ### B1 的细节（为什么「行首」这个位置这么常见）
 
@@ -280,6 +281,7 @@ paragraphRanges 的循环：
 | B15 | `DiaryPageView`：顶栏从 ScrollView 的 `safeAreaInset` 改成 ZStack 里的 `topBarOverlay`（顶对齐 + `onGeometryChange` 量高度给内容当 padding） | `EditorFlowUITests.testTappingBlankSpaceDismissesTheKeyboard` 里的「滚动后顶栏位置不变」断言（横屏收键盘之后测） |
 | B16 | `refitImages` 的宽度改成 `max(60, maxWidth)`，与 `PartsCodec` 一致 | `EditorSpacingTests.testImageFillsTheColumnAndStaysCentred`（同一条规则：列决定宽度） |
 | **B29** | ① `handleReturn(in:)`（收 `shouldChangeTextIn` 的 `NSRange`，光标版本 `handleReturn(at:)` 仍保留）新增引用分支：有文字的引用行 → 自己插入带引用属性的换行符、把光标放到新行并重设 `typingAttributes`（有选区先把选区删掉），空引用行 → 结束引用并 `ensureCaretGeometry()`；② 新增 `resyncBlockAttributesWithCaret()`（`RichTextView.Coordinator.textViewDidChangeSelection` 里调用）：按光标所在那一段补回 `.diaryBlockStyle` / `.diaryDesignSize`，文末那条空行另外按块类型重排段落几何；③ `DiaryTextView.quoteBlocks()` 补上文末空行的底色块（`trailingEmptyLineFrame`，从文末反向枚举取 extra line fragment），并把「排版框 → 块 + 竖条」抽成 `block(for:)` | `EditorFormatBehaviorTests`（`testReturnOnAQuotedLineContinuesTheQuote`、`testReturnInTheMiddleOfAQuoteKeepsBothHalvesQuoted`、`testTypingInAQuoteAndPressingReturnTwiceEndsItOnAPlainLine`、`testReturnOnAnEmptyQuotedLineEndsTheQuote`、`testResyncRestoresTheBlockTypeUIKitDrops`、`testResyncReadsAnEmptyQuotedLineFromItsOwnNewline`、`testResyncDropsTheMarkerIndentFromTheTrailingEmptyLine`）、`EditorEmptyLineTests`（`testReturnOnAQuotedLineKeepsTheIndentOnlyWhileTheLineIsAQuote`、`testReturnOnAQuotedLineInTheMiddleMovesTheIndentWithTheStyle`）、`BlockStyleRenderingTests.testTrailingEmptyQuoteLineGetsABlockWhileTheCaretIsOnIt`、`EditorStyleButtonUITests.testReturnInAQuoteContinuesTheQuoteAndASecondReturnEndsIt` |
+| **B30** | `BlockDecorationLayer` 开 `needsDisplayOnBoundsChange = true`（`DiaryTextView.installDecorations()`） | `BlockStyleRenderingTests.testQuoteBlockIsNotStretchedWhenTheEditorGrows`（把输入区从 400pt 拉到 900pt，数渲染出来的底色块像素行数：保持 89 行；先关掉那一句确认它变红 —— 200 行 —— 再打开确认变绿）；模拟器上按用户路径取证（点引用 → 输入 → 结束引用 → 逐段写正文，逐帧截图数底色块像素）：修复前 89 → 102 → 135 → 168 → 202 → 234px，修复后 6 帧全是 89px |
 
 行距 / 段距 / 图片留白的模型与实测数值不在本文范围，见
 `docs/editor-typography.md` 第五节（含 `JustDiaryTests/EditorSpacingTests`）。
@@ -371,7 +373,8 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
     还要把行样式写进那个换行符 —— 否则「这一行」与光标会停在旧样式里。写入的只是一个不可见的
     换行符，不动任何已输入的文字，也不影响相邻段落；空行本来就不入库。
 13. **末尾空段落的光标几何**（B27）：文档以换行结尾时，最后那个空段落没有字符、TextKit 2 也不给它片段，UIKit 会把光标几何退回上一行末尾 —— 所以每次切换行样式之后都要 `ensureCaretGeometry()` 把这一段作废重排。
-14. **光标停在「列表项下一行的空行」上时回车不续列表**：那一行自己没有标记，而 R3 只在
+14. **装饰层尺寸变了必须重画**（B30）：这一层的高度跟着输入区长（输入区高度又跟着行数长），而 CALayer 在 bounds 变化时默认只把旧内容拉伸填满新尺寸 —— 引用底色块会被越拉越高（顶边不动、底边往下跑），所以 `needsDisplayOnBoundsChange` 必须为 true，不能只靠「`quotes` 变了才 `setNeedsDisplay()`」。
+15. **光标停在「列表项下一行的空行」上时回车不续列表**：那一行自己没有标记，而 R3 只在
    「当前行有标记且标记后还有文字」时另起一项。这是有意的 —— 否则空项回车刚结束列表，
    下一次回车又被上一行的标记续上，用户永远退不出列表。要续列表，把光标放回带标记的
    那一行（在那行末尾按回车）。
@@ -405,11 +408,12 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
 | `MarkerAttachment.attributed`（B25：标记也带行段落样式） | `RichTextEngine.swift:1633-1645` |
 | `imageParagraphStyle` / `readerChunk`（行距与图片留白） | `RichTextEngine.swift:1710-1752` |
 | 落库解析（B9 所在） | `RichTextEngine.swift:1864-1962` |
-| 引用底色块（**B29**：`quoteBlocks` / `trailingEmptyLineFrame`，含文末那条空行） | `JustDiary/Views/Diary/BlockDecorations.swift:322-413` |
+| 引用底色块（**B29**：`quoteBlocks` / `trailingEmptyLineFrame`，含文末那条空行） | `JustDiary/Views/Diary/BlockDecorations.swift:327-418` |
+| 装饰层与「尺寸变了要重画」（**B30**：`installDecorations` / `refreshBlockDecorations`） | `JustDiary/Views/Diary/BlockDecorations.swift:189-229`、`257-268`、`303-324` |
 | 阅读区块渲染（图片 padding、块间距 0） | `JustDiary/Views/Diary/MediaViews.swift:61-92` |
 | 阅读块规范化（去结尾空行 / 去图片段距） | `RichTextEngine.swift:1736-1752`（`PartsCodec.readerChunk`；由 `ReadTextView.rebuild()` 91-104 调用） |
 | 格式栏位置（键盘上方、横竖屏一致，B11） | `JustDiary/Views/Diary/DiaryPageView.swift:37-54` |
 | 光标 reveal 的滚动（B19 / **B26**：基数取当前内容坐标） | `JustDiary/Views/Diary/DiaryPageView.swift:222-290` |
 
 > 表内行号 2026-10-01 逐行按 `grep -n` 复核（`RichTextEngine.swift` 已 1980 行、`RichTextView.swift` 410 行、
-> `BlockDecorations.swift` 490 行；本次 B29 的改动整体后移了 `restyle` 之后的行号）。
+> `BlockDecorations.swift` 496 行；本次 B29 的改动整体后移了 `restyle` 之后的行号）。

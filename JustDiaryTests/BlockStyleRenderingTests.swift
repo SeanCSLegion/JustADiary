@@ -310,6 +310,61 @@ final class BlockStyleRenderingTests: XCTestCase {
                       "装饰层必须在最底下（文本层画在它上面）")
     }
 
+    // MARK: - B30：输入区长高时引用块不能被拉伸
+
+    /// 渲染出来的引用底色块有几行像素（一行里匹配的像素要过半，免得把抗锯齿边缘算成行）。
+    ///
+    /// 量的是**像素**而不是 `frame`：这个 bug 里几何一直是对的，错的是图层里那张已经画好的
+    /// 图 —— `refreshBlockDecorations` 每次都算对了，但 CALayer 在 bounds 变化时默认不重画。
+    private func quoteBlockPixelHeight(_ tv: DiaryTextView) -> Int {
+        let rendered = image(of: tv)
+        guard let cgImage = rendered.cgImage else { return 0 }
+        let w = cgImage.width, h = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return 0 }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        Theme.quoteBgUIColor().resolvedColor(with: tv.traitCollection).getRed(&r, green: &g, blue: &b, alpha: &a)
+        let target = (Int(r * 255), Int(g * 255), Int(b * 255))
+
+        var rows = 0
+        for y in 0..<h {
+            var matches = 0
+            for x in 0..<w {
+                let i = (y * w + x) * 4
+                if abs(Int(pixels[i]) - target.0) <= 3,
+                   abs(Int(pixels[i + 1]) - target.1) <= 3,
+                   abs(Int(pixels[i + 2]) - target.2) <= 3 {
+                    matches += 1
+                }
+            }
+            if matches > w / 2 { rows += 1 }
+        }
+        return rows
+    }
+
+    /// **输入区长高时，引用底色块只能重画，不能被拉长**（B30）。
+    ///
+    /// 装饰层的高度跟着输入区走，而输入区的高度又跟着行数长；CALayer 在 bounds 变化时
+    /// 默认把上一次画好的内容**拉伸**填满新尺寸、不重新画 —— 于是引用块顶边不动、底边
+    /// 一路往下跑，下面的正文行数越多偏得越多（用户报的「位置会有偏移」）。
+    func testQuoteBlockIsNotStretchedWhenTheEditorGrows() {
+        let (_, editor) = makeEditor([body("上文"), quote("引用"), body("下文")])
+
+        layout(editor, height: 400)
+        let short = quoteBlockPixelHeight(editor)
+        XCTAssertGreaterThan(short, 20, "先确认底色块真的画出来了")
+
+        // 只是把输入区拉高（真实链路里下面每多一行它就长一截），引用自己的几何没变。
+        layout(editor, height: 900)
+        let tall = quoteBlockPixelHeight(editor)
+        XCTAssertEqual(tall, short, accuracy: 1,
+                       "图层变高只该重画：修复前这一下会把底色块从 \(short) 行拉到 \(tall) 行")
+    }
+
     /// 字号档位变了，引用块与标记跟着放大。
     func testBlockGeometryFollowsTheTextSizeSetting() {
         XCTAssertGreaterThan(BlockMetrics.quoteTextInset(.accessibility3), BlockMetrics.quoteTextInset(.large))
