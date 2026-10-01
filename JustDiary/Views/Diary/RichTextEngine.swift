@@ -651,8 +651,9 @@ final class RichEditorController {
         style.lineSpacing = block.lineSpacing
         style.paragraphSpacing = block.paragraphSpacing
         // 段前距也要跟着换：少了这一句，编辑区里「选大标题」得到的行没有标题的
-        // 段前留白，而重新打开这篇日记（走 `PartsCodec.paragraphStyle`）却带着
-        // 9.8pt —— 同一条标题在两条链路上长得不一样。
+        // 段前留白，而重新打开这篇日记（走 `PartsCodec.paragraphStyle`）却带着它
+        // （改造前是 9.8pt，现行模型是 0.55 × 28 = 15.4，见 `lineHeightRatio` 那一节）
+        // —— 同一条标题在两条链路上长得不一样。
         style.paragraphSpacingBefore = block.paragraphSpacingBefore
         // 引用正文要让开左侧竖条；其它块（列表 / 待办的行会被 `restyle` 先摘掉标记）
         // 必须显式归零，否则从引用改成正文后整段会留在缩进里。
@@ -1501,9 +1502,9 @@ enum MarkerAttachment {
     /// The marker is the line's **first** character, and TextKit takes a
     /// paragraph's style from that character — a bare marker made the whole item
     /// fall back to the default paragraph style, silently dropping the body line
-    /// spacing (measured: a wrapped list line advanced 20.29pt instead of the
-    /// body's 22.5pt, while `docs/editor-typography.md` §5.1 documents 列表 /
-    /// 待办 as the body's 2.2). So the marker carries the line's paragraph style;
+    /// spacing (measured under the old model: a wrapped list line advanced
+    /// 20.29pt instead of the body's 22.5pt — today the body adds 5.219pt of
+    /// `lineSpacing`). So the marker carries the line's paragraph style;
     /// its size still comes from the attachment's own bounds, not from a font.
     static func attributed(kind: String, done: Bool = false,
                            typeSize: DynamicTypeSize = .large,

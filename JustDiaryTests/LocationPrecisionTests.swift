@@ -192,7 +192,7 @@ final class LocationPrecisionTests: XCTestCase {
     /// 这条路径就是 `DiaryViewModel.shareDiary()` 走的那条，所以它在测「分享」
     /// 这件事本身，而不只是某个字符串函数。
     func testShareBlockFromStoredBlockNeverCarriesPlaceOrStreet() {
-        let block = EditBlock(id: 1, diaryId: 1, startTimeUtc: 1_788_700_000_000,
+        let block = EditBlock(id: 1, startTimeUtc: 1_788_700_000_000,
                               locText: "腾讯滨海大厦, 深南大道 · 南山区 · 深圳市 · 广东省 · 中国",
                               latitude: 22.54, longitude: 114.06,
                               contentJson: #"{"v":2,"parts":[{"style":"body","text":"正文"}]}"#,

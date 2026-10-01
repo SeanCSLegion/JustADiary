@@ -1231,23 +1231,6 @@
         }
       }
     },
-    "index_future_toast" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You can't write a diary for a future date."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法为未来的日期写日记。"
-          }
-        }
-      }
-    },
     "index_title" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1567,23 +1550,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ 开始写"
-          }
-        }
-      }
-    },
-    "read_start_time_loc" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Started at %@ in %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ · 于%@开始写"
           }
         }
       }
@@ -3250,23 +3216,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "周日"
-          }
-        }
-      }
-    },
-    "share_image_placeholder" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Image"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "图片"
           }
         }
       }

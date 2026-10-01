@@ -25,8 +25,6 @@ struct HomeView: View {
     /// 发给竖屏月视图的「跳到某个月」请求与它的序号。
     @State private var monthJump: MonthFlowJump?
     @State private var jumpToken = 0
-    @State private var showFutureToast = false
-    @State private var futureToastTask: Task<Void, Never>?
 
     private var weekStart: String { vm.weekStart }
     private var showsLunar: Bool { AppLanguage.isZh }
@@ -53,30 +51,6 @@ struct HomeView: View {
             }
         }
         .ignoresSafeArea(edges: .bottom)
-        .overlay(alignment: .bottom) {
-            if showFutureToast {
-                Text(L10n.str("index_future_toast"))
-                    .diaryFont(TypeSize.meta)
-                    .foregroundStyle(Theme.onSurface())
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background {
-                        // A transient surface floating above the calendar: the
-                        // control layer, so it is glass rather than an opaque
-                        // capsule.
-                        Capsule()
-                            .fill(.clear)
-                            .glassEffect(.regular, in: Capsule())
-                    }
-                    .shadow(color: Theme.shadowColor(), radius: 12, y: 4)
-                    // 这颗 toast 挂在整块几何的底边上（几何一直延伸到屏幕底边），
-                    // 而浮条悬在内容之上：只让 24pt 的话 toast 整颗都落在浮条
-                    // 底下（竖屏浮条顶边在 y 791，toast 在 810–850），等于没显示。
-                    .padding(.bottom, layout.tabBarClearance + 24)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    .sensoryFeedback(.warning, trigger: showFutureToast)
-            }
-        }
         .task { await vm.loadInitial() }
         .onChange(of: layout.splitsMasterDetail) { _, split in
             // 旋转进横屏分栏时，年/周态与 morph 都必须收掉：横屏没有年历入口，
@@ -106,7 +80,7 @@ struct HomeView: View {
             expand = 0
             mode = .month
         }
-        // 左栏的滚动位置跟着行高变（横屏 45pt / SE 40.5pt），下一次进横屏重新静止。
+        // 左栏的滚动位置跟着行高变（横屏 18 Pro 45pt / SE 40pt），下一次进横屏重新静止。
         paneFlowOffset = nil
         Task { await vm.reloadDayBlocks() }
     }
@@ -338,20 +312,6 @@ struct HomeView: View {
         flowOffset = nil
         paneFlowOffset = nil
         Task { await vm.loadInitial() }
-    }
-
-    private func showFutureDateToast() {
-        futureToastTask?.cancel()
-        withAnimation(.snappy(duration: 0.25)) {
-            showFutureToast = true
-        }
-        futureToastTask = Task {
-            try? await Task.sleep(for: .seconds(2.5))
-            guard !Task.isCancelled else { return }
-            withAnimation(.snappy(duration: 0.25)) {
-                showFutureToast = false
-            }
-        }
     }
 
     // MARK: - Calendar area
@@ -656,7 +616,6 @@ struct HomeView: View {
                            isFuture: dayKey > DateUtil.dayKeyOf(Date()),
                            openEditor: openEditor,
                            openDiary: openEditor,
-                           showFutureToast: showFutureDateToast,
                            // `auto_time` 关闭时不显示开始时间（仅显示层，数据照常记录）。
                            showTime: vm.settings.autoTime)
         }

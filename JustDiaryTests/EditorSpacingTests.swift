@@ -209,8 +209,9 @@ final class EditorSpacingTests: XCTestCase {
     /// 列表 / 待办行按正文属性排版：行内换行也要有正文的 `lineSpacing`。
     ///
     /// 行首标记是这一行的**第一个字符**，而段落样式取自段落第一个字符 —— 标记上不带
-    /// 段落样式时，整条列表项会退回默认段落属性，把正文的 2.2pt 行距悄悄丢掉
-    /// （实测折行推进 20.29pt，正文是 22.5pt）。所以 `MarkerAttachment.attributed`
+    /// 段落样式时，整条列表项会退回默认段落属性，把正文的行距悄悄丢掉
+    /// （改造前实测折行推进 20.29pt，而正文是 22.5pt；现行模型下正文会多出
+    /// 5.219pt 的 `lineSpacing`）。所以 `MarkerAttachment.attributed`
     /// 会把行段落样式挂在标记上。
     func testMarkerLinesWrapWithTheBodyLineSpacing() {
         let long = String(repeating: "字", count: 40)

@@ -30,13 +30,6 @@ nonisolated final class ContentPartCache {
         }
         return parsed
     }
-
-    func invalidate() {
-        lock.lock()
-        defer { lock.unlock() }
-        storage.removeAll()
-        order.removeAll()
-    }
 }
 
 extension ContentFlatten {
@@ -68,14 +61,6 @@ nonisolated final class DiaryImageStore {
         let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
         cache.setObject(image, forKey: key as NSString, cost: cost)
         return image
-    }
-
-    func invalidate(src: String) {
-        cache.removeObject(forKey: normalizeKey(src) as NSString)
-    }
-
-    func invalidateAll() {
-        cache.removeAllObjects()
     }
 
     static func downsample(_ image: UIImage, maxPixel: CGFloat) -> UIImage? {

@@ -125,7 +125,10 @@ body 1.50、callout 1.55、subheadline 1.60、footnote 1.65、caption1 1.70、ca
 
 - `HomeView`：morph 改用 `CalendarLayout.reducedMorphAnimation`（0.18s 线性），
   状态照常切换，但不再有横扫整个屏幕的位移；
-- `FlowLightOverlay`（装饰性流光）在开启时直接暂停 `TimelineView`。
+- ~~`FlowLightOverlay`（装饰性流光）在开启时直接暂停 `TimelineView`~~ ——
+  **2026-10-01 清理**：这个组件全仓零实例化，已连同 `Theme.flowLight*` 与
+  `flowLight.colorset` 一起删除，所以「减弱动态效果」现在只剩 morph 这一条。
+  要接回装饰流光时，记得同样按 `accessibilityReduceMotion` 暂停它的 `TimelineView`。
 
 ### 2.4 增强对比度（Increase Contrast）
 

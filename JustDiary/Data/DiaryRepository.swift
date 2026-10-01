@@ -25,9 +25,6 @@ nonisolated final class DiaryRepository {
            OR b.region2 <> '' OR b.region3 <> '' OR b.latitude != 0 OR b.longitude != 0))
     """
 
-    static var dbPathOverride: String?
-    static var imagesDirOverride: URL?
-
     private var isSearchIndexReady: Bool {
         SettingsStore.searchIndexVersion >= Self.searchIndexVersion
     }
@@ -37,13 +34,11 @@ nonisolated final class DiaryRepository {
     }
 
     static func dbPath() -> String {
-        if let override = dbPathOverride { return override }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return docs.appendingPathComponent("just_diary.db").path
     }
 
     static func imagesDir() -> URL {
-        if let override = imagesDirOverride { return override }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return docs.appendingPathComponent("images")
     }
@@ -955,7 +950,6 @@ nonisolated final class DiaryRepository {
 
     private static func blockFromRow(_ row: [String: Any]) -> EditBlock {
         EditBlock(id: (row["id"] as? Int64) ?? 0,
-                  diaryId: (row["diary_id"] as? Int64) ?? 0,
                   startTimeUtc: (row["start_time_utc"] as? Int64) ?? 0,
                   locText: (row["loc_text"] as? String) ?? "",
                   latitude: (row["latitude"] as? Double) ?? 0,

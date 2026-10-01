@@ -217,14 +217,6 @@ nonisolated enum L10n {
         }
     }
 
-    static func startLine(_ timeMs: Int64, locText: String) -> String {
-        let time = timeOf(timeMs)
-        if locText.isEmpty {
-            return fmt("read_start_time", time)
-        }
-        return fmt("read_start_time_loc", time, locText)
-    }
-
     static func dayStartLabel(_ hour: Int) -> String {
         switch hour {
         case 0: return fmt("time_label_midnight")

@@ -602,8 +602,8 @@ struct DiaryPageView: View {
                            onToggleTodo: { partIndex, itemIndex in
                 vm.toggleTodo(block: block, partIndex: partIndex, itemIndex: itemIndex)
             },
-                           onImageTap: { src, ratio in
-                vm.previewImage = PreviewItem(src: src, ratio: ratio)
+                           onImageTap: { src in
+                vm.previewImage = PreviewItem(src: src)
             },
                            onTapText: {
                 handleBlockTap(block, index: index, parts: parts)

@@ -13,7 +13,7 @@ struct ReadTextView: UIViewRepresentable {
     var parts: [ContentPart]
     var keyword: String = ""
     var onToggleTodo: ((Int, Int) -> Void)? = nil
-    var onImageTap: ((String, CGFloat) -> Void)? = nil
+    var onImageTap: ((String) -> Void)? = nil
     var onTapText: (() -> Void)? = nil
     var textContainerInset: UIEdgeInsets = .zero
 
@@ -79,7 +79,7 @@ struct ReadTextView: UIViewRepresentable {
         var todoRanges: [NSRange] = []
         var todoCallbacks: [(Int, Int)] = []
         var imageRanges: [NSRange] = []
-        var imageCallbacks: [(String, CGFloat)] = []
+        var imageCallbacks: [String] = []
         var lastParts: [ContentPart]?
         var lastKeyword: String?
         var typeSize: DynamicTypeSize = .large
@@ -130,7 +130,7 @@ struct ReadTextView: UIViewRepresentable {
                     todoIdx += 1
                 } else if payload.kind == "image", !payload.src.isEmpty {
                     imageRanges.append(NSRange(location: markerRange.location, length: 1))
-                    imageCallbacks.append((payload.src, payload.h / max(1, payload.w)))
+                    imageCallbacks.append(payload.src)
                 }
                 cursor = markerRange.location + markerRange.length
             }
@@ -184,7 +184,7 @@ struct ReadTextView: UIViewRepresentable {
             }
             for (i, range) in imageRanges.enumerated() where NSLocationInRange(offset, range) {
                 let cb = imageCallbacks[i]
-                parent.onImageTap?(cb.0, cb.1)
+                parent.onImageTap?(cb)
                 return
             }
             parent.onTapText?()

@@ -72,6 +72,7 @@
 | iPhone 18 Pro 横屏 | 874 × 402 | 750 | **左右分栏**（左月历 345 / 右日记 356.5） |
 | iPhone SE 竖屏 | 375 × 667 | 375 | 单栏（与 18 Pro 竖屏同一套） |
 | iPhone SE 横屏 | 667 × 375 | 667 | **左右分栏**（左月历 307 / 右日记 311.5） |
+| iPhone Duo 内屏（**待适配**） | ≈664 × 750 | 664 | 单栏（宽但不矮，与手机竖屏同一套） |
 
 > 关键点：**不按机型分支**。只看可用宽度/高度与安全区 —— SE 能分栏就是同一条规则推出来的
 > 结果，不是给它开的后门；反过来，任何「宽但不矮」的容器（分屏等）也会自然落到单栏。
@@ -461,23 +462,41 @@ y:  0 ────────────────────────�
 
 ---
 
-## 四、为什么判定只看宽高，不看机型
+## 四、iPhone Duo（**之后要适配**）
 
-这一节原来叫「iPhone Duo」，列的是一套面向折叠屏的适配动作。2026-10-01 清理后只保留
-**已经落地的三条判据**（它们是 `AdaptiveLayout` 现在就能工作的原因），折叠屏专用的那套
-（折痕避免区 `FoldAvoidance`、27.1 的 `reservedRegion` / `ArrangementView` / `onHingeChange`）
-**没有实现、也不再规划** —— 等真有设备再说，届时不改版面也能接。
+Duo 还没上市，但**已确定后续要适配**，所以这一节保留为计划，不是历史。好消息是
+现在的实现已经是它的超集：`AdaptiveLayout` 只看可用宽高与安全区、不看 `idiom`，
+Duo 展开（≈664 × 750，宽但不矮）会自然落到**单栏**那一档，不需要专用代码。
 
-| 判据 | 说明 |
+Apple 的适配指南（[Design for iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111466/)、
+[Raise the bar](https://developer.apple.com/videos/play/tech-talks/111462/)）里与本项目相关的四条
+与落地情况：
+
+| 指南 | 现状 |
 |---|---|
-| **用尺寸类 / 可用宽高，不要用 idiom** | 一个宽高都是 regular 的容器仍然是 iPhone，按型号分支的代码在它上面必然错。`AdaptiveLayout` 只看 `size` + `safeAreaInsets` |
-| **左右安全区分别读** | `contentWidth = width − leading − trailing`，不假设对称；页面 padding 恒为 16（不再叠安全区） |
-| **不在 `fullScreenCover` 里假设全屏尺寸** | 页面用几何尺寸排版。日记页现在是导航栈里 `navigationDestination` 推进的一页（`RootView.swift:42/72`），仍在 cover 里的只剩图片预览（`CalendarPaneViews.swift:46`、`DayContentView.swift:49`、`DiaryPageView.swift:110`），它们靠环境继承拿到同一个 `AdaptiveLayout`（见 §5.2） |
-| **底部浮条的高度按方向取实测值** | 它由系统绘制、安全区里推不出来（竖屏 83 / 横屏 64），见 `AdaptiveLayout.tabBarClearance` |
+| **用尺寸类 / 可用宽高，不要用 idiom** | ✅ 已落地：`AdaptiveLayout` 只看 `size` + `safeAreaInsets` |
+| **左右安全区不对称** | ✅ 已落地：`contentWidth = width − leading − trailing`，页面 padding 恒为 16（不再叠安全区） |
+| **工具栏移到侧边由容器负责** | ✅ 已落地：导航用系统 `TabView`，不自绘悬浮条（见 §2.2） |
+| **让系统处理折痕** | ⏳ **待做**：见下面两条 |
+
+**待做（Duo 适配时再接，届时不用改版面）**：
+
+1. **折痕「避免区」环境值**：定义一个 `FoldAvoidance` 环境值（27.0 上恒为 `nil`），
+   页面从它拿「不能让内容跨越的区间」；现在代码里**没有**这个东西。
+2. **`reservedRegion` 接入点**：iOS 27.1 的 `GeometryProxy.reservedRegions(_:options:layoutDirectionBehavior:)`
+   （注意是复数）到位后，在 `AdaptiveLayoutReader` 里读一次、喂给上面那个环境值即可 ——
+   `AdaptiveLayout` 的宽度分档是它的超集，所以只改这一处。
+   > 现状（2026-10-01 核实）：Xcode 27.0 SDK 的两份 `SwiftUICore.swiftinterface` 都没有声明它，
+   > 源码里还写不出来；`ArrangementView` / `UIArrangementViewController` / `onHingeChange`
+   > 在 UIKit 里也只有下划线私有符号 `_UIArrangementView`。
+
+3. Duo 的**设计稿**：它的版面与手机竖屏同一套（单栏、只是更高），所以不单独出稿；
+   要出的话按 `ph-home-portrait` 那套画即可（宽 664）。
 
 `Screen` 这一侧同步收口：`Screen.height` 已删除、`Screen.size` 收成 private，外面只剩
 `Screen.width`（`RichTextEngine` 测量前的兜底）与 `Screen.safeAreaBottom` /
-`Screen.keyboardObscuredHeight` 三个读法。
+`Screen.keyboardObscuredHeight` 三个读法；`fullScreenCover` 里也不再假设全屏尺寸
+（日记页已在导航栈里，仍在 cover 的只有图片预览）。
 
 ---
 
@@ -540,7 +559,7 @@ struct AdaptiveLayout {           // EnvironmentValue
 | 文件 | 改动 |
 |---|---|
 | `Views/RootView.swift` | 在导航栈上挂一次 `.adaptiveLayoutReader()` 注入 `AdaptiveLayout`。**现状（2026-10-01 核实）**：没有给 `fullScreenCover` 单独注入 —— 图片预览等 cover 靠环境继承拿到同一个值 |
-| `Views/Components/Components.swift` | **现状（2026-10-01 核实）**：`Screen.size/height` 仍在（`Screen.width` 只剩 `RichTextEngine` 的兜底一处），编辑器实际用的是 `Screen.safeAreaBottom` 与 `Screen.keyboardObscuredHeight`；`TabBarClearance` 是滚动内容底部的动态留白（默认 120 × 字号系数），浮条避让由 `AdaptiveLayout.tabBarClearance` 负责 |
+| `Views/Components/Components.swift` | **2026-10-01 清理**：`Screen.height` 已删、`Screen.size` 收成 private，`Screen` 现在只剩 `width`（`RichTextEngine` 测量前的兜底）、`safeAreaBottom` 与 `keyboardObscuredHeight`；`TabBarClearance` 是滚动内容底部的动态留白（默认 120 × 字号系数），浮条避让由 `AdaptiveLayout.tabBarClearance` 负责 |
 | `Views/Home/HomeView.swift` | 判定 + 连续月历流（`DayPane` 在 `Views/Home/CalendarPaneViews.swift`，复用现有 `DayContentView`）。**竖屏保持 `mode/zoom/expand` 三个 morph 状态与 `YearPageView` 不变**；只在横屏走分栏分支，不引入新的年份入口 |
 | `Views/Home/MonthFlow.swift` | **新增**：连续月历流的几何（`MonthFlowLayout`）、视图（`MonthFlowView`）、小标题与 morph 源（`MonthFlowMorphSource`）、跳月请求（`MonthFlowJump`）、当前显示偏移的引用盒子（`FlowRenderedOffset`）。竖屏整屏与横屏左栏共用 |
 | `Views/Home/CalendarLayout.swift` | `CalendarDensity.resolve(availableHeight:rows:wantsLunar:)` 返回「带农历行 / 不带农历行」两档，行高走 `CalendarDensity.rowHeight(availableHeight:rows:)`（**只在横屏按可用高度降级**；竖屏仍按现有 `monthCellH(areaH:)`）。2026-10-01 起 `.weekStrip` 那一档已删除 |

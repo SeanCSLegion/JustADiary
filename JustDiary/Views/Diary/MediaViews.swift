@@ -5,7 +5,6 @@ import PhotosUI
 struct PreviewItem: Identifiable {
     let id = UUID()
     var src: String
-    var ratio: CGFloat
 }
 
 // MARK: - Diary parts rendering (text chunks + native image views)
@@ -49,7 +48,7 @@ struct DiaryPartsView: View {
     var parts: [ContentPart]
     var keyword: String = ""
     var onToggleTodo: ((Int, Int) -> Void)? = nil
-    var onImageTap: ((String, CGFloat) -> Void)? = nil
+    var onImageTap: ((String) -> Void)? = nil
     var onTapText: (() -> Void)? = nil
 
     private struct Chunk: Identifiable {
@@ -71,7 +70,7 @@ struct DiaryPartsView: View {
                     let w = max(1, CGFloat(img.w ?? 300))
                     let h = max(1, CGFloat(img.h ?? 200))
                     DiaryImageView(src: src, displayW: w, displayH: h) {
-                        onImageTap?(src, h / w)
+                        onImageTap?(src)
                     }
                     // 读模式里上下留白的「盒级」值要和编辑区一样：正文块自带
                     // `textContainerInset`、块里的墨迹又离块顶一小段，这两段已经算空白，

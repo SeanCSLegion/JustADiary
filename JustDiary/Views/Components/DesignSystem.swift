@@ -6,10 +6,13 @@ import UIKit
 // Before this existed the app used ten unrelated radii (1, 4, 8, 12, 16, 18,
 // 20, 22, 26, 28) chosen per call site, so two cards sitting next to each other
 // could differ by 2pt for no reason. Everything now comes from the small scale
-// below, and nested surfaces use `concentric(outer:inset:)`, which is Apple's
-// rule for rounded shapes inside rounded shapes: the inner radius is the outer
-// radius minus the inset. Matching radii instead of subtracting produces the
-// "pinched corner" look on the inner shape.
+// below. A rounded shape nested inside another one should use the outer radius
+// minus the inset (Apple's rule); matching radii instead of subtracting produces
+// the "pinched corner" look on the inner shape. Nothing follows that rule today
+// — the only nested pair is the inline image (`image` 14) inside a card
+// (`card` 20) whose padding is 12, so a strict concentric value would be 8.
+// A `concentric(outer:inset:)` helper existed for this and was removed in the
+// 2026-10-01 cleanup: it had no callers.
 nonisolated enum Radius {
     /// Content cards, list rows, hero panels.
     static let card: CGFloat = 20
@@ -26,11 +29,6 @@ nonisolated enum Radius {
     static let bar: CGFloat = 4
     /// 2pt-tall marks such as the "has a diary" underline in the calendar.
     static let hairline: CGFloat = 1
-
-    /// Radius for a surface inset by `inset` inside a surface of radius `outer`.
-    static func concentric(outer: CGFloat, inset: CGFloat) -> CGFloat {
-        max(0, outer - inset)
-    }
 }
 
 // MARK: - Spacing scale

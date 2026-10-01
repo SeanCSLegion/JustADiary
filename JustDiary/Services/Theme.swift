@@ -13,10 +13,6 @@ nonisolated struct Theme {
 
     static func glowColor() -> Color { seed.opacity(0.15) }
 
-    static func flowLightColor() -> Color { seed.opacity(0.40) }
-
-    static func flowMaskColor() -> Color { seed.opacity(0.05) }
-
     static func primaryUIColor() -> UIColor {
         UIColor { trait in seed.resolved(rgb: trait) }
     }
@@ -33,7 +29,6 @@ nonisolated struct Theme {
     static func outlineVariant() -> Color { Color("outlineVariant") }
     static func glassDim() -> Color { Color("glassDim") }
     static func glassBorder() -> Color { Color("glassBorder") }
-    static func flowLight() -> Color { Color("flowLight") }
     static func blobA() -> Color { Color("blobA") }
     static func blobB() -> Color { Color("blobB") }
     static func blobC() -> Color { Color("blobC") }

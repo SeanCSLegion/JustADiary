@@ -11,7 +11,6 @@ nonisolated struct DiaryRecord {
 
 nonisolated struct EditBlock {
     var id: Int64
-    var diaryId: Int64
     var startTimeUtc: Int64
     var locText: String
     var latitude: Double

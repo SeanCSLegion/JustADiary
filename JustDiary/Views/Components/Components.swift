@@ -662,50 +662,6 @@ struct GlassIconBadge: View {
     }
 }
 
-// MARK: - Flow light overlay
-
-struct FlowLightOverlay: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var paused = false
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                    .fill(Theme.flowMaskColor())
-                TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: paused || reduceMotion)) { context in
-                    let t = context.date.timeIntervalSinceReferenceDate
-                    let cycle = (t.truncatingRemainder(dividingBy: 4.0)) / 4.0
-                    let pos = cycle * geo.size.width * 2
-                    let alpha = max(0, 1 - abs(cycle - 0.5) * 4)
-                    Rectangle()
-                        .fill(LinearGradient(colors: [.clear, Theme.flowLightColor(), .clear],
-                                             startPoint: .leading, endPoint: .trailing))
-                        .frame(width: geo.size.width, height: 3)
-                        .position(x: pos - geo.size.width / 2, y: 6)
-                        .opacity(alpha)
-                    Rectangle()
-                        .fill(LinearGradient(colors: [.clear, Theme.flowLight(), .clear],
-                                             startPoint: .leading, endPoint: .trailing))
-                        .frame(width: geo.size.width, height: 3)
-                        .position(x: geo.size.width - pos + geo.size.width / 2, y: geo.size.height - 6)
-                        .opacity(alpha * 0.7)
-                }
-            }
-            .allowsHitTesting(false)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        }
-        .allowsHitTesting(false)
-        .task {
-            try? await Task.sleep(for: .seconds(10))
-            withAnimation(.easeInOut(duration: 1.0)) {
-                paused = true
-            }
-        }
-        .onDisappear { paused = false }
-    }
-}
-
 // MARK: - View extensions
 
 extension View {

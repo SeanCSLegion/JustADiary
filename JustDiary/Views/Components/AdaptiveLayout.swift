@@ -95,8 +95,8 @@ struct AdaptiveLayout: Equatable {
 
     /// 分栏时两栏共同的高度（日历区与详情区同高，底部让出系统浮条）。
     ///
-    /// 下限 220 是「再矮也没有内容可放」的兜底：到那一步日历密度会自己降级成
-    /// 周条，不会把日期压扁。
+    /// 下限 220 是「再矮也没有内容可放」的兜底：到那一步左侧日历会隐藏农历行、
+    /// 行高夹在下限（见 `CalendarDensity`），不会把日期压扁。
     func splitPaneHeight(containerHeight: CGFloat) -> CGFloat {
         max(220, containerHeight - Self.splitTopPadding - tabBarClearance)
     }

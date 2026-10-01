@@ -22,12 +22,14 @@
 | `Radius.bar` | 4 | 图表柱、进度条 |
 | `Radius.hairline` | 1 | 2pt 高的标记线（日历「有日记」下划线） |
 
-**嵌套圆角必须用 `Radius.concentric(outer:inset:)`**，即内圆角 = 外圆角 − 内缩量。
-这是 Apple 对「圆角里套圆角」的规则；直接把内外圆角设成同一个值会产生视觉上的
-「尖角内衬」。
-（2026-10-01 核实：`concentric` 目前**零调用点** —— 现在还没有出现「圆角面里再套一个
-圆角面」的地方，所以这条规则暂时只是一条待用的约定；新增嵌套面（例如卡片里的次级
-面板、地图上的浮层）时用它，别再手写一个相近的值。）
+**嵌套圆角要走「外圆角 − 内缩量」**，不要把内外圆角设成同一个值 —— 那是 Apple 对
+「圆角里套圆角」的规则，直接相等会产生视觉上的「尖角内衬」。
+**现状（2026-10-01 核实）：目前没有一处嵌套面按这条规则取值** —— 唯一的内外组合是
+卡片（20）里的内联图片（`Radius.image` 14），而卡片内边距是 `Spacing.card`(12)，
+严格同心应该是 8。这是一处刻意的偏离（14 看起来更顺眼，也没人抱怨过），改它会动到
+所有内联图片的观感，所以保持原样、只把事实记在这里。
+（同一次清理删掉了零调用的 `Radius.concentric(outer:inset:)` 助手；以后真要做同心面时
+按这条规则取值即可，不必先把助手加回来。）
 
 分享长图渲染器（`ImageShareService`）也走同一套品牌色与卡片语言：浅色底用
 `Theme.seed` 的 #2563EB、深色底提亮一档，每条记录一张卡片，正文压在卡片的浅底上。
@@ -317,42 +319,36 @@ iOS 默认值：
 
 ## 八、清理结果：删了什么、为什么保留了什么
 
-2026-09-15 做了一次无用资源清理。**删除**的依据是「全仓库零引用」且删除不影响行为；
-**保留**的依据是「零引用但它是一个能力或钩子，删掉属于产品决策而非清理」。
+清理按两条依据做：**删除** = 全仓库零引用且删掉不影响行为；**保留** = 零引用但它是一个
+能力或钩子，删不删属于产品决策。做过两轮：2026-09-15（界面资源）与 2026-10-01（精简代码）。
 
-**已删除**
+**已删除（2026-09-15）**
 
 | 类别 | 内容 |
 |---|---|
 | 失效脚本 | `generate_xcstrings.py`（依赖的 `.lproj/Localizable.strings` 已不存在） |
 | 过程脚本 | `validate_pbxproj.swift`（一次性调试用，零引用） |
-| 本地化键 | 39 条零引用键；保留 `""` / `"%lld"` 两条 Xcode 从 `Picker("")`、`Text("\(h)")` 自动提取的占位条目（同批保留的 `":"` 后来被移除：2026-10-01 核实 `Localizable.xcstrings` 里只剩 `""` 与 `"%lld"`） |
+| 本地化键 | 39 条零引用键；保留 `""` / `"%lld"` 两条 Xcode 从 `Picker("")`、`Text("\(h)")` 自动提取的占位条目 |
 | 死代码 | `Animation.diaryMorph/diarySpring`、`AppTab.icon/label`（及未用的 `CaseIterable`）、`tintedGlass`、`Spacing.screen/cardGap/chip`、`Log.map/search`、`Haptics.medium`、`SQLite` 里重复的 `SQLITE_TRANSIENT`、`DiaryRepository.isFtsSupported/getFirstBlock/updateBlockLocation`、`DateUtil.addMonths/daysInMonth`、`L10n.weekdayShort`、`SearchViewModel.setLocFilter`、`MorphPerfUITests.attach` |
 
-验证方式：删除前后各构建一次；`git show HEAD:…xcstrings` 与新文件比对，确认
-**只有删除、没有新增、没有值改动**；全套 UI 测试通过。
+**已删除（2026-10-01，本轮精简）**
+
+| 类别 | 内容 | 说明 |
+|---|---|---|
+| 设计组件 | `FlowLightOverlay` + `Theme.flowLightColor/flowMaskColor/flowLight` + `flowLight.colorset` | 卡片上的装饰流光，全仓零实例化；上一轮把它留作「产品决策」，本轮按「不再接」删除（`docs/animation-and-accessibility.md` §2.3 已同步） |
+| 缓存清理钩子 | `DiaryImageStore.invalidate(src:)` / `invalidateAll()`、`ContentPartCache.invalidate()` | 三个入口零调用。**底层问题仍在**：图片缓存以 `src`（`images/img_<毫秒>.jpg`，非内容寻址）为键，「覆盖导入」理论上可能读到旧图；真要修是在导入后清一次缓存，届时再按需加回一个入口即可 |
+| 只写不读 | `EditBlock.diaryId`、`PreviewItem.ratio`、整条「未来日期 toast」链路（`HomeView` 的 `showFutureToast` / `futureToastTask` / `showFutureDateToast()` / `.sensoryFeedback`、`DayContentView.showFutureToast`、`CalendarPaneViews` 传的 `{}`） | 都不影响行为：`diaryId` 只从行里读出来没人用；`ratio` 一路透传到 `PreviewItem` 后没人读（顺带把 `onImageTap` 从 `(String, CGFloat)` 简化成 `(String)`）；toast 的视图与状态都接好了、只是**没有任何触发点**，整条链子不可达 |
+| 注入点 | `DiaryRepository.dbPathOverride` / `imagesDirOverride` | 被 `dbPath()` / `imagesDir()` 读，但全仓零赋值；删掉后这两个函数直接取 Documents |
+| 遗留助手 | `Radius.concentric(outer:inset:)` | 零调用，规则本身留在第一节（嵌套圆角 = 外圆角 − 内缩量） |
+| 零引用文案 | `read_start_time_loc`（只被已删的 `L10n.startLine` 用）、`share_image_placeholder`、`index_future_toast` | 删后 catalog 199 键 |
+| 尺寸读法 | `Screen.height`（零调用）、`Screen.size` 收成 private | 版面判定一律走 `AdaptiveLayout` 的几何 |
 
 **保留（零引用，但属于能力/钩子）**
 
-1. **`FlowLightOverlay`** 及其依赖 `Theme.flowLightColor/flowMaskColor/flowLight`
-   与 `flowLight.colorset`。它是卡片上的装饰性流光，任何地方都没有实例化；
-   但 `docs/animation-and-accessibility.md` 记录了它在「减弱动态效果」下的行为，
-   说明这是一个**做出来但没接上的设计组件**。接上还是删掉请当作产品决策，不要当垃圾清掉。
-2. **`DiaryImageStore.invalidate(src:)` / `invalidateAll()` / `ContentPartCache.invalidate()`**。
-   三个缓存清理入口都零调用。图片缓存以 `src` 为键，而 `src` 是
-   `images/img_<毫秒时间戳>.jpg`（见 `DiaryViewModel.insertImage`），**不是内容寻址**；
-   因此「覆盖导入」理论上可能让某个 src 对应到不同内容而读到旧图。
-   保留它们是因为它们是这个问题的现成修复点，删掉等于把钩子也删了。
-3. **只写不读的属性**：`EditBlock.diaryId`、`PreviewItem.ratio`、
-   `DayContentView.showFutureToast`（由 `HomeView` 传入但从未调用）。
-   要清理必须同时改动调用点，属于小重构，留待与相关功能一起处理。
-   （2026-10-01 核实：三者仍然只写不读。toast 那条链路更准确的现状是：`HomeView`
-   把 `showFutureDateToast()` 作为闭包传了下去（`HomeView.swift:659`），toast 的视图与
-   `showFutureToast` 状态也已接好（`HomeView.swift:57`），但接收方 `DayContentView`
-   声明了 `showFutureToast: () -> Void` 之后**从不调用**它 —— 缺的只是触发点。）
-4. **`DiaryRepository.dbPathOverride` / `imagesDirOverride`**：被 `dbPath()` /
-   `imagesDir()` 读取，但仓库里没有任何地方赋值——像是给测试预留的注入口。
-   确认不打算用再删。
+1. **String Catalog 里的 `""` / `"%lld"`**：Xcode 从 `Picker("")`、`Text("\(h)")` 自动提取，
+   删了下一次构建又会回来。
+2. **第七节那两处界面缺口**（日历可调节动作没有标签、硬编码月/星期名不要再加）：
+   它们是「能力存在但没接上」，不是垃圾，留着等对应功能一起补。
 
 ---
 
@@ -439,9 +435,10 @@ iOS 默认值：
    而这一档本来就不画农历），否则 iPhone SE 横屏的六行月格就放不下。
    2026-10-01：原来还有第三档「周条降级」，只判不画，已删除（见 `docs/adaptive-layout-plan.md` §3.1）。
 3. 左右安全区**分别**读取（`safeAreaInsets.leading` / `.trailing`），不假设对称。
-   **2026-10-01 决定**：折痕「避免区」（`FoldAvoidance` 环境值）**不做** —— 它从来没实现过，
-   而 iPad / 桌面端与折叠屏适配都已取消；等真有设备再说（`AdaptiveLayout` 的宽度判据
-   本来就是那套 API 的超集，届时不改版面）。
+   折痕的「避免区」（`FoldAvoidance` 环境值）**是待做项**：iPhone Duo 之后要适配，
+   届时在 `AdaptiveLayoutReader` 里读一次 `reservedRegion` 喂给它即可
+   （`AdaptiveLayout` 的宽度分档是那套 API 的超集，不用改版面）。见
+   `docs/adaptive-layout-plan.md` §4。
 
 `TabBarClearance` 在浮条悬底时留出底部空间：横屏两栏的最后一行不能被浮条压住。
 
@@ -451,9 +448,9 @@ iOS 默认值：
 改令牌要两边同步。**设计稿只有手机端**——iPad / Mac 的宽屏稿已于 2026-10-01 删除。
 
 **与折叠屏相关的 API**（`ArrangementView` / `UIArrangementViewController` / `onHingeChange` /
-`GeometryProxy.reservedRegions`）随 iPad / 桌面端一并**不再规划**：都不在 Xcode 27.0 SDK 的
-公开接口里（SwiftUI 二进制有 `reservedRegions` 符号但 `.swiftinterface` 未声明），
-而且现在没有任何目标设备需要它们。
+`GeometryProxy.reservedRegions`）留着给 iPhone Duo 适配用，**不要在 27.0 上提前接**：
+它们都不在 Xcode 27.0 SDK 的公开接口里（SwiftUI 二进制有 `reservedRegions` 符号，
+但 `.swiftinterface` 未声明），现在源码里也写不出来。
 
 ---
 

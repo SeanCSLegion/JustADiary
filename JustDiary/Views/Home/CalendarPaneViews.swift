@@ -35,7 +35,6 @@ struct DayPane: View {
                            isFuture: isFuture,
                            openEditor: openEditor,
                            openDiary: openEditor,
-                           showFutureToast: {},
                            bottomPadding: 24,
                            showTime: showTime)
                 .frame(maxWidth: maxColumnWidth)

@@ -28,7 +28,8 @@ final class AdaptiveLayoutTests: XCTestCase {
         }
     }
 
-    /// 手机横屏：屏宽够宽时，阅读列按 660、编辑列按 620 截断。
+    /// 手机横屏：屏宽够宽时正文列按上限截断（阅读与编辑同为 `contentColumn(660)`，
+    /// 这里顺带验证传别的上限也照样截断）。
     func testWideScreensAreCappedAtTheColumnLimit() {
         XCTAssertEqual(layout(874, 402).contentColumn(), 660, "手机横屏阅读列")
         XCTAssertEqual(layout(874, 402).contentColumn(620), 620, "手机横屏编辑列")

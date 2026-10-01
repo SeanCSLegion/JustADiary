@@ -337,8 +337,9 @@ final class EditorFormatBehaviorTests: XCTestCase {
     /// 样式按钮换掉的是**行样式**，它的行距 / 段前距 / 段后距必须和
     /// `PartsCodec`（重新打开这篇日记时的排版）算出的一模一样。
     ///
-    /// 段前距以前漏了：编辑区里点「大标题」得到的行没有标题的 9.8pt 段前留白，而
-    /// 保存后重新打开却带着 —— 同一条标题在两条链路上长得不一样。
+    /// 段前距以前漏了：编辑区里点「大标题」得到的行没有标题的段前留白（当时是
+    /// 9.8pt，现行模型是 0.55 × 28 = 15.4），而保存后重新打开却带着 ——
+    /// 同一条标题在两条链路上长得不一样。
     func testStyleAppliedInTheEditorMatchesALoadedOne() {
         for block in EditorBlockStyle.allCases {
             let (controller, tv) = makeEditor([body("甲")])

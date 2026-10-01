@@ -18,7 +18,7 @@ import SwiftUI
 ///    —— 与改造前的静止画面一致。
 final class MonthFlowLayoutTests: XCTestCase {
 
-    /// 竖屏 402×874 实测：日历区 665 = 672 − 84（头部）− 83（浮条）− …，行高 = (665 − 102) / 6，
+    /// 竖屏 402×874 实测：日历区 665 = 812（几何高）− 64（头部）− 83（浮条），行高 = (665 − 102) / 6，
     /// 视口 = 665 − 72（标题槽）− 30（星期栏）。
     private let rowH: CGFloat = (665 - CalendarLayout.bigTitleH - CalendarLayout.weekdayHeaderH) / 6
     private let viewportH: CGFloat = 665 - CalendarLayout.bigTitleH - CalendarLayout.weekdayHeaderH
@@ -120,10 +120,10 @@ final class MonthFlowLayoutTests: XCTestCase {
     /// 月份之间的空隙真的**拉开了**（这次的用户反馈：「两个月之间的间隔窄了一点，
     /// 小月份会和上一行的日期太近了」）。
     ///
-    /// 空隙是 16pt，且恒为 16pt：不随行高（竖屏 93.8 / 横屏 40.5）变 —— 它属于块首，
+    /// 空隙是 16pt，且恒为 16pt：不随行高（竖屏 93.8 / 横屏 18 Pro 45、SE 40）变 —— 它属于块首，
     /// 与 `rowH` 无关。
     func testEveryMonthPairIsSeparatedByTheSameGap() {
-        for rowH in [93.83333333333333, 45.0, 40.5] {
+        for rowH in [93.83333333333333, 45.0, 40.0] {
             let l = MonthFlowLayout(weekStart: "monday", rowH: rowH)
             for i in 0..<240 {
                 XCTAssertEqual(l.blocks[i + 1].top - l.blocks[i].bottom, gap, accuracy: 0.001,

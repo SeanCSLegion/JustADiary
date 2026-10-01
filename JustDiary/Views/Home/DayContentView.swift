@@ -9,7 +9,6 @@ struct DayContentView: View {
     var isFuture: Bool
     var openEditor: (String) -> Void
     var openDiary: (String) -> Void
-    var showFutureToast: () -> Void
     /// 滚动内容底部的留白。竖屏要整屏滚动，留 96 让最后一张卡片能滚出浮条；
     /// 横屏分栏里整块只有 ~330pt 高，96 会把内容顶掉一大截，所以调用方传小值。
     var bottomPadding: CGFloat = 96
@@ -25,8 +24,8 @@ struct DayContentView: View {
                     ForEach(blocks, id: \.id) { block in
                         DiaryBlockCard(block: block,
                                        onOpenDiary: { openDiary(dayKey) },
-                                       onImageTap: { src, ratio in
-                            previewImage = PreviewItem(src: src, ratio: ratio)
+                                       onImageTap: { src in
+                            previewImage = PreviewItem(src: src)
                         },
                                        showTime: showTime)
                     }
@@ -73,7 +72,7 @@ struct DayContentView: View {
 struct DiaryBlockCard: View {
     var block: EditBlock
     var onOpenDiary: () -> Void
-    var onImageTap: (String, CGFloat) -> Void
+    var onImageTap: (String) -> Void
     /// 显式传入 `AppSettings.autoTime`：本视图拿不到 settings。
     /// 关闭时只隐藏时间行，`start_time_utc` 仍照常记录（`day_key` 等依赖它）。
     var showTime: Bool = true

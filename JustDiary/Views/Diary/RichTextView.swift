@@ -373,7 +373,7 @@ struct FontToolbar: View {
     var body: some View {
         // The bar is only as wide as its buttons (centred by the page), instead
         // of stretching across the whole screen: in landscape a full-width strip
-        // under a 620pt column read as a toolbar twice the size it needed. When
+        // under a 660pt column read as a toolbar twice the size it needed. When
         // the buttons genuinely cannot fit — a large accessibility text size —
         // the second variant takes over and scrolls, like Notes' toolbar.
         ViewThatFits(in: .horizontal) {

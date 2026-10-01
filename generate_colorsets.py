@@ -13,7 +13,6 @@ TOKENS = {
     "outlineVariant": (0xC5C6D0, 0x44474F),
     "glassDim": (0x73FFFFFF, 0x80262B36),
     "glassBorder": (0x8CFFFFFF, 0x33FFFFFF),
-    "flowLight": (0xCCFFFFFF, 0x59FFFFFF),
     "blobA": (0x8093C5FD, 0x801E40AF),
     "blobB": (0x99BFDBFE, 0x8C1E3A8A),
     "blobC": (0x6EE0E7FF, 0x6E312E81),

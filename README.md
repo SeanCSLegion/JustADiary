@@ -71,7 +71,7 @@ open JustDiary.xcodeproj        # ⌘R 运行，⌘U 测试
 - 采用 iOS 26 引入、iOS 27 继续沿用的 **Liquid Glass** 设计语言，但**只在控件层使用**：`buttonStyle(.glass)` / `.glassProminent` 的按钮、芯片、搜索框与悬浮按钮
   - 按 WWDC26 session 8120 的建议，**内容区不使用 Liquid Glass**（下方没有可折射的内容，玻璃卡片会读作「浮在玻璃上的卡片」）。内容卡片统一走 `diaryCard(cornerRadius:)`：系统分组背景色 + 细描边 + 柔和阴影
   - 搜索框、编辑器格式栏、首页日期/返回胶囊、toast 都在控件层，走 `.glassEffect`；sheet 不覆盖 `presentationBackground`，用系统默认的新版玻璃外观
-- 统一的设计令牌见 `Views/Components/DesignSystem.swift`：`Radius`（圆角，嵌套面用 `Radius.concentric(outer:inset:)`）、`Spacing`、`TypeSize`（字阶）
+- 统一的设计令牌见 `Views/Components/DesignSystem.swift`：`Radius`（圆角；嵌套面取「外圆角 − 内缩量」）、`Spacing`、`TypeSize`（字阶）
 - 跟随系统显示设置：**动态字体**（每个设计字号按最接近的 Apple 文本样式经 `UIFontMetrics` 解析，并设上限以保证字阶不倒挂；日历 Canvas 文字单独半速缩放）、
   **减弱动态效果**（morph 退化为快速交叉淡入）、**增强对比度**（卡片描边加深）、浅色/深色
 - 编辑器照 Apple 备忘录的做法管理字体：只给**语义段落样式**（大标题 28 / 小标题 22 / 正文 17 / 引用 15），

@@ -178,8 +178,9 @@ WWDC26 session 8120 明确建议**内容区不要用 Liquid Glass**（下方没�
 > ⚠️ **本节已取消**（2026-09 回退、2026-10-01 明确不再制作 iPad 端与桌面端）：以下三项
 > 全部回退 —— `TARGETED_DEVICE_FAMILY = "1"`、`UISupportedInterfaceOrientations_iPad` 已删除、
 > `SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`；配套的宽屏设计稿（`frames-wide.js` /
-> `wide.html` / `screens/wide-*.png`）与折叠屏那套（`FoldAvoidance` / `reservedRegion`）
-> 也已从仓库删除。保留原文仅供追溯。
+> `wide.html` / `screens/wide-*.png`）也已从仓库删除。**折叠屏（iPhone Duo）不在此列**：
+> 之后仍要适配，`FoldAvoidance` / `reservedRegion` 那套留在
+> `docs/adaptive-layout-plan.md` §4 作为待做项。保留原文仅供追溯。
 
 1. `TARGETED_DEVICE_FAMILY`：`1` → **`"1,2"`**（当时现状 `UIDeviceFamily = [1]`）
 2. 补齐 `UISupportedInterfaceOrientations_iPhone/_iPad` 键
