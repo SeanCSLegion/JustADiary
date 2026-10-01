@@ -79,6 +79,11 @@ function homeLandscape(dev, layout) {
 function footprintLandscape(dev, layout) {
   const years = [[2024, 4], [2025, 6], [2026, 3]];
   const stats = [["7", "省市"], ["9", "城市"], ["4", "国家"], ["14", "片段"], ["13", "天数"]];
+  /* 与实现同一组数（FootprintView.swift:48 / :161）：并排块高 = max(140, min(190, 屏高 − 262))、
+     清单宽 = min(320, max(240, 内容宽 × 0.4))。402pt 高的横屏上分别是 140pt 与 300pt。 */
+  const blockH = Math.max(140, Math.min(190, dev.h - 262));
+  const listW = Math.min(320, Math.max(240,
+    Math.round((dev.w - layout.contentInset - layout.trailingInset) * 0.4)));
   return `
     <div class="pane" style="padding:0 16px">
       <div class="pane-head" style="padding:2px 0 6px">
@@ -94,12 +99,12 @@ function footprintLandscape(dev, layout) {
         <div class="card" style="flex:none;padding:12px 6px"><div class="stat-row">
           ${stats.map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join("")}
         </div></div>
-        <div style="display:flex;gap:12px;flex:none;height:190px">
+        <div style="display:flex;gap:12px;flex:none;height:${blockH}px">
           <div class="card" style="flex:1;min-width:0;display:flex;flex-direction:column">
             <div style="font-size:var(--t-sub);font-weight:600;margin-bottom:4px">年度记录天数</div>
             <div style="flex:1;display:flex;min-height:0;padding-bottom:18px">${bars(years)}</div>
           </div>
-          <div class="card" style="width:280px;flex:none;display:flex;flex-direction:column">
+          <div class="card" style="width:${listW}px;flex:none;display:flex;flex-direction:column">
             <div style="font-size:var(--t-sub);font-weight:600;margin-bottom:2px">地点清单</div>
             <div style="flex:1;min-height:0;overflow:hidden">${footprintTree()}</div>
           </div>
