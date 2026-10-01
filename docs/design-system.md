@@ -25,6 +25,9 @@
 **嵌套圆角必须用 `Radius.concentric(outer:inset:)`**，即内圆角 = 外圆角 − 内缩量。
 这是 Apple 对「圆角里套圆角」的规则；直接把内外圆角设成同一个值会产生视觉上的
 「尖角内衬」。
+（2026-10-01 核实：`concentric` 目前**零调用点** —— 现在还没有出现「圆角面里再套一个
+圆角面」的地方，所以这条规则暂时只是一条待用的约定；新增嵌套面（例如卡片里的次级
+面板、地图上的浮层）时用它，别再手写一个相近的值。）
 
 分享长图渲染器（`ImageShareService`）也走同一套品牌色与卡片语言：浅色底用
 `Theme.seed` 的 #2563EB、深色底提亮一档，每条记录一张卡片，正文压在卡片的浅底上。
@@ -77,8 +80,10 @@ Apple 的原始曲线在 AX5 会把 body 从 17pt 推到约 53pt，**并且让�
 
 `PartsCodec` 与 `ReadTextView` 在 SwiftUI 之外构建 `NSAttributedString`，无法使用
 `.diaryFont`，改为接收显式的 `DynamicTypeSize`。`RootView` 通过
-`\.diaryDynamicTypeSize` 下发；**`fullScreenCover` 内的 `DiaryPageView` 需要单独注入**
-（presentation 不会从更内层的 `.environment` 继承），这一点已在 `RootView` 注释说明。
+`\.diaryDynamicTypeSize` 下发（2026-10-01 核实：挂在 `NavigationStack` 上，
+`RootView.swift:83`）。**现状（2026-10-01 核实）**：日记页已改为推进式
+`navigationDestination`（见第十一节），不再有 `fullScreenCover`，也就**不需要**单独注入 ——
+推进出来的 `DiaryPageView` 直接继承这层环境值（`RootView.swift:72-75`）。
 
 编辑器不提供任意磅值：它给段落的是**语义样式**（大标题 / 小标题 / 正文 / 引用），
 字号取 Apple 的 iOS 默认梯级（28 / 22 / 17 / 15，见第三节）。
@@ -92,14 +97,20 @@ Apple 的原始曲线在 AX5 会把 body 从 17pt 推到约 53pt，**并且让�
 编辑器照 Apple 备忘录的做法，只提供语义段落样式，字号取 HIG › Typography 的
 iOS 默认值：
 
-| 样式 | `ContentPart.type` | 设计字号 | Apple 文本样式 |
+| 样式 | `ContentPart.style` | 设计字号 | Apple 文本样式 |
 |---|---|---|---|
-| 大标题 | `h1` | 28 | Title 1 |
-| 小标题 | `h2` | 22 | Title 2 |
-| 正文 | `p` | 17 | Body |
+| 大标题 | `title` | 28 | Title 1 |
+| 小标题 | `heading` | 22 | Title 2 |
+| 正文 | `body` | 17 | Body |
 | 引用 | `quote` | 15 | Subheadline |
 
-行距与段后距按字号比例计算，只影响绘制、不落库（读取时由块类型重新推导）。
+（2026-10-01 核实：属性名是 `ContentPart.style`（`Models/ContentPart.swift:63`），取值是
+`ContentPartStyle` 的 `title` / `heading` / `body` / `quote`；上表原来的 `type` 与
+`h1` / `h2` / `p` 是 v1 的旧键与旧值，只在读取旧数据时被归一化。）
+
+行距与段间距按字号比例计算，只影响绘制、不落库（读取时由块类型重新推导）。
+（2026-10-01 核实：段间距现在**全部由段前距承担**，段后距恒为 0 ——
+`EditorBlockStyle.paragraphSpacing` / `paragraphSpacingBefore`，见 `docs/editor-typography.md` 第八节。）
 设计意图与决策记录见 `docs/editor-typography.md`。
 
 > **平台分工（2026-09-20 确认）**：iOS 版按 **Apple HIG**，Android 版（`../JustGDiary`）
@@ -157,12 +168,19 @@ iOS 默认值：
 `PartsCodec.attributedString` 的结果解析回来，断言块样式、对齐、文本与行内样式不变；
 另覆盖存储格式本身（v2 信封、v1 升级、未开启的行内样式不写成 `false`）。
 毫秒级，UI 测试采样不到的档位由它兜住。
+（2026-10-01 核实：「12 档」= `testEditorRoundTripPreservesStylesAtEveryTextSize` 遍历
+`DynamicTypeSize.allCases`，SwiftUI 目前正是 12 档；存储格式那几条见
+`testSerializedContentIsVersionedAndCarriesNoFontSize` / `testLegacyV1ContentIsUpgradedOnRead` /
+`testOnlySetInlineStylesAreWritten`。）
 
 `JustDiaryUITests/EditorTypeSizeUITests`（UI）：在最大辅助功能字号下建立
 `body / title / heading / quote` 四段 → 保存 → **重新打开已保存的块**（不是新建）→
-再次保存，共三轮，断言块样式与文本不变；另有「放弃修改恢复到保存前」与「输入区随
-字号放大」两个用例。用例通过 `-ui-test-editor-state` 探针读取编辑器将要落库的块样式，
-不需要读容器数据库。
+再次保存，共三轮，断言块样式与文本不变；另有「放弃修改恢复到保存前」「输入区随
+字号放大」「没记地点的块不能再补一个」三个用例。用例通过 `-ui-test-editor-state` 探针
+读取编辑器将要落库的块样式，不需要读容器数据库。
+（2026-10-01 核实：用例名依次为 `testBlockStylesSurviveReSaveAtLargestTextSize`（第 1 轮 +
+`for pass in 2...3`）、`testDiscardChangesRestoresSavedContent`、`testInputAreaGrowsWithTextSize`、
+`testEntrySavedWithoutLocationCannotGainOne`。）
 
 旧版用例点的是「写日记」（新建），并没有重新解析应用自己渲染过的文本，已一并修正。
 
@@ -224,10 +242,12 @@ iOS 默认值：
   地点筛选行原本贴着，读起来像「玻璃被切了」。做法是在滚动内容里加
   `.padding(.vertical, 6)`（格式栏用的是 8），让视口比胶囊高一点。
 - **设置页的说明控制在一行**（2026-09-26 补）：`rowLabel` / `switchRow` 的 `sub`
-  是 13pt 左右、可用宽度约 250pt，**中文超过约 12–14 字就会折成两行**，整列卡片高度
+  是 13pt 左右、可用宽度约 170pt，**中文超过约 12 字就会折成两行**，整列卡片高度
   参差。现在长句都压到一行以内（如「在此时间之前写的内容，归入前一天」→
   「这个时间前算前一天」、「仅可修改或删除已有编辑块，历史日期不可新增内容」→
   「历史日期只能改，不能新增」）。以后新增说明也照这个长度写。
+  （2026-10-01 核实：这里的 250pt 是错的，改成与 9.1 和
+  `SettingsTests.testSettingsRowDescriptionsFitOneLine` 同一个数：170pt。）
 - **不在玻璃上叠玻璃**（本轮补）：读日记的条目内搜索栏里，「上一个 / 下一个匹配」
   按钮原本是 `GlassIconButton`，即玻璃胶囊里的玻璃按钮——没有可折射的内容，只会
   读成一团。现在改为普通按钮，并补上此前缺失的无障碍文案
@@ -260,9 +280,18 @@ iOS 默认值：
 ## 六、放大字号时的溢出处理
 
 - 固定高度改为 `minHeight`：`PageHeader`、首页 header、设置行、搜索筛选摘要行、
-  位置选择行、周标题行、**编辑器输入区**（160pt × 正文样式的动态字体系数）。
-- 单行不能换行的场合（设置行的尾值、足迹 5 列统计、日历大标题、周标题）
-  用 `lineLimit(1)` + `minimumScaleFactor` + `allowsTightening`，宁可轻微缩小也不截断。
+  位置选择行、**编辑器输入区**（160pt × 正文样式的动态字体系数）。
+  （2026-10-01 核实：星期栏与周态标题行现在不在这条里 —— 它们是版面常量高度
+  `CalendarLayout.weekdayHeaderH`（30）/ `dayTitleH`（40），文字靠
+  `.diaryCalendarFont` 半速放大，见 2.3。）
+- 单行不能换行的场合用 `lineLimit(1)` + `minimumScaleFactor`（0.6–0.9，视位置而定），
+  宁可轻微缩小也不截断：设置行的尾值、足迹 5 列统计、日历大标题、周标题、
+  悬浮胶囊上的短标签。其中**日历大标题、周标题、页头另外带 `allowsTightening`**
+  （2026-10-01 核实：原文把四处写成同一套修饰符，但设置行尾值
+  （`SettingsView.swift:190`）与足迹统计（`FootprintView.swift:111/118`）只有
+  `lineLimit(1)` + `minimumScaleFactor`；`allowsTightening` 出现在
+  `Components.swift:180`、`CalendarPaneViews.swift:59/70`、`HomeView.swift:149/642`、
+  `MonthFlow.swift:232`）。
 - 图标徽章按字号放大但**必须保持正方形**：`minWidth`/`minHeight` 放进 `HStack`
   会被行高拉成长条（这个 bug 出现过一次）。
 - 底部为悬浮 tab bar 预留的间距改为 `TabBarClearance`，随字号放大——
@@ -297,7 +326,7 @@ iOS 默认值：
 |---|---|
 | 失效脚本 | `generate_xcstrings.py`（依赖的 `.lproj/Localizable.strings` 已不存在） |
 | 过程脚本 | `validate_pbxproj.swift`（一次性调试用，零引用） |
-| 本地化键 | 39 条零引用键；保留 `""` / `":"` / `"%lld"` 三条 Xcode 从 `Picker("")`、`Text(":")`、`Text("\(h)")` 自动提取的占位条目 |
+| 本地化键 | 39 条零引用键；保留 `""` / `"%lld"` 两条 Xcode 从 `Picker("")`、`Text("\(h)")` 自动提取的占位条目（同批保留的 `":"` 后来被移除：2026-10-01 核实 `Localizable.xcstrings` 里只剩 `""` 与 `"%lld"`） |
 | 死代码 | `Animation.diaryMorph/diarySpring`、`AppTab.icon/label`（及未用的 `CaseIterable`）、`tintedGlass`、`Spacing.screen/cardGap/chip`、`Log.map/search`、`Haptics.medium`、`SQLite` 里重复的 `SQLITE_TRANSIENT`、`DiaryRepository.isFtsSupported/getFirstBlock/updateBlockLocation`、`DateUtil.addMonths/daysInMonth`、`L10n.weekdayShort`、`SearchViewModel.setLocFilter`、`MorphPerfUITests.attach` |
 
 验证方式：删除前后各构建一次；`git show HEAD:…xcstrings` 与新文件比对，确认
@@ -317,6 +346,10 @@ iOS 默认值：
 3. **只写不读的属性**：`EditBlock.diaryId`、`PreviewItem.ratio`、
    `DayContentView.showFutureToast`（由 `HomeView` 传入但从未调用）。
    要清理必须同时改动调用点，属于小重构，留待与相关功能一起处理。
+   （2026-10-01 核实：三者仍然只写不读。toast 那条链路更准确的现状是：`HomeView`
+   把 `showFutureDateToast()` 作为闭包传了下去（`HomeView.swift:659`），toast 的视图与
+   `showFutureToast` 状态也已接好（`HomeView.swift:57`），但接收方 `DayContentView`
+   声明了 `showFutureToast: () -> Void` 之后**从不调用**它 —— 缺的只是触发点。）
 4. **`DiaryRepository.dbPathOverride` / `imagesDirOverride`**：被 `dbPath()` /
    `imagesDir()` 读取，但仓库里没有任何地方赋值——像是给测试预留的注入口。
    确认不打算用再删。
@@ -375,7 +408,8 @@ iOS 默认值：
 750pt、SE 667pt），所以横屏首页一律是左右双列 —— 早先的 700pt 阈值会把 iPhone SE
 挡在门外，让它只剩「竖屏版面横向拉长」。
 
-导航形态用系统默认的底部浮条（`TabView` 不加额外样式）。**不要自己画第二套导航**，
+导航形态用系统默认的底部浮条（`TabView` 没有额外的导航样式；2026-10-01 核实：只加了
+`.tabBarMinimizeBehavior(.onScrollDown)`，`RootView.swift:65`）。**不要自己画第二套导航**，
 也不要在 `TabView` 里再套 `NavigationSplitView`（会和页内已有的主从结构叠成两层导航）。
 
 **手机横屏的系统占位是实测的**（真机 UI 测试探针）：
@@ -400,21 +434,26 @@ iOS 默认值：
    不设上限时宽窗口会把正文拉成一行 100+ 个字。
 2. **固定高度改为按可用空间派生，字号也要跟着走**。原来的横屏重叠就是「格子高度由可用
    高度算、`dayFont` 写死 20pt」造成的：402pt 高的横屏里格子只剩 39pt，装不下 20pt 日号
-   + 11pt 农历 + 圆点。现在日历密度按高度三档降级（月格含农历 → 月格 → 周条）；
+   + 11pt 农历 + 圆点。现在日历密度只有两档（月格含农历 → 月格，隐藏农历行）；
    隐藏农历那一档的行高下限是 **38pt**（44pt 是「日号 **+ 农历** + 选中圆」的高度，
-   而这一档本来就不画农历），否则 iPhone SE 横屏的六行月格会被误降级成周条。
-3. 左右安全区**分别**读取（`safeAreaInsets.leading` / `.trailing`），不假设对称；
-   折痕的「避免区」留一个环境值钩子，等 iOS 27.1 的 `reservedRegion` 再接。
+   而这一档本来就不画农历），否则 iPhone SE 横屏的六行月格就放不下。
+   2026-10-01：原来还有第三档「周条降级」，只判不画，已删除（见 `docs/adaptive-layout-plan.md` §3.1）。
+3. 左右安全区**分别**读取（`safeAreaInsets.leading` / `.trailing`），不假设对称。
+   **2026-10-01 决定**：折痕「避免区」（`FoldAvoidance` 环境值）**不做** —— 它从来没实现过，
+   而 iPad / 桌面端与折叠屏适配都已取消；等真有设备再说（`AdaptiveLayout` 的宽度判据
+   本来就是那套 API 的超集，届时不改版面）。
 
 `TabBarClearance` 在浮条悬底时留出底部空间：横屏两栏的最后一行不能被浮条压住。
 
-**设计稿即规范**：`docs/design/landscape/engine.js` 里的 `layoutFor()` 就是上表的代码版，
-`devices.js` 记录手机横屏的系统占位常量，`mockup.css` 顶部的令牌与 `DesignSystem.swift` /
-`Assets.xcassets` 一一对应。改令牌要两边同步。
+**设计稿即规范**：`docs/design/landscape/engine.js` 里的 `layoutFor()` 与上表同一条规则
+（2026-10-01 已对齐：横屏 + 首页才分栏，主栏 = 容器宽 × 46%），`devices.js` 记录手机横屏的
+系统占位常量，`mockup.css` 顶部的令牌与 `DesignSystem.swift` / `Assets.xcassets` 一一对应。
+改令牌要两边同步。**设计稿只有手机端**——iPad / Mac 的宽屏稿已于 2026-10-01 删除。
 
-**不要提前用的 API**（iOS 27.1 才有，Xcode 27.0 SDK 中确认不存在）：
-`ArrangementView` / `UIArrangementViewController` / `onHingeChange` / `UIHingeInteraction` /
-`GeometryProxy.reservedRegion`。本方案的宽度分档是这些 API 的超集，接入时不需要改版面。
+**与折叠屏相关的 API**（`ArrangementView` / `UIArrangementViewController` / `onHingeChange` /
+`GeometryProxy.reservedRegions`）随 iPad / 桌面端一并**不再规划**：都不在 Xcode 27.0 SDK 的
+公开接口里（SwiftUI 二进制有 `reservedRegions` 符号但 `.swiftinterface` 未声明），
+而且现在没有任何目标设备需要它们。
 
 ---
 

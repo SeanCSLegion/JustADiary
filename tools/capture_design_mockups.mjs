@@ -2,10 +2,10 @@
 /**
  * 把 docs/design/landscape/ 下的设计稿渲染成 PNG。
  *
- *   node tools/capture_design_mockups.mjs                 # 全部（手机 + iPad/Mac）
+ *   node tools/capture_design_mockups.mjs                 # 全部（只有手机端）
  *   node tools/capture_design_mockups.mjs ph-home         # 只渲染 id 含该子串的稿
- *   node tools/capture_design_mockups.mjs --phone         # 只手机端
- *   node tools/capture_design_mockups.mjs --wide          # 只 iPad / Mac
+ *
+ * 2026-10-01：iPad / Mac 的宽屏稿已删除，`--phone` / `--wide` 两个参数随之取消。
  *
  * 设计稿的唯一定义在 docs/design/landscape/frames-*.js，这里只负责按设备真实
  * 尺寸、2× 像素密度截出来。依赖本机 Google Chrome（无头模式）。
@@ -30,21 +30,17 @@ const SCALE = Number(process.env.CAPTURE_SCALE || 2);
 const sandbox = { document: { addEventListener() {} }, console };
 vm.createContext(sandbox);
 for (const f of ["engine.js", "devices.js", "frames-phone.js",
-                 "frames-phone-portrait.js", "frames-wide.js"]) {
+                 "frames-phone-portrait.js"]) {
   vm.runInContext(readFileSync(join(designDir, f), "utf8"), sandbox, { filename: f });
 }
 vm.runInContext("globalThis.__D = { DEVICES, FRAMES, layoutFor };", sandbox);
 const { DEVICES, FRAMES } = sandbox.__D;
 
 const args = process.argv.slice(2);
-const onlyPhone = args.includes("--phone");
-const onlyWide = args.includes("--wide");
 const filter = args.find((a) => !a.startsWith("--"));
 
 const frames = FRAMES.filter((f) => {
   const dev = DEVICES[f.dev];
-  if (onlyPhone && dev.type !== "phone") return false;
-  if (onlyWide && dev.type === "phone") return false;
   if (filter && !f.id.includes(filter)) return false;
   return true;
 });
@@ -61,7 +57,7 @@ mkdirSync(tmpDir, { recursive: true });
 function assetVersion() {
   let stamp = 0;
   for (const f of ["engine.js", "devices.js", "frames-phone.js",
-                   "frames-phone-portrait.js", "frames-wide.js", "mockup.css"]) {
+                   "frames-phone-portrait.js", "mockup.css"]) {
     try { stamp = Math.max(stamp, Math.round(statSync(join(designDir, f)).mtimeMs)); }
     catch {}
   }
@@ -75,11 +71,10 @@ function pageHTML(frame) {
   const h = Math.round(dev.h);
   const kind = frame.kind || frame.id.split("-")[0];
   const V = assetVersion();
-  const island = dev.type === "phone" ? '<div class="island"></div>' : "";
-  const lights = dev.type === "mac" ? '<div class="lights"><i></i><i></i><i></i></div>' : "";
-  const zoneScript = (dev.type === "phone" && dev.landscape)
+  const island = '<div class="island"></div>';
+  const zoneScript = dev.landscape
     ? 'document.getElementById("zone").innerHTML = '
-      + '\'<div class="zone island-zone" style="width:\' + PHONE_CHROME.islandW + \'px;height:180px">\' '
+      + '\'<div class="zone island-zone" style="left:0;top:\' + ((dev.h - PHONE_CHROME.islandLong) / 2) + \'px;width:\' + PHONE_CHROME.islandShort + \'px;height:\' + PHONE_CHROME.islandLong + \'px">\' '
       + '+ \'<span>灵动岛 / 硬件区<br>不放内容</span></div>\';'
     : "";
   return [
@@ -106,7 +101,7 @@ function pageHTML(frame) {
     '       style="width:' + w + "px;height:" + h + 'px;position:relative">',
     '    <div class="bg-layer"><span class="blob b-a"></span><span class="blob b-b"></span><span class="blob b-c"></span></div>',
     '    <div class="shell" id="mount"></div>',
-    "    " + island + lights,
+    "    " + island,
     '    <div id="zone"></div>',
     '    <div class="annot-layer" id="annots"></div>',
     "  </div>",
@@ -117,7 +112,6 @@ function pageHTML(frame) {
     '<script src="../devices.js' + V + '"><\/script>',
     '<script src="../frames-phone.js' + V + '"><\/script>',
     '<script src="../frames-phone-portrait.js' + V + '"><\/script>',
-    '<script src="../frames-wide.js' + V + '"><\/script>',
     "<script>",
     '  const dev = DEVICES["' + frame.dev + '"];',
     '  const layout = layoutFor(dev, "' + kind + '");',

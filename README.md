@@ -51,7 +51,7 @@ open JustDiary.xcodeproj        # ⌘R 运行，⌘U 测试
 
 ## 功能
 
-- **首页日历**：连续滚动的月历流（大月份标题与星期栏钉在顶部、月份之间隔一周、上滑无级翻月）、年历总览，支持镜头缩放切换动画、今日圆环/选中实心圆标识、日记日期圆点标注
+- **首页日历**：连续滚动的月历流（大月份标题与星期栏钉在顶部、月份之间隔一条 16pt 空隙并放小月份标题、上滑无级翻月）、年历总览，支持镜头缩放切换动画、今日圆环/选中实心圆标识、日记日期圆点标注
 - **日记编辑**：富文本编辑器，段落样式（大标题 / 小标题 / 正文 / 引用，字号取 Apple 的
   iOS 默认梯级 28 / 22 / 17 / 15 并跟随系统文字大小）与行内格式（粗体 / 斜体 / 删除线 /
   下划线 / 居中对齐 / 列表 / 待办），支持插入图片、自动记录时间与位置、「放弃修改」二次确认。
@@ -80,7 +80,10 @@ open JustDiary.xcodeproj        # ⌘R 运行，⌘U 测试
   > 所以 `.jdiary` 仍然双向互通（详见 `docs/design-system.md` §3.1 的平台分工表），
   字号由系统「文字大小」解析，不落任意磅值；块类型与字号解耦，改梯级不会改写已有日记
 - 日期/时间格式按语义槽位统一（年 / 月 / 日+星期 / 区间 / 时刻），时刻跟随系统的 12/24 小时制设置
-- 本地化使用 **String Catalog**（`Localizable.xcstrings`），通过 `String(localized:locale:)` 支持应用内语言即时切换
+- 本地化使用 **String Catalog**（唯一真源是 `JustDiary/Resources/Localizable.xcstrings`），运行时由
+  `L10n` 读取目标语言 `.lproj` 里编译出的 `Localizable.strings` 表，支持应用内语言即时切换。
+  **不用** `String(localized:locale:)`：它在 iOS 上按 App 当前语言解析、会忽略传入的 locale
+  （那正是「语言只切一半」的老 bug，原因写在 `JustDiary/Services/L10n.swift`）
 - 主题色板迁移至 **Asset Catalog** 动态色（明暗自动切换），品牌色/混合色仍由 `Theme` 计算
 - 自定义组件：`GlassChip`、`GlassActionChip`、`GlassCountBadge`、`PressableGlassIcon`、`diaryCard`（内容卡片修饰符）、`GlassEmptyState`、`TabBarClearance`、`AppAlertItem`
 
@@ -100,8 +103,13 @@ JustDiary/
 ├── Models/        # 数据模型、日期工具
 └── Resources/     # String Catalog、图标、动态色板
 
-JustDiaryTests/      # 单元测试（宿主为 App）：content_json 编解码、编辑器往返不变量、日记列宽
-JustDiaryUITests/    # UI 测试：morph 动画、足迹、编辑器、语言/主题、手机横屏版面、冒烟
+JustDiaryTests/      # 单元测试 11 个文件（宿主为 App）：content_json 编解码与编辑器往返不变量、
+                     # 块样式渲染、格式按钮作用域、空行与行距、连续月历流几何、横屏分栏、
+                     # 日记列宽、位置精度、分享长图渲染、设置默认值
+JustDiaryUITests/    # UI 测试 17 个文件：morph 动画与性能、连续月历流、足迹、编辑器（字号往返、
+                     # 格式按钮、光标绘制、格式栏、「放弃修改」、键盘收起、旋转后图片列宽）、
+                     # 日记页推进式导航、分享面板与分享位置精度、定位精度菜单、语言/主题、
+                     # 竖屏与横屏版面、设置最小更新、冒烟
 
 docs/                # 设计规范、编辑器排版与格式行为、自适应版面、位置规则、升级调研
 tools/               # 示例数据、设计稿截图等开发辅助脚本
@@ -123,6 +131,8 @@ tools/               # 示例数据、设计稿截图等开发辅助脚本
 - 部署目标：**iOS 27.0**；设备族：**iPhone**（`TARGETED_DEVICE_FAMILY = "1"`）——不含 iPad，
   也未开启 Mac 上的「Designed for iPad」（`SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`）
 - 依赖：**无第三方依赖**（无 SPM/CocoaPods/Carthage），只需要 Xcode 27
+  - 「Swift 6.4」指 Xcode 27 自带的**编译器版本**（`swift --version` = Apple Swift 6.4）；
+    工程的**语言模式**仍是 `SWIFT_VERSION = 5.0`（见 `generate_project.py`），尚未切到 Swift 6 语言模式
 - 项目由 `generate_project.py` 生成（PBXFileSystemSynchronizedRootGroup）——**所有构建设置都改这个脚本再重新生成**，不要手改 `project.pbxproj`。克隆后先跑一次，新增/删除文件后也要重跑：
 
 ```bash
@@ -137,9 +147,11 @@ xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform
 DEVELOPMENT_TEAM=XXXXXXXXXX python3 generate_project.py    # 换成自己的 Team ID
 ```
 
-- 运行测试（单元测试覆盖 `content_json` 编解码、编辑器往返不变量与日记列宽；
-  UI 测试覆盖 morph 动画、足迹页、编辑器（含字号往返、「放弃修改」、横屏版面、旋转后图片列宽、
-  键盘收起）、语言/主题、手机横屏分栏与翻月、冒烟）：
+- 运行测试（单元测试覆盖 `content_json` 编解码、编辑器往返不变量、块样式渲染、格式按钮作用域、
+  行距与空行、连续月历流几何、横屏分栏、日记列宽、位置精度、分享长图渲染与设置默认值；
+  UI 测试覆盖 morph 动画与性能、连续月历流、足迹页、编辑器（含字号往返、「放弃修改」、横屏版面、
+  旋转后图片列宽、键盘收起）、日记页推进式导航、分享面板与分享位置精度、定位精度菜单、语言/主题、
+  竖屏与横屏分栏及翻月、设置最小更新、冒烟）：
 
 ```bash
 xcodebuild -project JustDiary.xcodeproj -scheme JustDiary -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -parallel-testing-enabled NO test
@@ -156,6 +168,7 @@ xcodebuild ... -only-testing:JustDiaryUITests test        # 需要中文模拟�
 MORPH_FILM=1 xcodebuild ... -only-testing:JustDiaryUITests/CrossMonthMorphUITests test
 python3 tools/xcresult_frames.py <x.xcresult> .build/frames     # 导出并改名
 python3 tools/film_strip.py .build/frames out.png --cols 6 --label   # 拼成胶片
+python3 tools/film_compare.py <改前目录> <改后目录> <用例> out.png    # 改前/改后同一批帧并排对比
 ```
 
 ## 数据与隐私
@@ -206,19 +219,19 @@ python3 tools/film_strip.py .build/frames out.png --cols 6 --label   # 拼成胶
 
 ## 设计稿
 
-手机端设计稿已定稿：
+**只做 iPhone**（不制作 iPad 端与桌面端），设计稿也只剩手机端：
 
-- `docs/design/landscape/phone.html`：手机端。**竖屏 7 张是当前实现的 1:1 复刻**（含年历 / 周历 morph 的目标形态），横屏 6 张是已实现的版面
+- `docs/design/landscape/phone.html`：手机端。**竖屏 6 张是当前实现的 1:1 复刻**（含年历 / 周历 morph 的目标形态），横屏 5 张是已实现的版面
 - `docs/design/landscape/gallery.html`：设计稿总览
 
 设计稿的唯一定义在 `docs/design/landscape/`：`devices.js`（参考设备 + **手机横屏系统占位常量**）、
 `engine.js`（图标/数据/绘制函数/`layoutFor()` 版面判定）、`frames-phone.js`（横屏）、
 `frames-phone-portrait.js`（竖屏复刻）；
-令牌在 `mockup.css`，与 `Assets.xcassets`、`DesignSystem.swift` 一一对应。改完执行：
+令牌在 `mockup.css`，与 `Assets.xcassets`、`DesignSystem.swift` 一一对应。导出的 PNG 都在
+`docs/design/landscape/screens/`（11 张）。改完执行：
 
 ```bash
 node tools/capture_design_mockups.mjs              # 重新导出全部 PNG（2×）
-node tools/capture_design_mockups.mjs --phone      # 只手机端
 node tools/capture_design_mockups.mjs ph-home      # 只导出 id 含 ph-home 的
 ```
 
@@ -237,7 +250,8 @@ python3 tools/seed_sample_diary.py "iPhone 18 Pro"
 
 ## 资源再生成
 
-- `generate_colorsets.py`：生成主题动态色 Asset Catalog 色板（当前输出与已提交的色板逐字节一致）
-- `Localizable.xcstrings` 是本地化的**唯一真源**，请直接编辑该文件。
-  （曾有的 `generate_xcstrings.py` 依赖已不存在的 `.lproj/Localizable.strings`，属于失效脚本，已删除；
+- `generate_colorsets.py`（在仓库根目录，不在 `tools/`）：生成主题动态色 Asset Catalog 色板（当前输出与已提交的色板逐字节一致）
+- `JustDiary/Resources/Localizable.xcstrings` 是本地化的**唯一真源**，请直接编辑该文件。
+  （`JustDiary/Resources/` 下只有 `en.lproj/InfoPlist.strings`，没有 `.lproj/Localizable.strings`。
+  曾有的 `generate_xcstrings.py` 依赖已不存在的 `.lproj/Localizable.strings`，属于失效脚本，已删除；
   需要时从 git 历史取回。）

@@ -23,10 +23,16 @@ Subheading / Body），字号由系统「文字大小」经 `UIFontMetrics` 解�
 | Body | 正文 | `body` | 17 | Body |
 | Quote | 引用 | `quote` | 15 | Subheadline |
 
+（2026-10-01 核实：`ContentPartStyle` 共 7 个取值 —— `title` / `heading` / `body` / `quote` /
+`list` / `todo` / `image`；上表只列编辑器能选的 4 个语义样式，`list` / `todo` / `image`
+落库用同名取值、绘制时按正文属性（`EditorBlockStyle.init(partStyle:)`）。）
+
 - 格式栏左侧的「样式」菜单（SF Symbol `textformat.size`，中文环境渲染为「大小」）
   负责选择大标题 / 小标题 / 正文；引用另有 `text.quote` 按钮（块类型本身就是引用的标记，底色与竖条由 `DiaryTextView` 的装饰层画，见第七节）。
 - 行距、段后距都按字号比例计算（引用 0.5×，其余 0.13×；标题/引用有段后距），
   不再写死 2pt / 7pt。
+  **现状（2026-10-01 核实）**：这一句已被第八节取代 —— 行距改由 `lineHeightRatio`
+  （1.25 / 1.32 / 1.50 / 1.60）决定，段距**全部由段前距承担**、段后距一律 0。
 - 正文 15 → 17 是 HIG 对 iOS 正文的默认值；放大字号时正文约 25.5pt（AX5）。
 
 ## 二、E1–E6 处理结果
@@ -124,6 +130,9 @@ E2 备选的「长按切换层级」没有采用：样式菜单与备忘录的�
 | `testEditorRoundTripKeepsTodoStateAndItemGrouping` | 连续列表 / 待办项合并成一条，`done` 状态不丢 |
 | `testEveryEditorStyleMapsToItsPersistedNameAndBack` | 编辑样式 ↔ 存储样式一一对应；未知样式按正文处理 |
 
+（2026-10-01 核实：该类共 8 例，上表 6 个用例名全部存在；另有
+`testEmptyAndBrokenContentDecodesToNothing`、`testEditorRoundTripPersistsNoFontSize` 两例。）
+
 **UI 测试** `JustDiaryUITests/EditorTypeSizeUITests`（模拟器需为中文）：
 
 1. `testBlockStylesSurviveReSaveAtLargestTextSize`
@@ -134,6 +143,10 @@ E2 备选的「长按切换层级」没有采用：样式菜单与备忘录的�
    重新打开块 → 追加文字 → 「放弃修改」→ 确认 → 断言回到保存前的内容。
 3. `testInputAreaGrowsWithTextSize`
    空编辑区在默认字号下高 160pt，在最大辅助功能字号下约 240pt（E4）。
+
+（2026-10-01 核实：该文件共 4 例，上面 3 个用例名全部存在；另有
+`testEntrySavedWithoutLocationCannotGainOne`（无位置的日记重开后不能补位置），与字号 /
+放弃修改无关。）
 
 UI 用例通过 `-ui-test-editor-state` 探针读取「编辑器将要落库的块样式与文本」，不需要
 从模拟器容器里读数据库；第一次启动额外带 `-ui-test-reset-data`，只清空「今天」这一天，
@@ -150,7 +163,8 @@ UI 用例通过 `-ui-test-editor-state` 探针读取「编辑器将要落库的�
 
 > **2026-09-30 起这张表已按 Apple 的规范重定**（行距取 HIG 的行高与 CJK 字体行高中的
 > 更宽者，段距改由**段前距**承担），最新数值与依据见第八节；下表保留改造前的模型说明，
-> 便于对照「为什么当时是那样」。
+> 便于对照「为什么当时是那样」。（2026-10-01 核实：本节 5.1–5.3 里出现的 **10.2pt** /
+> **0.6×** 也都是改造前的数值 —— `imageSpacing` 现为 `正文 × 0.8` = 13.6pt，见第八节。）
 
 | 样式 | 设计字号 | lineSpacing（段内换行） | paragraphSpacingBefore（段前） | paragraphSpacing（段后） |
 |---|---|---|---|---|
@@ -168,22 +182,27 @@ UI 用例通过 `-ui-test-editor-state` 探针读取「编辑器将要落库的�
 > 所以标记自己也带着这条段落样式（`MarkerAttachment.attributed`）。不带的话整条列表项会
 > 退回默认段落属性，把正文的 2.2pt 行距白丢掉（实测折行推进 20.29pt vs 正文 22.5pt，B25）。
 
-图片的留白常量是 `EditorDesignSize.imageSpacing = 正文 × 0.6`（默认 10.2pt），
-由 `PartsCodec.imageParagraphStyle()` 挂成图片段落的段前 / 段后。
+图片的留白常量是 `EditorDesignSize.imageSpacing = 正文 × 0.8`（默认 13.6pt；2026-10-01
+核实：原文写 0.6 × / 10.2pt），由 `PartsCodec.imageParagraphStyle()` 挂成图片段落的
+段前 / 段后 —— 各扣掉一段看不见的空白（`imageTopSlack` / `imageBottomSlack`）之后
+是 11.0 / 1.1，见第八节。
 
-**图片的尺寸**：图片按**列宽**排版（编辑区 = 输入区宽度 − 24，阅读区 = 卡片正文宽度），
+**图片的尺寸**：图片按**列宽**排版（编辑区 = 输入区宽度 − 它自己的左右内缩，
+2026-10-01 核实：`BlockMetrics.textContainerInset` 左右现为 0，原文的「− 24」是编辑区
+还有 12pt 内缩时的旧算法；阅读区 = 卡片正文宽度），
 只按存储的 `w:h` 等比缩放并**居中**。所以存储的 `w` / `h` 从今往后只是「比例」和
 「取图分辨率上限」的提示，不再是排版尺寸 —— `PartsCodec.parts(from:)` 落库时照抄
 payload 里的原值，列宽变化不会改写它。横屏列变宽时图片跟着放大；段落对齐用
 `.center`（`imageParagraphStyle()`），编辑区里小图也居中。**横竖屏切换时同样**：
-`RichTextController.refitImages(maxWidth:)` 按同一条规则重排已有附件（旋转、分屏都会
+`RichEditorController.refitImages(maxWidth:)` 按同一条规则重排已有附件（旋转、分屏都会
 触发），只重排图片与附件 bounds，文本与光标不动。
 
 ### 5.2 两条链路怎么用同一个模型
 
 - **编辑区**：整篇是一个 `UITextView`，段距全部交给 TextKit（段落样式）。
   图片段落的样式挂在**附件字符**上、结尾换行保持「正文 typingAttributes」——
-  实测段落样式取段落第一个字符，所以图片行拿到 10.2/10.2，而它后面新输入的那一段
+  实测段落样式取段落第一个字符，所以图片行拿到图片段落自己的段前 / 段后（2026-10-01
+  核实：现为 11.0 / 1.1，不再是 10.2/10.2，见第八节），而它后面新输入的那一段
   不会继承图片的段距。
 - **空行**：空段落没有字形，但**有行盒**，TextKit 按「段落第一个字符」取段落样式 ——
   空段落的第一个字符就是它自己的换行符，所以编辑区里切换居中 / 引用 / 标题时，除了
@@ -195,8 +214,10 @@ payload 里的原值，列宽变化不会改写它。横屏列变宽时图片跟
   1. **去掉块尾的换行**。`sizeThatFits` 会为结尾空段落留整整一行（约 20pt）——
      以前每个文本块末尾都白多这么一行，读起来就是「图片前面莫名一大段空白」。
   2. **去掉图片块的段落样式**。图片自己就是一块，上下留白由 `DiaryPartsView` 的
-     `.padding(.vertical, EditorDesignSize.imageSpacing)` 给，段落样式会重复计一次。
-  见 `PartsCodec.readerChunk(from:typeSize:traits:)`。
+     `.padding(.vertical, EditorDesignSize.readerImagePadding)` 给，段落样式会重复计一次。
+  见 `PartsCodec.readerChunk(from:imageMaxWidth:typeSize:traits:)`
+  （2026-10-01 核实：原文写作 `.padding(.vertical, EditorDesignSize.imageSpacing)` 与
+  `readerChunk(from:typeSize:traits:)`，签名与 padding 常量都已不是代码里的样子）。
   3. **上下内缩与编辑区一致**：阅读块的 `textContainerInset` 与编辑区共用
      `BlockMetrics.textContainerInset`（6pt），两个模式的正文字形落在同一个位置。
 - **分享长图**：`ImageShareService` 有自己的一套（`gapBefore` 20 / 标题 26，按 720pt
@@ -217,7 +238,8 @@ payload 里的原值，列宽变化不会改写它。横屏列变宽时图片跟
 
 ### 5.4 测试
 
-`JustDiaryTests/EditorSpacingTests`（15 例）用 `NSLayoutManager` **量真实排版**：
+`JustDiaryTests/EditorSpacingTests`（18 例；2026-10-01 核实：原文写 15 例）
+用 `NSLayoutManager` **量真实排版**：
 每个段落的行盒（`lineFragmentRect`）与紧致墨迹盒（`boundingRect(forGlyphRange:)`）
 都要看——TextKit 会把段前 / 段后距折进段落自己的行盒，只看行盒间距会永远读到 0。
 断言包括：正文段之间只有正常行距；小标题 / 大标题「上方多出来的空间 > 下方多出来的
@@ -255,7 +277,7 @@ payload 里的原值，列宽变化不会改写它。横屏列变宽时图片跟
 
 | 块 | 几何 |
 |---|---|
-| 列表 | 圆点 ⌀6.5，圆心在列左 5.5 处；文字缩进 18，`lineSpacing / 段距` 同正文 |
+| 列表 | 圆点 ⌀6.5，圆心在列左 5.5 处；文字缩进 18，`lineSpacing` 同正文、项间段前距 `EditorDesignSize.markerSpacing`（`0.15 × 17`，见第八节；2026-10-01 核实：原文写「`lineSpacing / 段距` 同正文」） |
 | 待办 | 复选框 16×16（圆角 0.28×边长，描边 1.2 / 勾 2.1），圆心在列左 9 处；文字缩进 26 |
 | 引用 | 底色块横跨整列、圆角 9、上下各外扩 6；左竖条宽 3、距列左 6、上下各内缩 5；文字缩进 16 |
 
@@ -288,8 +310,10 @@ payload 里的原值，列宽变化不会改写它。横屏列变宽时图片跟
 底色块与竖条由 `BlockDecorationLayer` 画在文本视图**自己的子层最底下**：
 
 * 段落样式里给 `firstLineHeadIndent = headIndent = 16`，文字让开竖条；
-* 装饰层按 TextKit 2 的 `layoutFragmentFrame` 取这一段的排版框（只排这一段，
-  `enumerateTextLayoutFragments(from:options:.ensuresLayout)` 走到段尾就停），
+* 装饰层按 TextKit 2 的**行片段**取这一段**真实行**的排版框（每行 `typographicBounds`
+  的并集，只并 `characterRange.length > 0` 的行；2026-10-01 核实：原文写整段的
+  `layoutFragmentFrame`，那正是下面第三个坑），
+  `enumerateTextLayoutFragments(from:options:.ensuresLayout)` 走到段尾就停，
   并集之后往外扩 6pt、横跨整列。
 
 三个坑：
@@ -318,7 +342,8 @@ payload 里的原值，列宽变化不会改写它。横屏列变宽时图片跟
 引用与装配链路几何相同，最后**把同一个块分别用阅读链路和编辑链路渲染成图，要求逐像素
 相同**（0 个像素不同；编辑器末尾那条空段落不属于正文，比较公共高度）。引用块另有四条
 回归用例：高度不随后续内容变化（`testQuoteBlockDoesNotChangeWhenContentFollows`，正文 /
-短段 / 折行三种情况逐像素比 frame）、两行引用把两行都盖住、空引用行也有块、块只跟这一段
+短段 / 折行三种情况精确比 frame；2026-10-01 核实：该用例比的是 `CGRect` 相等，
+不是逐像素）、两行引用把两行都盖住、空引用行也有块、块只跟这一段
 文字有关（不含段前距、不含结尾空行）。
 
 ---
@@ -388,7 +413,7 @@ EditorBlockStyle.lineSpacing       // = 字号 × (lineHeightRatio − 1.193)
 | 小标题 `heading` | 0.55 × 22 = 12.1 | 上面 17.3 / 下面 11.3（仍然「离上文远」） |
 | 大标题 `title` | 0.55 × 28 = 15.4 | 上面 20.6 / 下面 10.1 |
 | 引用 `quote` | 0.60 × 15 = 9.0 | 上下都 ≈ 14（对称） |
-| 列表 / 待办项 | 0.15 × 17 = **2.55** | 4.3 + 2.6 = **6.8**（同一组，挨紧） |
+| 列表 / 待办项 | 0.15 × 17 = **2.55** | 5.2 + 2.6 = **7.8**（同一组，挨紧；2026-10-01 核实：按本节模型「上一段的 `lineSpacing` + 这一段的段前距」与代码常量（body `lineSpacing` 5.219、`markerSpacing` 2.55）推出来是 **7.8** —— 这是**推导值，没有测试钉住**；原文的 4.3 + 2.6 = 6.8 在代码里找不到来源） |
 
 ### 8.3 图片：两次「看不见的空白」
 
@@ -398,8 +423,11 @@ TextKit 2 把附件放在**基线上**，于是行盒和墨迹不重合。17pt �
 * 图片**下方**：下面那一行的墨迹从自己的行盒顶往下 **12.5pt**（0.735em）才开始
   （CJK 字面远低于 ascent）—— 同样看不到。
 
-所以图片的段前距要 **+2.6**、段后距要 **−12.5**，肉眼上下的空白才真的一样多（都是一段
-正文之间的 13.6pt）。读模式那一侧由 `DiaryPartsView` 的 padding 给，值同样扣掉了正文块
+所以图片的段前距要 **−2.6**、段后距要 **−12.5**（各扣掉那一段看不见的空白；
+2026-10-01 核实：原文段前距写作 +2.6，与 `imageParagraphStyle()` 的
+`imageSpacing − imageTopSlack` 以及本段「读模式同样扣掉 2.6pt」的说法相反），
+肉眼上下的空白才真的一样多（都是一段正文之间的 13.7pt）。读模式那一侧由
+`DiaryPartsView` 的 padding 给，值同样扣掉了正文块
 自己的 `textContainerInset` 与那 2.6pt（`EditorDesignSize.readerImagePadding`），两个模式
 因此画出同样的留白。另外**紧跟在图片后面的那一段不再加段前距**（`appendLine(followsImage:)`）
 —— 图片自己已经把间距给足，而且读模式里那一段本来就是新的一块、段前距同样不生效。

@@ -237,11 +237,6 @@ table.spec-table th { font-weight: 600; opacity: .6; font-size: 11px; }
   isolation: isolate;
 }
 .device.phone { border-radius: 46px; }
-.device.pad   { border-radius: 26px; }
-.device.macwin {
-  border-radius: 12px;
-  box-shadow: 0 30px 70px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.10);
-}
 .device.stage-annot { box-shadow: 0 24px 60px rgba(0,0,0,.28), 0 0 0 1px var(--divider); }
 
 /* 刘海 / 灵动岛（竖屏时放在状态栏右侧，避免遮住设计稿左上角的内容） */
@@ -254,11 +249,6 @@ table.spec-table th { font-weight: 600; opacity: .6; font-size: 11px; }
   width: 30px; height: 112px; border-radius: 16px;
 }
 /* Mac 窗口红绿灯 */
-.device .lights { position: absolute; top: 14px; left: 16px; display: flex; gap: 8px; z-index: 30; }
-.device .lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
-.device .lights i:nth-child(1) { background: #FF5F57; }
-.device .lights i:nth-child(2) { background: #FEBC2E; }
-.device .lights i:nth-child(3) { background: #28C840; }
 
 /* ---------------------------------------------------------------- background */
 
@@ -285,18 +275,10 @@ table.spec-table th { font-weight: 600; opacity: .6; font-size: 11px; }
 }
 .floating-tabs.bottom { bottom: 20px; }
 
-/* 手机横屏：系统把浮条换成左侧竖排胶囊（真机 x 12–76，纵向居中）。
-   设计稿按同样位置画，并把它标成「系统托管」——它不可被 app 移动。 */
-.floating-tabs.rail {
-  top: 50%; left: 12px; transform: translateY(-50%);
-  flex-direction: column; gap: 4px; padding: 8px 6px;
-  width: 64px; bottom: auto;
-}
-.floating-tabs.rail .tab {
-  flex-direction: column; gap: 2px; width: 52px; padding: 7px 0;
-  font-size: 10.5px; border-radius: 13px;
-}
-.floating-tabs.rail .tab svg { width: 19px; height: 19px; }
+/* 手机横屏：系统浮条**仍在屏幕底部居中**（实测 `(0, 338, 874, 64)`、高 64pt），
+   **没有**左侧竖排胶囊 —— 稿子画的也是 `.floating-tabs.bottom`（`layoutFor()` 里
+   `tabbarStyle: "bottom"`）。早期那条按「横屏浮条贴左边缘」画的 `.rail` 样式
+   已随宽屏稿一起删除（2026-10-01）。 */
 
 /* 灵动岛硬件区：只用于示意「这里不能放内容」 */
 .zone {
@@ -321,35 +303,6 @@ table.spec-table th { font-weight: 600; opacity: .6; font-size: 11px; }
 .floating-tabs .tab.active {
   background: color-mix(in srgb, var(--primary) 16%, transparent);
   color: var(--primary); opacity: 1; font-weight: 600;
-}
-
-/* 侧边栏（宽屏时系统切换过去的形态） */
-.sidebar {
-  width: 236px; flex: none;
-  display: flex; flex-direction: column; gap: 4px;
-  padding: 16px 12px;
-  background: color-mix(in srgb, var(--glass) 90%, transparent);
-  backdrop-filter: blur(24px) saturate(180%);
-  border-right: 1px solid var(--divider);
-}
-.sidebar .side-title {
-  font-size: var(--t-page); font-weight: 650; padding: 6px 10px 14px;
-  letter-spacing: -.01em;
-}
-.sidebar .item {
-  display: flex; align-items: center; gap: 11px;
-  padding: 9px 11px; border-radius: 11px;
-  font-size: var(--t-row); font-weight: 500; color: var(--on-surface);
-}
-.sidebar .item svg { width: 17px; height: 17px; opacity: .8; }
-.sidebar .item.active {
-  background: color-mix(in srgb, var(--primary) 18%, transparent);
-  color: var(--primary);
-}
-.sidebar .item.active svg { opacity: 1; }
-.sidebar .spacer { flex: 1; }
-.sidebar .side-foot {
-  font-size: var(--t-caption); opacity: .45; padding: 8px 11px; line-height: 1.5;
 }
 
 /* ---------------------------------------------------------------- panes */
@@ -468,7 +421,8 @@ table.spec-table th { font-weight: 600; opacity: .6; font-size: 11px; }
 }
 .cal-head {
   display: flex; align-items: center; gap: 10px;
-  /* 独立的一行：左侧 150pt 内是导航胶囊 + 灵动岛纵向范围，标题从这里之后开始 */
+  /* 默认左内边距（实际总被 engine.js 的行内 padding 覆盖）。横屏「标题行独立一行」
+     的形态由 engine.js 传 `headInset`（62pt = 安全区）行内覆盖，不是导航胶囊。 */
   padding-left: 152px; min-height: 38px;
 }
 .cal-head .cal-month { font-size: 24px; font-weight: 650; letter-spacing: -.01em; }

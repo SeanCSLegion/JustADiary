@@ -19,6 +19,11 @@
 | 编辑一个没有位置的片段 | 显示只读的「未记录地点」，不提供任何获取入口 |
 | 允许修改 / 删除历史日记 | 只决定「能不能编辑」；编辑时与今天的片段走同一套规则（可调精度、不可获取） |
 
+（2026-10-01 核实：表里与「没有位置」有关的三行（新建片段、新建片段保存、编辑一个
+没有位置的片段）都以设置项「自动插入地点」（`autoLoc`）为前置 —— 关掉它时新建片段
+既不获取位置、保存时也不再二次确认，编辑一个没有位置的片段连「未记录地点」这一行
+都不显示。）
+
 ## 二、为什么
 
 - 位置是「写这条日记时人在哪」，属于当时的事实。事后重新获取会把它悄悄改成
@@ -34,8 +39,10 @@
 ## 三、实现要点
 
 - **精度调整要有地址可算**。片段只存 `country` / `region1…3` / `loc_text`，
-  不存地点名与街道；编辑态因此用 `LocationResolver.text(for:region:precision:)`
-  从这些列重建地址，并只提供它们能表达的级别（省 / 市 / 区县）加上**记录时的那个
+  不存地点名与街道；编辑态因此用 `LocationResolver.text(for:precision:)` 的
+  **`LocRegion` 重载**（`Services/LocationService.swift:306`；另一个同标签的重载收
+  `CLPlacemark`，:259，只在记录时那一次用）从这些列重建地址，
+  并只提供它们能表达的级别（省 / 市 / 区县）加上**记录时的那个
   级别**（`exact` / `street` 的完整文本只存在于 `loc_text` 里）。回到记录级别时
   原样恢复该文本（`LocationSnapshot.recordedPrecision` / `recordedText`），
   不会因为一次来回就丢掉地点名。
@@ -65,6 +72,10 @@
 - `-ui-test-no-location`：让 `LocationService.currentLocation()` 直接返回 `nil`，
   从而稳定进入「获取失败」分支；
 - `-ui-test-no-autoloc`：把 `autoLoc` 置为关闭，给不关心位置的用例使用。
+
+（2026-10-01 核实：两个开关都不在 `Services/LaunchIntent.swift`（那里只负责 `openEditor`
+的跳转意图）——`-ui-test-no-location` 在 `LocationService.currentLocation()` 开头判断，
+`-ui-test-no-autoloc` 在 `App/JustDiaryApp.swift` 的 `AppDelegate` 里写 `autoLoc = false`。）
 
 ---
 

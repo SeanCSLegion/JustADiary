@@ -103,12 +103,11 @@ final class SplitLayoutTests: XCTestCase {
                        "SE：375 − 8 − 64（旧公式会给出 323，最后 20pt 被浮条压住）")
     }
 
-    /// SE 横屏的日历区必须还能画出**整月六行**，不能因为矮就降级成周条。
+    /// SE 横屏的日历区必须还能画出**整月六行**。
     func testSELandscapeStillDrawsTheWholeMonthGrid() {
         let headerH = CalendarLayout.compactMonthTitleH + CalendarLayout.compactWeekdayHeaderH
         let available = seLandscape.splitPaneHeight(containerHeight: 375) - headerH
         let density = CalendarDensity.resolve(availableHeight: available, rows: 6, wantsLunar: true)
-        XCTAssertFalse(density.isWeekStrip, "SE 横屏不该退化成周条")
         XCTAssertFalse(density.showsLunar, "这个高度放不下农历行")
         let cellH = density.rowHeight(availableHeight: available, rows: 6)
         XCTAssertGreaterThanOrEqual(cellH, CalendarDensity.dayRowHeight)
@@ -116,8 +115,9 @@ final class SplitLayoutTests: XCTestCase {
                                  "六行不能超出日历区（超出会把最后一行裁掉）")
     }
 
-    /// 「判定说放得下」与「实际行高」必须一致：任何可用高度下，
-    /// 选中月格密度后网格都不会高过日历区。
+    /// 「判定说放得下」与「实际行高」必须一致：只要行高没落到下限，网格就不会高过日历区。
+    /// 落到下限（可用高度连 38pt × 行数 都不够）时允许超出 —— 那部分由 `HomeView` 的
+    /// `.clipped()` 裁掉，这正是 2026-10-01 删掉「周条降级」之后的实际行为。
     func testMonthGridNeverOverflowsTheAvailableHeight() {
         let headerH = CalendarLayout.compactMonthTitleH + CalendarLayout.compactWeekdayHeaderH
         for paneH in stride(from: 220.0, through: 560, by: 0.5) {
@@ -125,17 +125,26 @@ final class SplitLayoutTests: XCTestCase {
             for rows in [5, 6] {
                 let density = CalendarDensity.resolve(availableHeight: available,
                                                       rows: rows, wantsLunar: true)
-                guard !density.isWeekStrip else { continue }
                 let cellH = density.rowHeight(availableHeight: available, rows: rows)
-                XCTAssertLessThanOrEqual(cellH * CGFloat(rows), available,
-                                         "paneH=\(paneH) rows=\(rows)：网格不能超出日历区")
+                if cellH * CGFloat(rows) > available {
+                    XCTAssertEqual(cellH, density.minimumRowHeight,
+                                   "只有夹到下限时才会超出：paneH=\(paneH) rows=\(rows)")
+                    XCTAssertLessThan(available, density.minimumRowHeight * CGFloat(rows))
+                } else {
+                    XCTAssertLessThanOrEqual(cellH * CGFloat(rows), available,
+                                             "paneH=\(paneH) rows=\(rows)：网格不能超出日历区")
+                }
             }
         }
     }
 
-    /// 高度真的不够时仍然要降级成周条（内容不被压扁这条底线没有丢）。
-    func testExtremelyShortPanesStillDegradeToTheWeekStrip() {
-        XCTAssertTrue(CalendarDensity.resolve(availableHeight: 180, rows: 6, wantsLunar: true).isWeekStrip)
+    /// 高度真的不够时**不再降级**（2026-10-01 清理）：只有「带农历 / 不带农历」两档，
+    /// 行高夹在下限，超出的部分由 `HomeView` 的 `.clipped()` 裁掉。
+    func testExtremelyShortPanesKeepSixRowsAndClampTheRowHeight() {
+        let density = CalendarDensity.resolve(availableHeight: 180, rows: 6, wantsLunar: true)
+        XCTAssertFalse(density.showsLunar)
+        XCTAssertEqual(density.rowHeight(availableHeight: 180, rows: 6), CalendarDensity.dayRowHeight,
+                       "180 / 6 = 30，低于下限，取 38")
     }
 
     /// 高度宽裕时农历行照旧（改动的只是「没有农历行」那一档的下限）。

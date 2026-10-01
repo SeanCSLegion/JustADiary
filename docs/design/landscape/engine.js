@@ -2,12 +2,14 @@
    一页时光 · 设计稿引擎（共享）
    这里放「跟设备无关」的部分：设计令牌的用法、图标、文案数据、日历/卡片/图表的
    绘制函数、版面判定规则、渲染入口。设备尺寸在 devices.js，各屏版面在
-   frames-phone.js / frames-wide.js。
+   frames-phone.js（横屏）与 frames-phone-portrait.js（竖屏）。
+   2026-10-01 起**只做 iPhone**：iPad / Mac 的宽屏稿（frames-wide.js、wide.html、
+   sidebar / rail / lights 那一套）已删除。
    ========================================================================== */
 
 /* ------------------------------------------------------------------ 画框注册表 */
 
-/* 各设备/版面的画框由 frames-phone.js / frames-wide.js 注册进来。
+/* 各设备的画框由 frames-phone*.js 注册进来。
    DEVICES 在 devices.js 里（页面先加载 engine，再加载 devices + frames）。 */
 const FRAMES = [];
 
@@ -112,14 +114,8 @@ function bgLayer() {
   return `<div class="bg-layer"><span class="blob b-a"></span><span class="blob b-b"></span><span class="blob b-c"></span></div>`;
 }
 
-function island(dev) {
-  if (dev.type !== "phone") return "";
+function island() {
   return `<div class="island"></div>`;
-}
-
-function lights(dev) {
-  if (dev.type !== "mac") return "";
-  return `<div class="lights"><i></i><i></i><i></i></div>`;
 }
 
 function tabbar(layout, current) {
@@ -135,21 +131,6 @@ function tabbar(layout, current) {
   const left = layout.tabbarOffset;
   const style = left !== undefined ? `style="left:${left}px;transform:none"` : "";
   return `<div class="floating-tabs ${pos}" ${style}>${items}</div>`;
-}
-
-function sidebar(layout, current) {
-  if (!layout.sidebar) return "";
-  const items = [
-    ["日记", ICON.home, "日记"], ["足迹", ICON.walk, "足迹"],
-    ["搜索", ICON.search, "搜索"], ["设置", ICON.gear, "设置"],
-  ].map(([label, icon, key]) =>
-    `<div class="item${key === current ? " active" : ""}">${icon}${label}</div>`).join("");
-  return `<div class="sidebar">
-    <div class="side-title">一页时光</div>
-    ${items}
-    <div class="spacer"></div>
-    <div class="side-foot">侧边栏是系统在窗口足够宽时<br>自动切换的导航形态</div>
-  </div>`;
 }
 
 /* 月视图。opt: {cellH, lunar, rowOnly, sel, compact} */
@@ -185,7 +166,7 @@ function monthGrid(opt) {
 /* 日历面板头部（月标题 + 年按钮 + 今日） */
 function calPaneHead(layout, opts) {
   const o = Object.assign({ today: true, yearButton: true, layout: "inline" }, opts);
-  /* 横屏时标题行要避开左侧导航胶囊 + 灵动岛的纵向范围（150pt） */
+  /* 横屏时标题行要避开左侧的安全区（`headInset` = 62pt，即 safe.leading） */
   const headStyle = o.layout === "stacked"
     ? `padding:2px 2px 4px ${PHONE_CHROME.headInset}px`
     : `padding:${o.pad || "2px 2px 4px"}`;
@@ -199,7 +180,7 @@ function calPaneHead(layout, opts) {
       </div>
       ${o.today ? `<span class="pill small">${ICON.cal}今天</span>` : ""}
     </div>`;
-  /* 横屏：标题行独立一行，不与月格抢位置（左上角硬件区也一起避开） */
+  /* 横屏：标题行独立一行，不与月格抢位置（左侧 62pt 的安全区也一起避开） */
   if (o.layout === "stacked") return titleBlock;
   return `<div class="pane-head" style="padding:6px 2px 4px">${titleBlock}${o.trailing || ""}</div>`;
 }
@@ -419,59 +400,51 @@ function annotLegend(list, frameId) {
 
 /* ------------------------------------------------------------------ 版面规则 */
 
-/* 由设备宽度推导出「该用什么版面」。这是整套设计的核心规则，也是规范文档
-   里那张表的可执行版本。 */
+/* 版面规则：**只做 iPhone**。
+   （2026-10-01 决定不再制作 iPad 端与桌面端，宽屏那套三栏判据连同 frames-wide.js、
+   wide.html、screens/wide-*.png 一起删除；工程侧也早已是
+   `TARGETED_DEVICE_FAMILY = "1"` + `SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`。）
+
+   手机只有两种形态，判据就是「宽高谁大」，不看机型：
+     竖屏（h ≥ w） → 单栏（年 / 月 / 周三态 morph）
+     横屏（w > h） → 首页左右分栏，其余页面单栏
+
+   分栏宽度与实现 `AdaptiveLayout.splitColumns(containerWidth:)` 同一条规则：
+   主栏 = 容器宽 × 46%（夹在 260…440，且必须给详情栏留够 240），详情栏吃剩下的。
+
+   说明：实现里的分栏阈值是「可用内容宽 ≥ 548.5pt」，而所有横屏 iPhone 都在它之上
+   （18 Pro 750pt、SE 667pt），所以稿子里按「横屏首页即分栏」画即可。 */
 function layoutFor(dev, kind) {
   const w = dev.w;
   const h = dev.h;
+  const landscape = w > h;
 
-  /* 手机横屏：系统把浮条换成左侧竖排胶囊，内容左边界 88pt */
-  if (dev.type === "phone" && dev.landscape) {
-    return {
-      w, h, kind,
-      split: kind === "home" || kind === "footprint" || kind === "search",
-      sidebar: false,
-      rail: false,
-      tabbar: true,
-      tabbarPos: "bottom",
-      tabbarStyle: "bottom",
-      tabbarOffset: Math.round(w / 2 - 190),
-      navBarH: PHONE_CHROME.navBarH,
-      contentInset: PHONE_CHROME.contentInset,
-      gridInset: PHONE_CHROME.gridInset,
-      headInset: PHONE_CHROME.headInset,
-      islandW: PHONE_CHROME.islandW,
-      islandH: PHONE_CHROME.islandH,
-      paneW: 336,
-      colMax: 0,
-      narrow: false,
-      cardCols: 2,
-      cardMaxW: 0,
-      panePad: 18,
-    };
-  }
+  /* 横屏：系统浮条**仍在屏幕底部居中**（实测 `(0, 338, 874, 64)`、高 64pt，紧贴底边），
+     **没有**左侧竖排胶囊；左侧 62pt 是安全区（safe.leading），几何原点已经在它里面 ——
+     所以内容左边界 = 62，不是 88。稿子画的也是底部浮条（tabbarStyle: "bottom"）。 */
+  const contentInset = landscape ? PHONE_CHROME.contentInset : 0;
+  const trailingInset = landscape ? PHONE_CHROME.trailingInset : 0;
+  const containerW = w - contentInset - trailingInset;
+  const available = Math.max(0, containerW - 32 - 16.5);   /* 页边距 16×2 + 分隔线 16.5 */
+  const preferred = Math.min(440, Math.max(260, Math.round(containerW * 0.46)));
+  const master = Math.min(preferred, Math.max(260, available - 240));
 
-  /* iPad / Mac：三栏版面（左导航轨 + 中列表 + 右详情） */
-  const sidebar = dev.type === "mac" && w >= 1100;
-  const split = kind === "home" ? w >= 980
-    : kind === "footprint" ? w >= 900
-    : kind === "search" ? w >= 980
-    : false;
-  const cardCols = w >= 1000 ? 3 : w >= 680 ? 2 : 1;
   return {
     w, h, kind,
-    split, sidebar,
-    rail: false,
+    landscape,
+    split: landscape && kind === "home",
     tabbar: true,
     tabbarPos: "bottom",
-    sidebarW: 236,
-    paneW: sidebar ? 300 : 340,
-    colMax: 0,
-    narrow: w < 430,
-    cardCols,
-    cardMaxW: cardCols >= 3 ? 1120 : cardCols === 2 ? 760 : 0,
-    panePad: 20,
+    tabbarStyle: "bottom",
     tabbarOffset: Math.round(w / 2 - 190),
+    contentInset,
+    trailingInset,
+    gridInset: contentInset,
+    headInset: contentInset,
+    paneW: Math.round(master),
+    detailW: Math.round(Math.max(240, available - master)),
+    narrow: containerW < 430,
+    panePad: landscape ? 18 : 16,
   };
 }
 
@@ -480,8 +453,8 @@ function layoutFor(dev, kind) {
 function deviceHTML(dev, inner, annotList, layout, frameId, showZones) {
   const cls = ["device", dev.type, dev.landscape ? "landscape" : "", "stage-annot"].join(" ");
   const style = `width:${dev.w}px;height:${dev.h}px;`;
-  /* 灵动岛硬件区：设计稿里只作为「不可用区域」的可视化提示 */
-  const zone = (showZones && dev.type === "phone" && dev.landscape)
+  /* 灵动岛硬件区：设计稿里只作为「不可用区域」的可视化提示（竖屏在顶部居中） */
+  const zone = (showZones && dev.landscape)
     ? `<div class="zone island-zone"
              style="left:0;top:${(dev.h - PHONE_CHROME.islandLong) / 2}px;
                     width:${PHONE_CHROME.islandShort}px;height:${PHONE_CHROME.islandLong}px">
@@ -490,7 +463,7 @@ function deviceHTML(dev, inner, annotList, layout, frameId, showZones) {
   return `<div class="${cls}" style="${style}">
     ${bgLayer()}
     <div class="shell">${inner}</div>
-    ${island(dev)}${lights(dev)}
+    ${island()}
     ${zone}
     ${annots(annotList, frameId)}
   </div>`;
@@ -538,30 +511,26 @@ function render() {
     <h3>本稿实测</h3>
     <table class="spec-table">
       <tr><th>项</th><th>值</th></tr>
+      <tr><td>形态</td><td class="spec">${layout.landscape ? "横屏" : "竖屏"}</td></tr>
       <tr><td>主栏宽度</td><td class="spec">${layout.split ? layout.paneW + "pt" : "—（单栏）"}</td></tr>
+      <tr><td>详情栏宽度</td><td class="spec">${layout.split ? layout.detailW + "pt" : "—（单栏）"}</td></tr>
       <tr><td>浮条位置</td><td class="spec">${layout.tabbarStyle || layout.tabbarPos}</td></tr>
-      <tr><td>内容列上限</td><td class="spec">${layout.colMax ? layout.colMax + "pt" : "不限"}</td></tr>
-      <tr><td>档位</td><td class="spec">${layout.split ? (dev.w >= 1000 ? "中/宽" : "中等") : "紧凑"}</td></tr>
     </table>
     ${annotLegend(frame.annots, frame.id)}
     <h3>判定规则</h3>
     <table class="spec-table">
       <tr><th>项</th><th>值</th></tr>
-      <tr><td>可用宽度</td><td class="spec">${layout.w}pt</td></tr>
-      <tr><td>本地分栏</td><td class="spec">${layout.split ? "是" : "否"}</td></tr>
-      <tr><td>侧边栏</td><td class="spec">${layout.sidebar ? "系统侧边栏" : "底部浮条"}</td></tr>
-      <tr><td>卡片列数</td><td class="spec">${layout.cardCols}</td></tr>
+      <tr><td>屏幕</td><td class="spec">${layout.w} × ${layout.h} pt</td></tr>
+      <tr><td>可用内容宽</td><td class="spec">${layout.w - layout.contentInset - layout.trailingInset}pt</td></tr>
+      <tr><td>本页分栏</td><td class="spec">${layout.split ? "是" : "否"}</td></tr>
+      <tr><td>导航</td><td class="spec">系统底部浮条（横竖屏都在底部居中）</td></tr>
     </table>
     <h3>为什么这样排</h3>
-    ${dev.type === "phone"
-      ? `<p>手机只有一个分栏阈值：月历需要 ≥260pt 才放得下 7 列（每格 ~37pt），详情栏需要
+    <p>手机只有一个分栏阈值：月历需要 ≥260pt 才放得下 7 列（每格 ~37pt），详情栏需要
     ≥240pt 才不至于每行只折三四个字。两者加上页边距 16×2 与栏间距 16.5，就是
     <span class="spec">548.5pt</span> —— 所有横屏 iPhone 都在它之上（18 Pro 可用 750pt、
-    iPhone SE 667pt），所以横屏首页一律左右双列；只有分屏 / 折叠这类真正窄的窗口才退回
-    单栏，宁可滚动，也不要挤。</p>`
-      : `<p>宽屏的每一个分栏都对应一个最小宽度（首页 980pt、足迹 900pt、搜索 980pt）：
-    列表栏要放得下标题与摘要，详情栏要放得下正文。宽度不到就老实退回单栏 ——
-    宁可滚动，也不要挤。</p>`}
+    iPhone SE 667pt），所以横屏首页一律左右双列；只有分屏这类真正窄的窗口才退回
+    单栏，宁可滚动，也不要挤。</p>
   `;
 }
 

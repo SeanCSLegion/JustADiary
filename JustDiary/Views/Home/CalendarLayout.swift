@@ -10,12 +10,16 @@ enum CalendarMode {
 /// 日历密度：由**可用高度**决定，用来替代原来「月↔周整屏 morph」在横屏的职责。
 ///
 /// 竖屏仍走原来的 `mode`（年/月/周三态 morph）；横屏只有 `month` 一种交互，
-/// 放不下六周格时自动降级为「周条」，这样内容永远不会被压扁。
-enum CalendarDensity: Equatable {
-    /// 六周格 + 农历行。
-    case month(lunar: Bool)
-    /// 只剩一行的周条（横向翻周）。
-    case weekStrip
+/// 高度不够时**只隐藏农历行**，六行日期始终保留。
+///
+/// > 2026-10-01 清理：这里原本还有第三档 `.weekStrip`（「放不下六周格就把左栏换成
+/// > 一行周条、横向翻周」），但它**只判不画** —— `HomeView` 只读 `showsLunar` 与
+/// > `rowHeight`，从来没有渲染分支，设计稿里那张降级稿也一并删了。现在按实际行为
+/// > 收成两档：高度再小也只是隐藏农历、把行高夹在下限（`dayRowHeight`），网格会被
+/// > `HomeView` 的 `.clipped()` 裁掉。
+struct CalendarDensity: Equatable {
+    /// 是否画农历行。
+    var showsLunar: Bool
 
     /// 带农历行时每行至少这么高，才放得下 20pt 日号 + 11pt 农历 + 选中圆。
     static let lunarRowHeight: CGFloat = 44
@@ -23,19 +27,12 @@ enum CalendarDensity: Equatable {
     /// **不带**农历行时每行至少这么高：只剩日号与选中圆。
     ///
     /// 比 44 低是有意的：iPhone SE 横屏只有 375pt 高，扣掉顶部留白、标题/星期栏
-    /// 与底部系统浮条（64pt）后，六行只剩 ~40pt。若这里坚持 44，SE 横屏会被降级成
-    /// 周条 —— 左右分栏的左栏就只剩一行日期，横屏首页等于没有月历。
-    /// 40pt 的格子放 ~14pt 日号 + ~32pt 选中圆仍然宽裕（日号字号本来也由格高推导）。
+    /// 与底部系统浮条（64pt）后，六行只剩 ~40pt。40pt 的格子放 ~14pt 日号 +
+    /// ~32pt 选中圆仍然宽裕（日号字号本来也由格高推导）。
     static let dayRowHeight: CGFloat = 38
 
-    /// 本密度下每行的最小高度（低于它就必须降级）。
-    var minimumRowHeight: CGFloat {
-        switch self {
-        case .month(lunar: true): return Self.lunarRowHeight
-        case .month(lunar: false): return Self.dayRowHeight
-        case .weekStrip: return Self.dayRowHeight
-        }
-    }
+    /// 本密度下每行的最小高度。
+    var minimumRowHeight: CGFloat { showsLunar ? Self.lunarRowHeight : Self.dayRowHeight }
 
     /// 每行实际分到的高度。
     ///
@@ -46,14 +43,13 @@ enum CalendarDensity: Equatable {
         return max(minimumRowHeight, (availableHeight / CGFloat(rows)).rounded(.down))
     }
 
-    /// 由可用高度与**实际需要画的行数**决定密度。
+    /// 由可用高度与**实际需要画的行数**决定密度（只剩「带农历 / 不带农历」两种结果）。
     ///
     /// - Parameters:
     ///   - availableHeight: 日历区可用高度（不含标题/星期栏/底部预留）。
     ///   - rows: 实际行数（见 `CalendarLayout.displayedWeeks`，不要传固定的 6）。
     ///   - wantsLunar: 是否希望显示农历行。
-    static func resolve(availableHeight: CGFloat, rows: Int, wantsLunar: Bool,
-                        typeSize: CGFloat = 1) -> CalendarDensity {
+    static func resolve(availableHeight: CGFloat, rows: Int, wantsLunar: Bool) -> CalendarDensity {
         let needed = max(1, rows)
         // 行高随可用高度分配，并夹在 [最小行高, 舒适上限]：
         // 扣掉农历行需要的空间后，剩下的每行还不到最小行高，才放弃农历。
@@ -63,22 +59,9 @@ enum CalendarDensity: Equatable {
         // 网格于是比日历区高，最后一行被裁掉半行。
         let perRow = (availableHeight / CGFloat(needed)).rounded(.down)
         if perRow >= lunarRowHeight + 16 {
-            return .month(lunar: wantsLunar)
+            return CalendarDensity(showsLunar: wantsLunar)
         }
-        if perRow >= dayRowHeight {
-            return .month(lunar: false)
-        }
-        return .weekStrip
-    }
-
-    var isWeekStrip: Bool {
-        if case .weekStrip = self { return true }
-        return false
-    }
-
-    var showsLunar: Bool {
-        if case .month(let lunar) = self { return lunar }
-        return false
+        return CalendarDensity(showsLunar: false)
     }
 }
 

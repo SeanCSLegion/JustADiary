@@ -3,16 +3,20 @@
    这一组不是「重新设计」，而是把项目**当前竖屏的样子**按 1:1 画成设计稿，
    作为横屏改造的对照基准。所有尺寸来自实现本身：
 
-     header            顶部 12pt，左右 16pt，minHeight 52pt
-     ‹ 年 capsule       HStack(spacing 6) + padding h14 v? + minHeight 44，玻璃胶囊
+     header            顶部 12pt，左右 16pt，minHeight 52pt（头部整块 64pt）
+     ‹ 年 capsule       HStack(spacing 6) + padding h14（纵向由 minHeight 44 决定），玻璃胶囊
      InfoCapsule(今天)  同尺寸玻璃胶囊
      MonthBigTitle     字号 32pt bold，左右各 20pt，高 72pt
      WeekdayHeaderView 高 30pt，字号 min(max(cellW*0.26,11),14)，周末降透明度
-     MonthCanvas       行高由可用高度算；行间 1pt 分隔线（outlineVariant 35%）
+     MonthCanvas       行高 = (日历区 − 72 − 30) / **6**（固定六行，与当月是 5 行还是 6 行无关）；
+                       402×874 上日历区 665pt（812 − 64 − 83）→ 行高 ≈ 93.8pt；
+                       行间 1pt 分隔线（outlineVariant 35%）
      DayDraw           日号 20pt、行内最多 20pt×0.5 宽的下划线；农历 11pt（选中/今天同色）
      DayContentView    分隔线 + 日期行（40pt）+ 卡片（padding 12、圆角 20、间距 16）
-     TabBarClearance   底部为浮条留 120pt
-   ========================================================================== */
+     TabBarClearance   滚动内容末尾的固定占位：默认 base 120pt（日记页 140pt），随动态字号放大。
+                       它**不是**浮条自身的高度 —— 浮条高度见 `AdaptiveLayout.tabBarClearance`
+                       （实测竖屏 83 / 横屏 64；首页的日历区按它算高）
+     ========================================================================== */
 
 /* 年份胶囊（点它进年历） */
 function yearCapsule() {
@@ -68,9 +72,21 @@ function monthBigTitle() {
   </div>`;
 }
 
-/* 首页 · 竖屏 · 月视图（= 当前实现） */
+/* 首页 · 竖屏 · 月视图（= 当前实现：连续月历流）
+   日历区 = 几何高（屏高 − 顶部安全区 62）− 头部 64 − 浮条 83 = 665pt；
+   行高按**固定六行**算：(665 − 72 − 30) / 6 ≈ 93.8pt（当月是 5 行也照这个画，
+   行高不能跟着月份变，否则滚过月界会忽高忽低）。
+   九月是 5 行，所以底边会露出**下个月的小标题与第一行日期**（这就是实现里
+   「上个月的日期 → 16pt 空隙 → 小标题 → 分割线 → 本月日期」那条次序的下一半）。 */
 function ptHomeMonth(dev, layout) {
-  const cellH = Math.min(56, Math.floor((dev.h - 52 - 12 - 72 - 30 - 120) / 5));
+  const area = dev.h - 62 - 64 - 83;                 /* = 665 */
+  const cellH = Math.max(24, Math.floor((area - 72 - 30) / 6));   /* ≈ 93 */
+  const octDays = [1, 2, 3, 4];                      /* 10 月 1 日是周四：从第 4 列起 */
+  const octCells = Array.from({ length: 7 }, (_, c) => {
+    const d = c - 2;                                 /* 列 3（0 基）起是 1 号 */
+    if (d < 1 || d > 4) return `<div class="day" style="height:${cellH}px"></div>`;
+    return `<div class="day" style="height:${cellH}px"><span class="n">${d}</span></div>`;
+  }).join("");
   return `
     <div class="pane" style="flex:1;min-width:0;padding:0">
     ${portraitHeader(false)}
@@ -78,8 +94,13 @@ function ptHomeMonth(dev, layout) {
       ${monthBigTitle()}
       ${portraitWeekHead()}
       ${portraitMonthGrid({ cellH, lunar: true, rows: 5, sel: 16 })}
-      <div style="height:${Math.max(40, dev.h - 52 - 12 - 72 - 30 - cellH * 5 - 120)}px"></div>
-      <div style="height:120px"></div>
+      <div style="height:16px"></div>
+      <div style="display:flex;align-items:flex-end;height:21px">
+        <div style="flex:1"></div><div style="flex:1"></div><div style="flex:1"></div>
+        <span style="flex:1;font-size:15px;font-weight:600;color:var(--on-surface-variant)">10月</span>
+        <div style="flex:1"></div><div style="flex:1"></div><div style="flex:1"></div>
+      </div>
+      <div class="portrait-month"><div class="week">${octCells}</div></div>
     </div>
     </div>
     ${tabbar(layout, "日记")}`;
@@ -312,11 +333,12 @@ FRAMES.push(
       ["年月胶囊", "玻璃胶囊，minHeight 44pt"],
       ["月标题", "32pt bold，左右 20pt，高 72pt"],
       ["星期栏", "高 30pt，字号随格宽 11–14pt"],
-      ["月格行高", "按可用高度算（本稿 56pt）"],
+      ["月格行高", "（日历区 665 − 72 − 30）/ 6 ≈ 93.8pt，固定六行"],
+      ["下个月的小标题", "16pt 空隙里、站在 1 号那一列（本稿 15pt 字）"],
       ["行分隔线", "1pt，outlineVariant 35%"],
       ["日号 / 农历", "20pt / 11pt"],
       ["选中圆", "直径 = min(格宽−2, 内容高+10, 格高−2)"],
-      ["底部预留", "120pt（TabBarClearance）"],
+      ["底部预留", "83pt（AdaptiveLayout.tabBarClearance，竖屏浮条实测高 83pt）"],
     ],
   },
   {
@@ -356,7 +378,7 @@ FRAMES.push(
       ["日期行", "40pt，左右 20pt"],
       ["卡片", "padding 12，圆角 20，间距 16"],
       ["时间 / 地点", "caption 13pt，品牌色时间"],
-      ["底部预留", "TabBarClearance 120pt"],
+      ["底部预留", "83pt（同上；日历区按它算高，滚动内容仍铺到屏底）"],
     ],
   },
   {
@@ -415,7 +437,7 @@ FRAMES.push(
       ["卡片间距", "12pt"],
       ["行高", "≥56pt（本稿 72pt，含两行副标题）"],
       ["图标徽章", "38pt 方形，圆角 12"],
-      ["分隔线缩进", "50pt（对齐标题文字）"],
+      ["分隔线缩进", "62pt（= 12 + 徽章 38 + 间距 12）"],
       ["尾值 / 开关", "尾值 15pt；开关品牌色"],
     ],
   }

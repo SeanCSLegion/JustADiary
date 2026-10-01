@@ -2,10 +2,10 @@ import SwiftUI
 
 /// 版面判定：整套设计的**唯一**判据。
 ///
-/// 关键约束（来自 Apple 的 iPhone Duo 适配指南与 HIG Layout）：
+/// 关键约束（来自 Apple 的适配指南与 HIG Layout）：
 /// - 只看**当前可用宽度/高度**，不看 `UIDevice.idiom`、不看 orientation、
-///   不读 `UIScreen.main` —— Duo 展开后仍是 iPhone 但宽高都是 regular，
-///   任何按机型分支的代码在它上面都会错。
+///   不读 `UIScreen.main` —— 一个宽高都是 regular 的容器**仍然是 iPhone**
+///   （分屏等），任何按机型分支的代码在它上面都会错。
 /// - 左右安全区**分别**读取（横屏时 `leading` 往往非 0）。
 /// - 数值优先从几何 / `safeAreaInsets` 派生，不要写死设备常量。唯一的例外是底部
 ///   系统浮条的高度：浮条由系统绘制，安全区里推不出来（SE 横屏 `bottomInset = 0`

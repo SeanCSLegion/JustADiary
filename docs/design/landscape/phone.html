@@ -57,7 +57,7 @@
 <script>
   /* 本地打开时按文件 mtime 给资源加版本串：否则改了源码刷新页面还是旧的 */
   (function () {
-    var files = ['mockup.css','engine.js','devices.js','frames-phone.js','frames-phone-portrait.js','frames-wide.js'].map(function(n){return n;});
+    var files = ['mockup.css','engine.js','devices.js','frames-phone.js','frames-phone-portrait.js'].map(function(n){return n;});
     var links = Array.prototype.slice.call(document.querySelectorAll('link[href], script[src]'));
     links.forEach(function (el) {
       var url = el.getAttribute('href') || el.getAttribute('src');

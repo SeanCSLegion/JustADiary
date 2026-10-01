@@ -1,12 +1,17 @@
 /* ==========================================================================
    一页时光 · 设计稿 · 手机端（iPhone 竖屏 / 横屏）
-   本文件只描述手机版面。iPad / Mac 的三栏版面在 frames-wide.js。
+   本文件只描述手机**横屏**版面（竖屏复刻在 frames-phone-portrait.js）。
+   2026-10-01：iPad / Mac 的三栏宽屏稿（frames-wide.js / wide.html / screens/wide-*.png）
+   已删除 —— 不再制作宽屏端。
 
    横屏的三条硬事实（来自真机探针，不是猜测）：
-   1. 系统在横屏把底部浮条换成<b>左侧竖排胶囊</b>：x 12–76、高约 250pt、纵向居中。
-      app 无法移动它，只能避让 —— 所以横屏的内容左边界从 88pt 开始。
-   2. 灵动岛在横屏位于左上角边缘，约 135 × 44pt，其纵向范围约到 y=180。
-      左上角 150 × 180 这个区域是系统硬件区，任何内容都不能放。
+   1. 系统浮条在横屏**仍在屏幕底部居中**、高 64pt（`app.tabBars` frame 实测
+      `(0, 338, 874, 64)`，紧贴底边），**没有**「左侧竖排胶囊」这回事；左侧那 62pt 是
+      **安全区**（`safeArea.leading`）—— 内容左边界 = 62，页面只再加自己的 16pt 页边距，
+      不要在 62 之上再避让一次。本文件画的也是底部浮条（`layoutFor()` 的
+      `tabbarStyle: "bottom"`）。
+   2. 灵动岛在横屏竖转贴左边缘，占用区约 37（宽）× 132（高）、垂直居中
+      （y ≈ 135–267），整块落在 x 0–37 内 —— 比安全区窄，所以左边界由安全区决定。
    3. 横屏不提供年份切换（保留竖屏原有的年历 morph 交互），只上下滑切月。
    ========================================================================== */
 
@@ -32,21 +37,19 @@ function homePortrait(dev, layout) {
     ${tabbar(layout, "日记")}`;
 }
 
-/* 首页 —— 横屏：左月历（上下滑翻月）＋ 右选中日 */
+/* 首页 —— 横屏：左月历（上下滑翻月）＋ 右选中日。
+   两栏宽度与高度都取自 `layoutFor()`，与实际实现同一组数：主栏 345（容器 750 × 46%）、
+   详情栏 356.5、日历区 330（= 屏高 402 − 顶部 8 − 横屏浮条 64），
+   标题槽 34 + 星期栏 26，剩下固定按 **6 行** 分（行高不跟当月是 5 行还是 6 行变）。 */
 function homeLandscape(dev, layout) {
-  const inset = layout.contentInset;               /* 62：左侧系统占位 */
-  const pagePad = 16;
-  const paneW = dev.w - inset;
-  const shapeW = paneW - pagePad * 2;
-  const calendarW = Math.min(shapeW - 280, Math.min(420, Math.max(360, Math.round(shapeW * 0.52))));
-  const dayW = shapeW - calendarW - pagePad * 2;
-  const navH = 22;                                  /* home indicator 留白 */
-  const areaH = dev.h - 50 - navH;
-  const titleH = 32;                                /* 横屏标题只占一行 */
-  const weekH = 26;
-  const weeks = 5;
-  const cellH = Math.max(44, Math.floor((areaH - titleH - weekH) / weeks));
-  return `<div class="shell-row" style="padding:0 ${pagePad}px 0 ${inset + pagePad}px;gap:${pagePad * 2}px;align-items:flex-start">
+  const pagePad = 16;                               /* AdaptiveLayout.pagePadding */
+  const calendarW = layout.paneW;                   /* 345 */
+  const dayW = layout.detailW;                      /* 356.5 */
+  const paneH = dev.h - 8 - 64;                     /* splitPaneHeight：8 + 横屏浮条 64 */
+  const titleH = 34;                                /* CalendarLayout.compactMonthTitleH */
+  const weekH = 26;                                 /* CalendarLayout.compactWeekdayHeaderH */
+  const cellH = Math.max(38, Math.floor((paneH - titleH - weekH) / 6));
+  return `<div class="shell-row" style="padding:0 ${pagePad + layout.trailingInset}px 0 ${layout.contentInset + pagePad}px;gap:16.5px;align-items:flex-start">
       <div class="pane" style="width:${calendarW}px;flex:none">
         <div style="height:${titleH}px;display:flex;align-items:center">
           <span style="font-size:24px;font-weight:700">${S.monthTitle}</span>
@@ -73,45 +76,6 @@ function homeLandscape(dev, layout) {
 }
 
 /* 首页 —— 横屏 · 高度不足：左栏降级为周条 */
-function homeLandscapeWeek(dev, layout) {
-  const inset = layout.contentInset;
-  const pagePad = 16;
-  const paneW = dev.w - inset;
-  const shapeW = paneW - pagePad * 2;
-  const calendarW = Math.min(shapeW - 280, Math.min(420, Math.max(360, Math.round(shapeW * 0.52))));
-  const dayW = shapeW - calendarW - pagePad * 2;
-  return `<div class="shell-row" style="padding:0 ${pagePad}px 0 ${inset + pagePad}px;gap:${pagePad * 2}px;align-items:flex-start">
-      <div class="pane" style="width:${calendarW}px;flex:none">
-        <div style="height:32px;display:flex;align-items:center">
-          <span style="font-size:24px;font-weight:700">${S.monthTitle}</span>
-        </div>
-        <div class="pane-scroll" style="padding:0">
-          <div style="flex:none">
-            ${monthGrid({ cellH: 56, lunar: true, rowOnly: true, row: 2, sel: 16 })}
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;
-                      font-size:var(--t-caption);color:var(--on-surface-variant)">
-            <span class="pill small">${ICON.chevL}上周</span>
-            <span>9月14日 – 9月20日</span>
-            <span class="pill small">下周${ICON.chevR}</span>
-          </div>
-        </div>
-      </div>
-      <div class="pane" style="width:${dayW}px;flex:none">
-        <div class="pane-head" style="padding:0 0 8px;min-height:40px">
-          <span style="font-size:var(--t-row);font-weight:600">${S.today}</span>
-          <div style="flex:1"></div>
-          <span class="pill small">${S.year}年</span>
-        </div>
-        <div class="pane-scroll" style="padding:0">
-          ${dayCard(DIARY[0])}
-        </div>
-      </div>
-    </div>
-    ${tabbar(layout, "日记")}`;
-}
-
-/* 足迹 —— 横屏：真实内容宽度 750pt < 900 的分栏阈值，所以是单列纵向滚动 */
 function footprintLandscape(dev, layout) {
   const years = [[2024, 4], [2025, 6], [2026, 3]];
   const stats = [["7", "省市"], ["9", "城市"], ["4", "国家"], ["14", "片段"], ["13", "天数"]];
@@ -171,11 +135,11 @@ function searchLandscape(dev, layout) {
           <span class="chip">中国 · 浙江省</span>
         </div>
         <div class="card tight" style="flex:none;display:flex;align-items:center;gap:8px;padding:8px 12px">
-          <span style="font-size:var(--t-caption);color:var(--on-surface-variant);flex:none">关键词</span>
-          <div class="chip-row" style="flex:1;flex-wrap:wrap;gap:6px">
+          <div class="chip-row" style="flex:1;flex-wrap:nowrap;overflow:hidden;gap:6px">
             <span class="kw">雾</span>
             <span class="kw">湖边</span>
-            <span class="kw">清晨</span>
+            <span class="chip active">本周</span>
+            <span class="chip">中国 · 浙江省</span>
           </div>
           <span style="font-size:var(--t-caption);color:var(--primary);flex:none">清除全部条件</span>
         </div>
@@ -194,13 +158,17 @@ function searchLandscape(dev, layout) {
     ${tabbar(layout, "搜索")}`;
 }
 
-/* 设置 —— 横屏：两列卡片 */
+/* 设置 —— 横屏：与竖屏同一条**单列**卡片流（2026-10-01：删掉原来画的两列候选版，
+   实现里 SettingsView 就是一个 VStack，不随宽度分列） */
+/* 设置 —— 横屏：与竖屏同一条**单列**卡片流（2026-10-01：删掉原来画的两列候选版，
+   实现里 SettingsView 就是一个 VStack，不随宽度分列） */
 function settingsLandscape(dev, layout) {
+  const padX = 16;                                  /* AdaptiveLayout.pagePadding */
   return `
-    <div class="pane" style="${panePad(layout, 16, 18)}">
+    <div class="pane" style="flex:1;min-width:0;padding:0 ${padX + layout.trailingInset}px 0 ${padX + layout.contentInset}px">
       <div class="pane-head" style="padding:2px 2px 4px"><span class="ph-title">设置</span></div>
       <div class="pane-scroll" style="padding:0">
-        <div class="cardgrid" style="grid-template-columns:repeat(2,minmax(0,1fr));align-items:start">
+        <div class="cardgrid" style="grid-template-columns:minmax(0,1fr);align-items:start">
           ${settingCards().join("")}
         </div>
         <div style="height:64px"></div>
@@ -209,11 +177,14 @@ function settingsLandscape(dev, layout) {
     ${tabbar(layout, "设置")}`;
 }
 
-/* 读日记 —— 横屏：限宽阅读栏 + 底部操作 */
+/* 读日记 —— 横屏：限宽阅读栏 + 底部操作。
+   正文列与编辑态同为 `contentColumn(660)`（2026-10-01：原来画的 620 是编辑列还是 620
+   时代的旧值，实现现在两侧都是 660）。 */
 function readLandscape(dev, layout) {
-  const colW = Math.min(620, dev.w - 140);
+  const padX = 16;                                  /* AdaptiveLayout.pagePadding */
+  const colW = Math.min(660, dev.w - layout.contentInset - layout.trailingInset - padX * 2);
   return `
-    <div class="pane" style="${panePad(layout, 16, 18)}">
+    <div class="pane" style="flex:1;min-width:0;padding:0 ${padX + layout.trailingInset}px 0 ${padX + layout.contentInset}px">
       <div class="pane-head" style="padding:2px 2px 4px 0">
         <span class="icon-btn" style="width:34px;height:34px">${ICON.chevL}</span>
         <div style="flex:1"></div>
@@ -275,114 +246,96 @@ FRAMES.push(
     id: "ph-home-landscape", kind: "home", dev: "phoneL",
     title: "首页 · 手机横屏（本次重点）",
     tag: "左右分栏",
-    note: "横屏 402pt 高塞不下「标题 + 六周格 + 日期行 + 日记卡」，所以拆成左右两栏。<b>左侧 62pt 让给系统</b>：系统导航在横屏变成贴左边缘的竖排胶囊，灵动岛也在同侧（实测 safe.leading = 62），可用内容宽度 = 874 − 62 − 62 = 750pt。左栏只显示<b>当前月</b>、<b>上下滑翻月</b>；标题区只占一行（月标题），年份入口与「今天」都在右栏标题行 —— 横屏高度紧张，标题每多占 12pt 就会把日期格子挤到最小行高以下，整块降级成周条。",
+    note: "横屏 402pt 高塞不下「标题 + 六周格 + 日期行 + 日记卡」，所以拆成左右两栏。<b>左侧 62pt 是安全区</b>（safe.leading，实测横屏 T0 L62 B20 R62）：系统浮条在横屏<b>仍在屏幕底部居中</b>（实测高 64pt，本稿画的就是底部浮条），左侧这条 62pt 与它无关，可用内容宽度 = 874 − 62 − 62 = 750pt，内容左边界 = 62。左栏是<b>连续月历流</b>（<b>相邻月的日期不画、留白</b>；本稿画的是淡色，与实现不同，见文末「待修」）、<b>上下滑翻月</b>；标题区只占一行（月标题），年份入口与「今天」都在右栏标题行 —— 横屏高度紧张，标题每多占 12pt 就会把日期格子挤到最小行高以下。",
     screen: homeLandscape,
     annots: [
-      { x: 130, y: 92, t: "左栏只画当前月（不显示相邻月日期）" },
+      { x: 130, y: 92, t: "左栏是连续月历流；相邻月的日期不画（本稿画成淡色）" },
       { x: 520, y: 92, t: "上下滑翻月" },
       { x: 700, y: 116, t: "右栏标题行：日期 + 年份入口 + 今天" },
-      { x: 430, y: 300, t: "两栏对半：月历约 390pt / 右栏约 330pt" },
-      { x: 40, y: 330, t: "系统导航在横屏是左侧竖排胶囊（占 62pt）" },
+      { x: 430, y: 300, t: "两栏：月历 345pt / 右栏 356.5pt（容器宽 750）" },
+      { x: 40, y: 330, t: "左侧 62pt 是安全区（系统浮条仍在底部居中）" },
     ],
     spec: [
-      ["系统占位", "左 62pt（safe.leading）/ 右 62pt"],
+      ["系统占位", "左 62pt（safe.leading）/ 右 62pt（safe.trailing）；浮条在底部居中 64pt"],
       ["可用内容宽", "750pt"],
-      ["左栏宽", "390pt（约 52%）"],
-      ["标题区", "32pt（只一行：月标题；年份在右栏标题行）"],
-      ["月格", "390/7 = 56 × 条高（≥44pt 才不降级）"],
-      ["翻月", "上下滑；只画本月"],
+      ["左栏宽", "345pt（容器宽 750 的 46%）；右栏 356.5pt"],
+      ["标题区", "34pt（只一行：月标题；年份与「今天」在右栏标题行）"],
+      ["月格", "345/7 ≈ 49pt 宽 × 行高 45pt（六行固定）"],
+      ["翻月", "上下滑；连续月份流（与竖屏同一套），相邻月的日期不画（`MonthBlockCanvas` 只画本月，`CalendarGrids.swift:499`）"],
       ["年份切换", "横屏不提供（点右栏年份胶囊进年历）"],
-    ],
-  },
-  {
-    id: "ph-home-landscape-week", kind: "home", dev: "phoneL",
-    title: "首页 · 手机横屏 · 高度不足时的降级",
-    tag: "周条 + 内容",
-    note: "当可用高度放不下六周格（分屏、键盘弹起、Duo 折一半），左栏自动从「月」降级为「周条」：一行 7 天、横向翻周，右栏仍是选中日。这样内容永远不会被压扁，日期也永远可点。降级只影响密度，不改变左右分栏结构。",
-    screen: homeLandscapeWeek,
-    annots: [
-      { x: 96, y: 96, t: "降级为周条：一行 7 天" },
-      { x: 96, y: 176, t: "上周 / 下周横向翻，纵向留给内容" },
-      { x: 470, y: 96, t: "右栏高度不变，卡片不被压缩" },
-    ],
-    spec: [
-      ["触发条件", "可用高度 < 标题 + 六周格（约 < 6×52）"],
-      ["周条高度", "52pt"],
-      ["翻页", "横向左右滑"],
-      ["左栏其余", "补「本月还有」摘要，避免留白"],
     ],
   },
   {
     id: "ph-footprint-landscape", kind: "footprint", dev: "phoneL",
     title: "足迹 · 手机横屏",
     tag: "单列 · 图表与清单并排",
-    note: "横屏的<b>真实内容宽度是 750pt</b>（874 − 左 62 系统浮条 − 右 62），达不到足迹的分栏阈值 900，所以不做左右分栏。但 402pt 的高度足够让「年度趋势图」和「地点清单」<b>并排成两块</b>：图表占满剩余宽度、清单固定 300pt，都比各自独占一整屏更省空间。整页仍是一列纵向滚动。",
+    note: "横屏的<b>真实内容宽度是 750pt</b>（874 − 左 62 安全区 − 右 62），达不到足迹的分栏阈值 900，所以不做左右分栏。但 402pt 的高度足够让「年度趋势图」和「地点清单」<b>并排成两块</b>：图表占满剩余宽度、清单宽 = 内容宽 × 40%（夹在 240–320，本机 750 × 0.4 = 300pt），都比各自独占一整屏更省空间。整页仍是一列纵向滚动。",
     screen: footprintLandscape,
     annots: [
       { x: 200, y: 176, t: "筛选 chips 与统计各占一行" },
-      { x: 330, y: 300, t: "趋势图与地点清单并排，高度同为 190pt" },
-      { x: 700, y: 300, t: "清单固定 300pt 宽，缩进 18pt/级" },
+      { x: 330, y: 300, t: "趋势图与地点清单并排，块高 = max(140, min(190, 屏高 402 − 262)) = 140pt" },
+      { x: 700, y: 300, t: "清单宽 = 内容宽 × 40%（夹 240–320，本机 300pt），缩进 18pt/级" },
       { x: 500, y: 424, t: "整页一列纵向滚动（浮条已留 64pt）" },
     ],
     spec: [
-      ["内容宽度", "750pt（874 − 左右各 62 系统占位）"],
+      ["内容宽度", "750pt（874 − 左右各 62 安全区）"],
       ["分栏阈值", "900pt → 横屏不达标，单列"],
-      ["并排块", "趋势图 flex:1 ｜ 清单 300pt"],
-      ["并排高度", "190pt"],
+      ["并排块", "趋势图 flex:1 ｜ 清单 = 内容宽 × 40%（夹 240–320）→ 300pt"],
+      ["并排高度", "140pt（= max(140, min(190, 屏高 402 − 262))）"],
       ["滚动", "整页一列纵向滚动"],
     ],
   },
   {
     id: "ph-search-landscape", kind: "search", dev: "phoneL",
     title: "搜索 · 手机横屏",
-    tag: "单栏 + 关键词栏",
-    note: "横屏只把「条件」压成一行（搜索框 + 时间 + 地点），<b>结果保持与竖屏一致的单栏纵向列表</b>——横屏每行更长，摘要能多显示半行，扫读反而更快。搜索框下面新增<b>当前关键词栏</b>：每个生效中的关键词是一个可单独点掉的胶囊，多关键词时能一眼看清「现在到底在搜什么」，右侧还有「清除全部条件」。",
+    tag: "单栏 + 条件栏",
+    note: "横屏只把「条件」压成一行（搜索框 + 时间 + 地点），<b>结果保持与竖屏一致的单栏纵向列表</b>——横屏每行更长，摘要能多显示半行，扫读反而更快。搜索框下面是<b>唯一的条件栏</b>：关键词 / 时间 / 地点三类<b>同一条</b>横滑胶囊，每个都能单独点掉（`SearchView.filterSummary`，竖屏与横屏共用，代码注释写明「关键词不再另起一行」）。",
     screen: searchLandscape,
     annots: [
       { x: 96, y: 8, t: "标题 + 结果数" },
       { x: 300, y: 60, t: "搜索框与筛选压成一行" },
-      { x: 300, y: 132, t: "当前关键词栏：多个关键词各自成胶囊" },
+      { x: 300, y: 132, t: "条件栏：关键词 / 时间 / 地点三类同栏" },
       { x: 470, y: 230, t: "结果单栏纵向，与竖屏一致" },
     ],
     spec: [
       ["搜索框", "flex:1，minHeight 46pt"],
       ["筛选", "与搜索框同一行，横向滚动"],
-      ["关键词栏", "当前生效的关键词逐个成胶囊，可单独点掉"],
+      ["条件栏", "关键词 / 时间 / 地点三类同栏（SearchView.filterSummary），逐个可点掉"],
       ["结果", "单栏纵向列表，与竖屏一致"],
       ["底部", "浮条 64pt"],
     ],
   },
   {
     id: "ph-settings-landscape", kind: "settings", dev: "phoneL",
-    title: "设置 · 手机横屏（两列卡片）",
-    tag: "2 列 · 不等高",
-    note: "横屏宽度够放两列设置卡片，一屏能看更多。<b>卡片按内容自然高度，不拉齐</b>——「通用」只有两行就矮一点，「日记规则」六行就高一点，右列卡片各自接排，下方留白没关系。<b>卡片各自对齐列顶，行不跨卡对齐</b>，这也是实现的自然结果。",
+    title: "设置 · 手机横屏",
+    tag: "单列卡片",
+    note: "设置页<b>竖屏与横屏共用单列卡片</b>（<b>SettingsView</b> 就是一个 VStack(spacing: 12)，不随宽度分列；见 docs/adaptive-layout-plan.md §3.4 —— 设置项之间没有主从关系，不做「左右两页」）。卡片按内容自然高度往下接排，整页纵向滚动。<b>2026-10-01</b>：这张稿原来画的是「两列卡片」候选版，那张形态从来没有实现，已按实现改回单列。",
     screen: settingsLandscape,
     annots: [
       { x: 96, y: 8, t: "页面标题" },
-      { x: 470, y: 96, t: "两列卡片，列间距 12pt" },
+      { x: 470, y: 96, t: "单列卡片，卡间距 12pt" },
       { x: 470, y: 300, t: "行高 56pt，分隔线缩进对齐标题" },
     ],
     spec: [
-      ["列数", "宽度 ≥680pt → 2 列"],
+      ["列数", "单列（竖屏与横屏共用）"],
       ["卡片间距", "12pt"],
       ["行高", "minHeight 56pt"],
-      ["分隔线缩进", "50pt（对齐标题文字）"],
+      ["分隔线缩进", "62pt（= 12 + 徽章 38 + 间距 12，即 RowDivider.textInset）"],
     ],
   },
   {
     id: "ph-read-landscape", kind: "read", dev: "phoneL",
     title: "日记阅读 · 手机横屏",
     tag: "限宽阅读栏",
-    note: "阅读页在横屏仍然是<b>单栏限宽</b>（620pt）并居中：横屏的宽度应该换成更好的每行字数，而不是把正文拆成两栏。工具按钮收到顶栏一行，返回键在最左（在 92pt 系统区之后）、操作在右。底部留出浮条/指示条的高度。",
+    note: "阅读页在横屏仍然是<b>单栏限宽</b>（≤660pt）并居中：横屏的宽度应该换成更好的每行字数，而不是把正文拆成两栏。工具按钮收到顶栏一行，返回键在页面最左（安全区 62pt + 页边距 16pt 之后，x ≈ 78）、操作在右。底部留出浮条/指示条的高度。",
     screen: readLandscape,
     annots: [
       { x: 96, y: 8, t: "顶栏：返回在左，操作在右" },
-      { x: 470, y: 96, t: "正文列 ≤620pt 并居中" },
+      { x: 470, y: 96, t: "正文列 ≤660pt 并居中（阅读与编辑同宽）" },
       { x: 470, y: 300, t: "底部留出浮条高度" },
     ],
     spec: [
-      ["正文列宽", "≤620pt"],
+      ["正文列宽", "≤660pt（阅读与编辑同为 contentColumn(660)）"],
       ["正文字号", "设计 17pt，动态字体解析"],
       ["卡片间距", "10pt"],
       ["顶栏", "返回 + 今天 + 页内搜索 / 编辑 / 分享"],

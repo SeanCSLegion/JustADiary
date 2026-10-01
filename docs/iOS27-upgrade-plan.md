@@ -1,13 +1,21 @@
 # 一页时光 · iOS 27 / macOS 27 适配升级方案
 
-> 状态：**待确认（第 2 轮）**
+> 状态（**成文当时**）：**待确认（第 2 轮）**
 > 基线环境（已实测）：Xcode 27.0 (27A266a)、iOS 27.0 SDK (24A430)、macOS 27.0 (26A428)、Swift 6.4
 > 已确认（当时）：部署目标 → **iOS 27.0**；改造深度 **激进**
 >
 > ⚠️ **后续变更（2026-09）**：应用改为**只做 iPhone**，P4 的 iPad / Mac 支持已全部回退 ——
 > `TARGETED_DEVICE_FAMILY = "1"`、删除 `UISupportedInterfaceOrientations_iPad`、
 > 设置 `SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`。本文保留当时的决策与实施记录，
-> 凡与 iPad / Mac 相关的段落均按**已作废**阅读；当前版面规范见 `docs/adaptive-layout-plan.md`。
+> 凡与 iPad / Mac 相关的段落均按**已取消**阅读（2026-10-01 明确：不再制作）——
+> 相关设计稿也已在同一天从仓库删除；当前版面规范见 `docs/adaptive-layout-plan.md`。
+>
+> **状态（2026-10-01 核实）**：P1–P7 均已落地（实施结果见文末）。本文前半部分的「待确认」「我方处理」
+> 「第 2 轮需要你确认的问题」都是**成文当时**的记录，请按历史阅读。当时点到即止、**至今仍未做**的只有：
+> ① 日记页顶栏改为系统 `Toolbar`（详见文末「未完成」第 1 条 —— 其中「它还是 `fullScreenCover`、
+> 不是 `NavigationStack`」的前提**已过时**，日记页现在是导航栈里推进出来的一页）；
+> ② `GeometryProxy.concentricCornerRadii` / `textInputBorderShape` / `@ContentBuilder`；
+> ③ Swift 6 **语言模式**（`generate_project.py` 里 `SWIFT_VERSION` 仍是 `5.0`，工具链才是 Swift 6.4）。
 
 ---
 
@@ -122,16 +130,26 @@ Xcode 27 新建工程时会**默认打开**两个 Swift 编译器开关。它们
              reason: "MKAddressRepresentations 不提供 administrativeArea/subLocality；省市区统计必需")
    nonisolated func diaryPlacemark(_ item: MKMapItem) -> CLPlacemark { item.placemark }
    ```
+   > （2026-10-01 核实：**已落地**，但形态与上面草稿不同 —— 实际是
+   > `JustDiary/Services/MKMapItem+Placemark.swift:22-28` 里 `extension MKMapItem` 上的计算属性
+   > `var diaryPlacemark: CLPlacemark?`（可选），不是自由函数。）
 3. 采纳新 API 中确实更好的部分：坐标改用 `mapItem.location.coordinate`；给 `MKReverseGeocodingRequest` 设 `preferredLocale`，让地址格式跟随 App 语言而非设备语言。
+   > （2026-10-01 核实：`preferredLocale` **已落地**（`JustDiary/Services/LocationService.swift:132`）；
+   > `mapItem.location.coordinate` 这一项**没有采用** —— 坐标一直来自 `CLLocation`
+   > （`LocationService.swift:250`），`MKMapItem` 只用来取 `diaryPlacemark`。）
 4. **不做**字符串解析 `cityWithContext`——Apple 明确反对，且 Apple 一旦改格式会静默算出错误的省份统计。
 
 ---
 
-## 5. P4 / P5 · iPad·Mac 支持（**已作废**）与新 API 采纳
+## 5. P4 / P5 · iPad·Mac 支持（**已取消**：不再制作 iPad 端与桌面端）与新 API 采纳
 
 ### 5.1 顶栏改造范围（**需你确认**）
 
 我原方案说的"顶栏"是指 **`DiaryPageView`（日记编辑/阅读页）的顶部按钮行**——阅读态有 4 个玻璃图标按钮（搜索/编辑/分享），编辑态有 3 个（插图/撤销/保存），窄屏或大字体下会挤压。改造是用系统 `Toolbar` + `ToolbarOverflowMenu` 做自动溢出。
+
+> （2026-10-01 核实：两个计数都把「返回」算了进去。实际代码里返回键恒在，其余是
+> 阅读态 搜索 / 编辑 / 分享（「编辑」只在当天可编辑时出现，`DiaryViewModel.canEditToday`）、
+> 编辑态 插图 / 撤销 / 保存，各 3 个，见 `JustDiary/Views/Diary/DiaryPageView.swift:419-466`。）
 
 **我完全不打算碰首页（`HomeView`）**：首页的年月切换、今天按钮、日历网格点击/缩放/morph 动画、拖拽翻页等交互逻辑一行都不改。
 
@@ -140,6 +158,9 @@ Xcode 27 新建工程时会**默认打开**两个 Swift 编译器开关。它们
 ### 5.2 内容区去 Liquid Glass（已批准）
 
 WWDC26 session 8120 明确建议**内容区不要用 Liquid Glass**（下方没有可折射内容），玻璃按钮应当用 `.buttonStyle(.glass)` 而非裸 `.glassEffect`。项目目前把 `.glassEffect` 用在了所有内容卡片上。
+
+> （2026-10-01 核实：**已按本节改完** —— 内容卡片现在走 `diaryCard(cornerRadius:)`（系统分组背景 + 细描边 + 阴影），
+> `.glassEffect` 只留在控件层。见文末实施结果的 P5 行。）
 
 改法：内容卡片 → 系统材质/分组背景色；Liquid Glass 只保留给**浮在内容之上的控件层**（工具条、芯片、悬浮按钮、缩放条）。
 
@@ -152,16 +173,20 @@ WWDC26 session 8120 明确建议**内容区不要用 Liquid Glass**（下方没�
 - **`textInputBorderShape(_:)`**：应用到搜索框与编辑器输入区。
 - **`@ContentBuilder`**：统一现有的 `@ViewBuilder` 命名。
 
-### 5.4 iPad / Mac「Designed for iPad」（**已作废**）
+### 5.4 iPad / Mac「Designed for iPad」（**已取消**）
 
-> ⚠️ **本节已作废**：应用后来确定只做 iPhone，以下三项已全部回退 ——
-> `TARGETED_DEVICE_FAMILY` 回到 `"1"`、`UISupportedInterfaceOrientations_iPad` 已删除、
-> `SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`。保留原文仅供追溯。
+> ⚠️ **本节已取消**（2026-09 回退、2026-10-01 明确不再制作 iPad 端与桌面端）：以下三项
+> 全部回退 —— `TARGETED_DEVICE_FAMILY = "1"`、`UISupportedInterfaceOrientations_iPad` 已删除、
+> `SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`；配套的宽屏设计稿（`frames-wide.js` /
+> `wide.html` / `screens/wide-*.png`）与折叠屏那套（`FoldAvoidance` / `reservedRegion`）
+> 也已从仓库删除。保留原文仅供追溯。
 
 1. `TARGETED_DEVICE_FAMILY`：`1` → **`"1,2"`**（当时现状 `UIDeviceFamily = [1]`）
 2. 补齐 `UISupportedInterfaceOrientations_iPhone/_iPad` 键
 3. **可调整尺寸适配**：iOS 27 / macOS 27 下 App 完全可缩放，"方向"退化为偏好且在缩放时被忽略。
    - `Views/Components/Components.swift` 的 `Screen` 目前 fallback 硬编码 `393×852` → 改为基于 window scene 几何的自适应兜底
+     > （2026-10-01 核实：**已落地** —— `Screen.currentSize` 按前台 `UIWindowScene` 的 key window 取尺寸，
+     > 只在连 scene 都没有时才兜底，且兜底值是 `390×844`。）
    - `MapViewModel.fitZoom` / `zoomRange` 用固定尺寸估算 → 见 §6，这些代码会被删除
    - 逐个核对 `GeoMapCanvas` / `CalendarGrids` / `DiaryPageView` 键盘避让的尺寸假设
 
@@ -239,7 +264,7 @@ WWDC26 session 8120 明确建议**内容区不要用 Liquid Glass**（下方没�
 4. **多尺寸截图核对**：iPhone 17 / iPhone 17e（小屏）等手机尺寸，覆盖首页日历（月/年）、日记编辑与阅读、**足迹页**、搜索、设置
 5. **备份导入导出往返测试**（P2 动了并发标注，`BackupService` 是重点回归对象）
 6. 包体积对比：改前 / 改后 `.app` 实测大小
-7. ~~「Designed for iPad」核查~~（**已作废**：应用为 iPhone-only，产物 `UIDeviceFamily` 只应含 1）
+7. ~~「Designed for iPad」核查~~（**已取消**：应用为 iPhone-only，产物 `UIDeviceFamily` 只应含 1）
 
 > 运行 UI 测试需要伪终端，在我的沙箱里需要一次授权；**代码修改本身不需要**。
 
@@ -249,7 +274,7 @@ WWDC26 session 8120 明确建议**内容区不要用 Liquid Glass**（下方没�
 
 ```
 P1 目标版本/元数据  →  P2 构建设置+并发（可选）  →  P3 MapKit
-   →  ~~P4 iPad/Mac 支持~~（已作废）  →  P5 新 API 采纳 + 内容区去玻璃
+   →  ~~P4 iPad/Mac 支持~~（已取消）  →  P5 新 API 采纳 + 内容区去玻璃
    →  P6 地图页重设计  →  P7 全量回归
 ```
 
@@ -290,6 +315,12 @@ P1 目标版本/元数据  →  P2 构建设置+并发（可选）  →  P3 MapK
 ## 未完成 / 与方案的差异（需你决定）
 
 1. **日记页顶栏改为系统 `Toolbar`** —— 方案 §5.1 你已同意，但**我没有做**。原因：`DiaryPageView` 是 `fullScreenCover` 里的自绘玻璃顶栏（不是 `NavigationStack`），改用系统工具条必须先把它包进 `NavigationStack`，会引入导航栏背景与安全区变化，连带影响键盘避让；而编辑器目前只有"能打开"这一条 UI 测试覆盖，风险与收益不成比例。**建议单独立项并补测试后再做。**
+   > （2026-10-01 核实：**前提已变，本项仍未做** —— 日记页后来改成了导航栈里推进出来的一页
+   > （`JustDiary/Views/RootView.swift:42` 的 `NavigationStack` + `:72` 的 `navigationDestination`，
+   > 导航栏由 `.toolbar(.hidden, for: .navigationBar)` 藏起来），
+   > 「必须先包进 `NavigationStack`」不再成立；顶栏依旧由 `DiaryPageView.topBarOverlay` 自绘，
+   > 右滑返回由 `InteractiveBackSwipe` 补回。编辑器的 UI 测试覆盖也已经补上（见
+   > `JustDiaryUITests/EditorFlowUITests.swift`、`DiaryPageTransitionUITests.swift`）。）
 2. **`TabRole.prominent`** —— 我按你的确认试了，但**已回退**。实测效果不是"视觉重点"，而是把「日记」标签从 Tab Bar 里摘出来、变成右侧一个**没有文字标签**的独立圆形按钮（主标签还离开了首位）。这个 API 是给"特殊动作型"标签（如 iOS 26 的搜索标签）用的，不适合主内容标签。截图证据：设置页可见独立圆形「日记」按钮且无文字。**如果你想要的是让「搜索」标签用这个样式，告诉我，一行就能改。**
 3. **`GeometryProxy.concentricCornerRadii` / `textInputBorderShape` / `@ContentBuilder`** —— 未做。这三项属于锦上添花，收益低且会扩大改动面，故留作后续。
 

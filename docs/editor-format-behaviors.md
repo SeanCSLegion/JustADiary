@@ -15,7 +15,8 @@
 > `JustDiary/Views/Diary/RichTextEngine.swift`。其中 `paragraphRanges(covering:)`
 > 一段的范围判定有缺陷，是「样式没及时生效 / 影响范围不对」的主要来源（见第五节 B1）。
 >
-> **状态：R1–R4 已按本文实现并验证**（B1–B10 全部修复，见第五、六、七节）。
+> **状态：R1–R4 已按本文实现并验证**（B1–B11、B12–B28 全部修复，见第五、六、七节；
+> 只有 B15 的第 ② 项是「接受为已知限制」）。
 > 第二、三节的表格是**规范**（应该是什么样），第四、五节保留**修复前的现状**，
 > 便于回看问题从哪来。
 
@@ -28,7 +29,7 @@
 | **行 / 段落** | 以换行结尾的一段文字。编辑器里一行 = 一个 `ContentPart`（图片除外） | `PartsCodec.parts(from:)` |
 | **字符样式** | 加粗 / 斜体 / 删除线 / 下划线，存在 `TextRun` 上，可以只覆盖一行里的几个字 | `TextRun` |
 | **行样式（段落样式）** | 大标题 / 小标题 / 正文 / 引用 / 列表 / 待办，存在 `ContentPart.style` 上，**整行生效** | `ContentPartStyle` |
-| **行首标记** | 列表（`circle.fill`）/ 待办（`square`）行首的附件字符（U+FFFC），是真实字符，不是画出来的装饰 | `MarkerAttachment`、`PayloadAttachment` |
+| **行首标记** | 列表（实心圆点）/ 待办（圆角方框 + 勾）行首的附件字符（U+FFFC），是真实字符，不是画出来的装饰（2026-10-01 核实：字形已不是 `circle.fill` / `square` 两个 SF Symbol，改由 `MarkerGlyph` 手绘，见 `BlockDecorations.swift`） | `MarkerAttachment`、`PayloadAttachment` |
 | **空行** | 当前行还没有任何文字（刚按回车后那一行，或整篇为空） | `paragraphIsEmpty(in:location:)` |
 | **typingAttributes** | 「下一个输入字符」的样式。光标移动时 UIKit 会按光标处文字的属性重新同步，`diaryDesignSize` / `diaryBlockStyle` 两个自定义键会丢，靠字号反推兜底 | `RichEditorController.typingAttributes(for:)`、`EditorFont.designSize(of:typeSize:)` |
 | **作用域** | 一次点击影响的范围：整行 / 选中各行 / 选中各字 / 只影响后续输入 | 本文的主角 |
@@ -93,8 +94,11 @@
 ## 三、格式栏按钮总表
 
 格式栏 = `FontToolbar`（`RichTextView.swift`），从左到右共 9 个按钮 + 2 条分隔线。
-「修复前」列是本次改动**之前**的行为，❌ 标注问题编号（B1–B11 的含义见第五节，
-现在都已修复）；「目标」列即第二、三节的规范，也是当前实现。
+表里「作用域 / 换行后」两列就是第二、三节的规范，也就是**当前实现**；只有
+「点一下（修复前）」「再点一下 / 取消（修复前）」「修复前」三列是本次改动**之前**的
+行为，❌ 标注问题编号（B1–B28 的含义见第五节，除 B15 的第 ② 项外都已修复）。
+2026-10-01 核实：这张表自 2026-09-26 起就没有单独的「目标」列，原引言里的「目标列」
+说的就是「作用域 / 换行后」这两列。
 
 **格式栏的朝向与位置**：始终是**横排**一条，贴在键盘上方 8pt（键盘收起时贴
 Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —— 9 个按钮竖排约 454pt，
@@ -122,7 +126,8 @@ Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —�
 - 每个按钮点击时都先 `Haptics.tap()`；工具栏 `onTap` 会把焦点还给编辑器（`becomeFirstResponder`），避免点完按钮键盘收起。
 - 高亮（active）来自 `controller.activeStyles()` / `isCenterActive()` / `isListActive()` / `isQuoteActive()` /
   `isTodoActive()` / `currentBlockStyle()`，由 `formatTick` 驱动重算（`RichTextView.swift` 的 `.onChange(of: controller.formatTick)`）。
-- 有选区时，字符样式的高亮只看**选区首字符**（B8）；行样式的高亮只看**选区起点那一行**（B8）。
+- 有选区时，字符样式的高亮要求**整个选区全开**（B8 修复后的语义；2026-10-01 核实：
+  `activeStyles()` 用 `selectionHasTrait` / `selectionHasStyle` 遍历整个选区，不再只看选区首字符）；行样式的高亮只看**选区起点那一行**（B8）。
 - **「字号 / 段落样式」按钮只认大标题 / 小标题**（B21）：引用有自己的按钮，字号也是引用自己管的
   （15pt），所以光标落在引用行上时这一栏不该亮 —— 它只负责大标题 / 小标题 / 正文这三档。
   点亮状态同时挂在无障碍的 `isSelected` 上（原来只有底色，UI 测试与旁白都读不到）。
@@ -206,8 +211,8 @@ Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —�
 | **B10** | 高（数据丢失） | `RichTextView.updateUIView` | 编辑到一半旋转屏幕/宽度变化 → 回到进入编辑时的内容，刚输入的字没了 | 宽度变化时用 `loadParts`（进入编辑时的快照）整块重载编辑器 | 宽度变化只重排图片，不动文本 | ✅ 修 |
 | **B8** | 低 | `activeStyles()` / `isCenterActive()` / `currentBlockStyle()` | 混合选区时按钮高亮只按选区首字符算，可能误导 | 只探一个点 | 字符样式改为「整段全开才高亮」，与 B5 的统一语义一致 | ✅ 修 |
 | **B20** | 中 | `RichTextView` / `RichEditorController` | **横屏编辑态转竖屏后图片大小不变**（SE 实测：横屏插入的 611pt 图片转过竖屏仍是 611pt，而正文列只有 319pt，图片横向溢出卡片） | 图片重排只挂在 `updateUIView` 上，而 SwiftUI 在「只有尺寸变化」时不保证再调它 —— 旋转只改尺寸、不改输入，重排根本没发生；插入图片还写死了「宽度 − 24」，与 `refitImages` / 编解码用的「宽度 − 左右内缩」不是同一把尺子 | ① 宽度变化改从 `PlaceholderTextView.layoutSubviews` 上报（`onTextWidthChange` → `handleTextWidthChange`，推到下一轮 runloop 以免在布局里改文本存储），`updateUIView` 走同一条路径；② 插入图片改用同一把尺子（输入区宽度 − `textContainerInset`） | ✅ 修 |
-| **B19** | 高 | `DiaryPageView` / `RichTextViewController` | **横屏（尤其 SE）键盘弹起后光标被挡住**：界面自动上滑，但滚的是「整张卡片居中」而视口是整屏，已有卡片内容比可视区高时光标落在键盘后面，要手动上滑才看得到正在输入的位置 | 键盘弹起时 `scrollTo("editor-card", anchor: .center)`；且键盘高度取自 `keyboardFrameEndUserInfoKey` 的 `frame.height` —— 横屏时那是**竖屏坐标系**（SE 横屏实测 `(0, 250, 375, 417)`），算出来 417pt 比整块屏还高 | ① 键盘高度改成「换算到窗口坐标后求交集」（`Screen.keyboardObscuredHeight`）；② 改成按**光标**位置滚，让它停在格式栏上沿之上（键盘在栏下面，让开栏就同时让开了键盘），键盘弹起时按几个时间点各确认一次；③ 滚动走 SwiftUI 的 `ScrollPosition`（直接改底层 `UIScrollView.contentOffset` 会被下一次布局覆盖回去，实测无效） | ✅ 修 |
-| **B18** | 中 | `DiaryPageView` | 进出编辑时整张卡片会变宽 / 变窄：阅读列 660、编辑列 620，横屏差 40pt（SE 横屏差 15pt） | `contentColumn(vm.isRead ? 660 : 620)` | 两个模式共用 660；输入区宽度仍差 4pt（卡片内边距 12 vs 10） | ✅ 修 |
+| **B19** | 高 | `DiaryPageView` / `RichEditorController`（2026-10-01 核实：原文的 `RichTextViewController` 在代码里不存在） | **横屏（尤其 SE）键盘弹起后光标被挡住**：界面自动上滑，但滚的是「整张卡片居中」而视口是整屏，已有卡片内容比可视区高时光标落在键盘后面，要手动上滑才看得到正在输入的位置 | 键盘弹起时 `scrollTo("editor-card", anchor: .center)`；且键盘高度取自 `keyboardFrameEndUserInfoKey` 的 `frame.height` —— 横屏时那是**竖屏坐标系**（SE 横屏实测 `(0, 250, 375, 417)`），算出来 417pt 比整块屏还高 | ① 键盘高度改成「换算到窗口坐标后求交集」（`Screen.keyboardObscuredHeight`）；② 改成按**光标**位置滚，让它停在格式栏上沿之上（键盘在栏下面，让开栏就同时让开了键盘），键盘弹起时按几个时间点各确认一次；③ 滚动走 SwiftUI 的 `ScrollPosition`（直接改底层 `UIScrollView.contentOffset` 会被下一次布局覆盖回去，实测无效） | ✅ 修 |
+| **B18** | 中 | `DiaryPageView` | 进出编辑时整张卡片会变宽 / 变窄：阅读列 660、编辑列 620，横屏差 40pt（SE 横屏差 15pt） | `contentColumn(vm.isRead ? 660 : 620)` | 两个模式共用 660；输入区宽度仍差 4pt（卡片内边距 12 vs 10）—— **2026-10-01 核实：后半句已过期**，4de3890 起编辑卡片内边距也是 `Spacing.card`(12)、编辑区不再左右内缩，两个输入区已完全等宽 | ✅ 修 |
 | **B17** | 高 | `DiaryViewModel` / `DiaryPageView` | **键盘收不回来**：编辑页没有任何收起键盘的交互，顶栏按钮又被触控键盘压住，用户没法先收键盘再选文字 | 编辑器只自己处理键盘高度，没有 `resignFirstResponder` 的触发点 | 点内容空白 / 顶栏空白收起键盘，下拉内容也可以；并关掉 `autoFocusEditor`（免得视图重建后又把键盘叫回来） | ✅ 修 |
 | **B15** | 中 | `DiaryPageView` | 顶栏会离开屏幕：横屏键盘弹起时「返回 / 插入图片 / 保存」实测在 y = −51 | 两件事叠在一起：① 顶栏原本挂在 ScrollView 的 `safeAreaInset` 上，`scrollTo` 一带内容滚动就跟着跑；② 触控键盘弹起时横屏可用高度只剩 402pt，SwiftUI 仍会把整页往上推（实测滚动视图变成 457pt 高、整体上移 55pt） | ① 已修：顶栏移出滚动视图，改成 ZStack 顶对齐的 overlay；② **接受为已知限制**，靠 B17 的「点空白 / 下拉收键盘」把顶栏拿回来（用户要的就是这条路径，硬撑着一屏显示反而没意义） | ✅ ① 修 / ② 记录 |
 | **B16** | 中 | `RichEditorController.refitImages` | 编辑模式横竖屏切换后，图片大小不跟着列宽变 | 重排图片时仍用旧的 `min(存储宽, 可用宽)`，旋转后又被夹回存储宽度 | 与 `PartsCodec` 同一条规则：宽度 = 列宽，存储对只作比例 | ✅ 修 |
@@ -222,6 +227,7 @@ Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —�
 | **B23** | 高 | `RichEditorController.toggleQuote` / `applyBlockStyle`（`apply` 的光标还原） | **列表 / 待办的空项上点「引用」后光标不在这一行**：标记被摘掉（行短了一格），`apply` 只能把光标夹进新的文本长度 —— 在末尾几段上会被推到**下一行**（用户："光标会停在上一行的末尾"）；夹在正文中间时则掉到下一行的行首 | 摘掉标记是「光标之前少了一个真实字符」，而还原用的是 `min(光标, 新长度)` | 新增 `keepCaretOnItsLine(_:lineStart:lengthBefore:)`：按净长度变化平移光标，并夹在这一段的范围内，光标始终留在它原来那一行 | ✅ 修 |
 | **B24** | 低 | `RichEditorController.restyle` / `toggleCenter` | ① 编辑区里点「大标题」得到的行**没有标题的段前留白**（9.8pt），保存后重新打开才有 —— 同一条标题在两条链路上长得不一样；② 选中多行（含引用 / 列表行）点「居中」，会把本来置灰的引用行也居中了 | ① `restyle` 只重算了 `lineSpacing` 与 `paragraphSpacing`，漏了 `paragraphSpacingBefore`（编解码那条链路有）；② 居中只按 `paragraphRanges` 逐行改，没有跳过不能居中的行 | ① `restyle` 一并写入 `paragraphSpacingBefore`；② 新增 `centerIsAllowed(in:at:)`，居中跳过引用 / 列表 / 待办行 | ✅ 修 |
 | **B11** | 高 | `DiaryPageView` / `FontToolbar` | 横屏进编辑时格式栏是**竖排**的一列，比屏幕还高：整条被裁掉、贴在全屏底部中间，与正文列对不上 | `fontToolbarVertical = layout.splitsMasterDetail`，横屏走 `VStackLayout`；9 个按钮竖排约 454pt > 横屏可用高度 402pt | 与备忘录一致：横竖屏都是键盘上方的**横排**一条 | ✅ 修（`editor.formatBar` 的 frame 断言守住） |
+| **B28** | 中 | `BlockDecorations.swift` `textFrame(...)` / `RichTextView.Coordinator.notifyFormatChange()` / `RichEditorController.insertImage` | 编辑时引用块的**蓝底高度随后续输入变高变矮**（用户报）：同一段引用在文档末尾块高 78.0、后面接一段内容后 45.0，而单行引用应该是 29.9；点完「引用」还没输入时看不到底色；刚插入图片后接着打字的那一段多 8.5pt 段前距 | 装饰层拿整段的 `layoutFragmentFrame` 当块的框，把三样**不属于这一行文字**的东西都算了进来：段落自己的段前距（引用 9pt）、段后距与行距、以及段落结尾那条空行（`characterRange` 为空的 extra line fragment —— 文档末尾的引用天然带着它，实测 +24pt，后面一有内容就消失）；空引用行的行框**宽度是 0**，而 `CGRect.isEmpty` 对宽度 0 也成立，守卫把它当空框跳过 | ① 块只并这一段**真实行**（`characterRange.length > 0`）的 `typographicBounds`，只跟这一段文字有关（单行 29.9 / 两行 53.9）；② 空引用行改看纵向（`height > 0`），只有 extra line fragment 时用它的位置 + 这一档字号的正常行高；③ `insertImage` 把图片后面那一段的段前距一并置 0 | ✅ 修（346e722；细节见 `docs/editor-typography.md` §7.2） |
 
 ### B1 的细节（为什么「行首」这个位置这么常见）
 
@@ -252,7 +258,7 @@ paragraphRanges 的循环：
 | B6 | 新增 `handleReturn(at:)`（`RichTextView` 的 `shouldChangeTextIn` 里调用）：有文字的项→插入「换行 + 同种标记」（待办新项未完成）；空项→`removeMarker` 结束该样式；空引用行同样结束引用 | `testReturnOnListItemStartsANewItem`、`testReturnOnTodoItemStartsAnUndoneItem`、`testReturnOnAnEmptyQuotedLineEndsTheQuote`、`testReturnOutsideALineStyleIsLeftToUIKit` |
 | B8 | `activeStyles()` 有选区时改为「整段全开才高亮」，与 B5 的统一语义一致 | `testMixedSelectionReportsNoActiveTrait` |
 | B9 | `PartsCodec.parts(from:)` 跳过「只有标记、没有文字」的行 | `testMarkerWithoutTextIsNotPersisted`、`testTrailingMarkerIsNotPersisted` |
-| B10 | `RichTextView.updateUIView` 宽度变化时不再 `load(parts:)`，改调新增的 `refitImages(maxWidth:)`：只重排附件 bounds 与图片，文本与光标不动 | `testRefitImagesLeavesTextAndCaretAlone` |
+| B10 | `RichTextView.updateUIView` 宽度变化时不再 `load(parts:)`，改调新增的 `refitImages(maxWidth:)`：只重排附件 bounds 与图片，文本与光标不动（2026-10-01 核实：`updateUIView` 现在调 `handleTextWidthChange(_:)`（`RichTextEngine.swift:1254-1263`），由它按「输入区宽度 − 左右内缩」再调 `refitImages(maxWidth:)`） | `testRefitImagesLeavesTextAndCaretAlone` |
 | B11 | 删掉 `fontToolbarVertical` 环境值与 `FontToolbar` 的竖排分支（连同 `DiaryPageView` 的注入），格式栏恒为横排；整条挂 `editor.formatBar` 标识供 UI 测试断言 | `LandscapeLayoutUITests.testLandscapeEditorFormatBarStaysHorizontal`（横屏断言：条形宽 > 高×2、宽 > 300、不出屏、按钮都在屏内、可横滑到最后一个按钮） |
 
 | B12 | `handleBack` 在 `!isRead` 时改为 `showRead()`（回到阅读态），确认放弃后才丢弃这次编辑；空编辑器直接回到阅读态 | `EditorFlowUITests.testBackFromTheEditorReturnsToTheDaysReadingView`、`…testBackFromAnEmptyEditorAlsoReturnsToTheReadingView` |
@@ -292,10 +298,13 @@ paragraphRanges 的循环：
 
 | 套件 | 结果 |
 |---|---|
-| `JustDiaryTests/EditorFormatBehaviorTests`（作用域，23 例） | 全部通过 |
-| `JustDiaryTests/EditorSpacingTests`（行距 / 段距 / 图片，15 例） | 全部通过 |
-| `JustDiaryTests` 合计（另含 `ContentFormatTests` 存储格式与往返、`ShareRendererTests`、`AdaptiveLayoutTests`、`SplitLayoutTests`） | 63 例全部通过 |
-| `JustDiaryUITests` 合计（`EditorTypeSizeUITests` 往返保存 / 放弃修改 / 输入区高度、`LandscapeLayoutUITests` 含横屏格式栏、`EditorFlowUITests` 含返回阅读页与格式栏放得下） | 21 例全部通过 |
+| `JustDiaryTests/EditorFormatBehaviorTests`（作用域，24 例） | 全部通过（2026-09-26 跑测；例数 2026-10-01 核对） |
+| `JustDiaryTests/EditorSpacingTests`（行距 / 段距 / 图片，18 例） | 全部通过（2026-09-26 跑测；例数 2026-10-01 核对） |
+| `JustDiaryTests` 合计（另含 `ContentFormatTests` 存储格式与往返、`ShareRendererTests`、`AdaptiveLayoutTests`、`SplitLayoutTests`、`BlockStyleRenderingTests`、`EditorEmptyLineTests`、`LocationPrecisionTests`、`MonthFlowLayoutTests`、`SettingsTests`） | 128 例（2026-10-01 核对；2026-09-26 那次 63 例全部通过） |
+| `JustDiaryUITests` 合计（`EditorTypeSizeUITests` 往返保存 / 放弃修改 / 输入区高度、`LandscapeLayoutUITests` 含横屏格式栏、`EditorFlowUITests` 含返回阅读页与格式栏放得下，另含 `EditorCaretDrawingUITests`、`EditorStyleButtonUITests`、首页 morph / 场景转场 / 设置 / 分享 / 足迹 / 语言主题等套件） | 48 例（2026-10-01 核对；2026-09-26 那次 21 例全部通过） |
+
+> 例数用 `grep -c 'func test'` 逐个文件复核（2026-10-01）：原文的 23 / 15 / 63 / 21 已过期；
+> 「全部通过」仍是 2026-09-26 那一次跑测的结论，本次按约定没有重跑 `xcodebuild`。
 
 复现命令（宏插件需要完整沙箱，故在 workspace 沙箱外运行）：
 
@@ -317,7 +326,7 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
 | 放弃修改 `arrow.counterclockwise` | 编辑态顶栏 | `confirmDiscardEditing()` → 二次确认 → `loadParts = editingOriginalParts`（回到**进入编辑时**的内容） | 新日记的 `editingOriginalParts` 进入时已清空 |
 | 保存 `checkmark` | 编辑态顶栏 | `saveEditor()`：落库 `controller.currentParts()`；缺地点/跨天会有额外确认弹窗 | 空编辑器直接保存会被忽略 |
 | 返回 `chevron.left` | 顶栏 | `handleBack()`：**编辑态**只退出编辑、回到这一天的阅读页（有未保存内容先弹「放弃」确认）；**阅读态**才关掉日记页回首页 | B12 |
-| 地点胶囊 | 编辑卡片内 | 打开精度菜单（省 / 市 / 区 / 详细），可「重新定位」（仅新块） | 与样式无关，见 `docs/location-recording.md` |
+| 地点胶囊 | 编辑卡片内 | 打开精度菜单（`vm.precisionOptions`：精确地点 / 街道 / 区县 / 城市 / 省份，按这次定位的权限上限收窄），仅新块另有「使用精确位置…」（系统只授了模糊位置时）与「重新获取位置」 | 与样式无关，见 `docs/location-recording.md`（2026-10-01 核实：原文的「省 / 市 / 区 / 详细」不是代码里的文案） |
 | 待办勾选 | **阅读态**卡片内 | 直接切换该待办的 `done`（划线 + 降透明度） | 编辑态没有勾选交互，只有格式栏的「待办」按钮 |
 
 ---
@@ -342,7 +351,9 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
    例外 —— 点它会 `becomeFirstResponder`，把焦点还给编辑器（连续排版不该被收键盘打断）。
 9. **光标永远在格式栏之上**（B19）：键盘、格式栏、悬浮顶栏都不该盖住正在输入的位置。长文里这条靠 `applyCaretReveal` 的滚动保证 —— 它的基数必须是**当前**的内容坐标（B26），否则每次都少滚一个顶部安全区、光标永远差一截露不出来。
 10. **阅读态与编辑态的正文列同宽**（都是 660 上限，B18）：进出编辑时卡片不会跳。输入区
-   宽度仍差 4pt（卡片内边距 12 vs 10），编辑区文字还另有 12pt 的输入内缩。
+   也已完全等宽（2026-10-01 核实：4de3890 起编辑卡片内边距与阅读卡片一样是 `Spacing.card`(12)，
+   编辑区 `textContainerInset` 左右为 0，与阅读态共用 `BlockMetrics.textContainerInset` ——
+   原文的「宽度仍差 4pt（卡片内边距 12 vs 10）、编辑区另有 12pt 输入内缩」已不成立）。
 11. **空行自己的换行符 = 这一行的行样式**（B22）：空段落没有字形，但它的行盒由它自己的换行符
     排出（段落样式取段落第一个字符），所以开 / 关居中、引用、大标题时，除了 `typingAttributes`
     还要把行样式写进那个换行符 —— 否则「这一行」与光标会停在旧样式里。写入的只是一个不可见的
@@ -359,28 +370,30 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
 
 | 行为 | 文件:行 |
 |---|---|
-| 字体栏的组装与 active 态（含 `editor.formatBar` 标识、B21 的字号按钮高亮） | `JustDiary/Views/Diary/RichTextView.swift:234-391` |
-| 键盘事件入口（回车拦截、B6） | `JustDiary/Views/Diary/RichTextView.swift:181-226` |
-| 编辑器宽度变化（B10 所在） | `JustDiary/Views/Diary/RichTextView.swift:114-143` |
-| 字符样式：加粗 / 斜体 / 删除线 / 下划线（B5） | `RichTextEngine.swift:257-378` |
-| 段落样式：样式菜单（B1/B2，B23 的光标/选区回位） | `RichTextEngine.swift:380-406`（对齐沿用 409-435） |
-| `restyle`（单行改写，跳过图片行；空行写自己的换行符、B24 的段前距） | `RichTextEngine.swift:458-518` |
-| `paragraphRanges`（B1 所在） | `RichTextEngine.swift:480-503` |
-| 居中（B3，B22 空行、B24 跳过引用/列表/图片行） | `RichTextEngine.swift:557-615`（`centerIsAllowed` 在 606） |
-| 列表 / 待办标记（B4，B22 空项结尾、B25 标记自带段落样式） | `RichTextEngine.swift:665-704` |
-| `handleReturn`（B6：换行续行、空项结束；空引用行 B22） | `RichTextEngine.swift:733-780` |
-| 引用（B1/B2，B23 光标/选区留在这一行） | `RichTextEngine.swift:816-855` |
-| 空行 / 段落范围判定 | `RichTextEngine.swift:857-925` |
-| 空行自己的换行符：取位置 / 写行样式 / 写对齐 / 跟打字态同步（B22） | `RichTextEngine.swift:927-1016` |
-| 光标 / 选区按摘掉的标记回位（B23） | `RichTextEngine.swift:1020-1063` |
-| 末尾空段落的排版与光标几何（**B27**） | `RichTextEngine.swift:420-470` |
-| `activeStyles`（B8） | `RichTextEngine.swift:1065-1082` |
-| `refitImages`（B10） | `RichTextEngine.swift:1179-1211` |
-| `apply`（含选区还原） | `RichTextEngine.swift:1256-1272` |
-| `MarkerAttachment.attributed`（B25：标记也带行段落样式） | `RichTextEngine.swift:1330-1352` |
-| `imageParagraphStyle` / `readerChunk`（行距与图片留白） | `RichTextEngine.swift:1409-1451` |
-| 落库解析（B9 所在） | `RichTextEngine.swift:1516-1614` |
+| 字体栏的组装与 active 态（含 `editor.formatBar` 标识、B21 的字号按钮高亮） | `JustDiary/Views/Diary/RichTextView.swift:242-406` |
+| 键盘事件入口（回车拦截、B6） | `JustDiary/Views/Diary/RichTextView.swift:192-210` |
+| 编辑器宽度变化（B10 所在） | `JustDiary/Views/Diary/RichTextView.swift:161-180` |
+| 字符样式：加粗 / 斜体 / 删除线 / 下划线（B5） | `RichTextEngine.swift:337-447` |
+| 段落样式：样式菜单（B1/B2，B23 的光标/选区回位） | `RichTextEngine.swift:460-498`（打字态对齐 `setTypingAlignment` 在 767-772） |
+| `restyle`（单行改写，跳过图片行；空行写自己的换行符、B24 的段前距） | `RichTextEngine.swift:584-638`（几何在 `applyBlockGeometry` 646-662） |
+| `paragraphRanges`（B1 所在） | `RichTextEngine.swift:677-699` |
+| 居中（B3，B22 空行、B24 跳过引用/列表/图片行） | `RichTextEngine.swift:701-772`（`centerIsAllowed` 在 751-761） |
+| 列表 / 待办标记（B4，B22 空项结尾、B25 标记自带段落样式） | `RichTextEngine.swift:802-874` |
+| `handleReturn`（B6：换行续行、空项结束；空引用行 B22） | `RichTextEngine.swift:887-937` |
+| 引用（B1/B2，B23 光标/选区留在这一行） | `RichTextEngine.swift:972-997` |
+| 空行 / 段落范围判定 | `RichTextEngine.swift:1021-1071` |
+| 空行自己的换行符：取位置 / 写行样式 / 写对齐 / 跟打字态同步（B22） | `RichTextEngine.swift:1090-1175` |
+| 光标 / 选区按摘掉的标记回位（B23） | `RichTextEngine.swift:1182-1225` |
+| 末尾空段落的排版与光标几何（**B27**） | `RichTextEngine.swift:512-543` |
+| `activeStyles`（B8） | `RichTextEngine.swift:1227-1247` |
+| `refitImages`（B10） | `RichTextEngine.swift:1354-1386` |
+| `apply`（含选区还原） | `RichTextEngine.swift:1431-1447` |
+| `MarkerAttachment.attributed`（B25：标记也带行段落样式） | `RichTextEngine.swift:1508-1520` |
+| `imageParagraphStyle` / `readerChunk`（行距与图片留白） | `RichTextEngine.swift:1585-1627` |
+| 落库解析（B9 所在） | `RichTextEngine.swift:1739-1837` |
 | 阅读区块渲染（图片 padding、块间距 0） | `JustDiary/Views/Diary/MediaViews.swift:61-92` |
-| 阅读块规范化（去结尾空行 / 去图片段距） | `JustDiary/Views/Diary/ReadTextView.swift:91-95` |
-| 格式栏位置（键盘上方、横竖屏一致，B11） | `JustDiary/Views/Diary/DiaryPageView.swift:16-28` |
-| 光标 reveal 的滚动（B19 / **B26**：基数取当前内容坐标） | `JustDiary/Views/Diary/DiaryPageView.swift:206-300` |
+| 阅读块规范化（去结尾空行 / 去图片段距） | `RichTextEngine.swift:1611-1627`（`PartsCodec.readerChunk`；由 `ReadTextView.rebuild()` 91-104 调用） |
+| 格式栏位置（键盘上方、横竖屏一致，B11） | `JustDiary/Views/Diary/DiaryPageView.swift:37-54` |
+| 光标 reveal 的滚动（B19 / **B26**：基数取当前内容坐标） | `JustDiary/Views/Diary/DiaryPageView.swift:222-290` |
+
+> 表内行号 2026-10-01 逐行按 `grep -n` 复核（`RichTextEngine.swift` 已 1855 行，与本文写作时的 200–1600 区间整体后移）。

@@ -11,7 +11,10 @@ extension Animation {
 // MARK: - Screen metrics
 
 enum Screen {
-    static var size: CGSize {
+    /// 当前场景的尺寸。**只在 `Screen` 内部用**（外面请用 `AdaptiveLayout` 的几何）——
+    /// 2026-10-01 清理：`Screen.height` 已删（零调用），`size` 收成 private，
+    /// 外面只剩 `width`（`RichTextEngine` 测量前的兜底）与下面两个安全区读法。
+    private static var size: CGSize {
         if Thread.isMainThread {
             return currentSize
         }
@@ -33,7 +36,6 @@ enum Screen {
         return scene.screen.bounds.size
     }
 
-    static var height: CGFloat { size.height }
     static var width: CGFloat { size.width }
 
     /// Bottom safe-area inset of the presenting scene (the home-indicator strip).

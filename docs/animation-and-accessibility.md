@@ -101,13 +101,20 @@ morph 时靠 `.opacity(0)` 隐藏。但**透明度为 0 的视图依然会被构
 新增 `Views/Components/DynamicType.swift`：
 
 - 用 Apple 自己的 `UIFontMetrics` 从 SwiftUI 的 `DynamicTypeSize` 算出缩放系数，
-  通过 `\.diaryTypeScale` 环境值下发；
-- 新增 `.diaryFont(_:weight:)` 修饰符替代 `.font(.system(size:))`，**把 87 处调用点全部转换**；
+  通过 `\.diaryDynamicTypeSize` 环境值下发（`RootView` 注入；旧名 `\.diaryTypeScale`
+  已不存在 —— 2026-10-01 核实）；
+- 新增 `.diaryFont(_:weight:)` 修饰符替代 `.font(.system(size:))`，**把 87 处调用点全部转换**
+  （2026-10-01 核实：`JustDiary/` 里 `.diaryFont(` 现有 97 处调用点；残留的固定字号
+  `.font(.system(size:))` 只剩 `DynamicType.swift` 自身与 `CalendarGrids.swift` 里
+  Canvas 用的量化字号）；
 - 日历是用 `Canvas` 绘制的，SwiftUI 无法代劳，因此在 `MonthCanvas` / `WeekRowCanvas`
   里对 `DayMetrics` 的字号单独缩放——用的是**减半的系数**，因为日历格子尺寸由屏幕决定，
   全量放大反而会把日期数字挤出格子。
 
-缩放上限设为 **1.45×**：再大日历网格、编辑器工具条、足迹页 5 列统计就会重叠裁切，
+缩放上限**按 Apple 文本样式分别设**，不再是一个全局的 **1.45×**
+（`DynamicTypeMetrics.ceiling(for:)`：largeTitle 1.35、title1 1.40、title2 / title3 1.45、
+body 1.50、callout 1.55、subheadline 1.60、footnote 1.65、caption1 1.70、caption2（default 分支）1.75；
+完整表见 `docs/design-system.md` §2.2）。再大日历网格、编辑器工具条、足迹页 5 列统计就会重叠裁切，
 比不放大更糟。
 
 实测：

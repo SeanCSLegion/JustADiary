@@ -6,7 +6,7 @@
 本文回答一件事：**同一套代码，怎么在手机竖屏和手机横屏上都排得好看**。
 
 > **当前状态**：手机端**已实现**（首页横屏分栏、日历密度降级、**月视图连续滚动**、
-> 足迹/搜索/设置/阅读页的横屏版面、关键词栏），并有 `AdaptiveLayoutTests`、
+> 足迹/搜索/设置/阅读页的横屏版面、搜索的生效条件胶囊栏），并有 `AdaptiveLayoutTests`、
 > `SplitLayoutTests`、`MonthFlowLayoutTests`、`MonthFlowUITests`、
 > `PortraitLayoutUITests`、`LandscapeLayoutUITests` 与 `MorphPerfUITests` 守住。
 >
@@ -24,15 +24,15 @@
 
 1. **只有一条判定规则**：版面按「当前可用宽度/高度」判定，不看设备型号、不看
    `UIDevice.idiom`、不看 `UIDevice.orientation`、不读 `UIScreen.main`
-   （这条直接来自 Apple 的 Duo 适配指南：Duo 展开后**仍然是 iPhone**，但宽高都是
-   regular；按型号分支的代码在它上面必然错）。
+   （这条来自 Apple 的适配指南：一个宽高都是 regular 的容器**仍然是 iPhone**；
+   按型号分支的代码在它上面必然错）。
 2. **导航用系统默认的底部浮条**：`TabView` 不加额外样式，就是 iPhone 原生的底部浮条。
    **不自己写第二套导航**。
 3. **正文永远单栏**：阅读页限制在 ≤660pt（约 60–75 字符）并居中。用户提的
    「日记页卡片左右双列交叉排列」在阅读场景会破坏阅读顺序，不采用（理由见 §6）。
 4. **砍掉两级整屏层级**：「年历」整屏视图与「月↔周整屏 morph」在横屏里是净负担。
    年月选择收敛到左上角入口，横屏只上下滑切月；月历密度按可用高度自动决定
-   （月格 ↔ 周条）。
+   （月格：显示 / 隐藏农历行两档）。
 5. **月视图是一条连续滚动的月份流**（竖屏整屏与横屏左栏同一套）：大月份标题 + 星期栏
    钉在顶部、标题跟着滚动实时切换（**显示占视口最多的那个月**，不是顶部那一行），
    下面的月份无级滚动；月份之间隔一条 16pt 的空隙（`flowMonthGap`），小标题（「10月」）
@@ -72,10 +72,9 @@
 | iPhone 18 Pro 横屏 | 874 × 402 | 750 | **左右分栏**（左月历 345 / 右日记 356.5） |
 | iPhone SE 竖屏 | 375 × 667 | 375 | 单栏（与 18 Pro 竖屏同一套） |
 | iPhone SE 横屏 | 667 × 375 | 667 | **左右分栏**（左月历 307 / 右日记 311.5） |
-| iPhone Duo 内屏 | ≈664 × 750 | 664 | 单栏（宽但不矮，与手机竖屏同一套） |
 
-> 关键点：**不按机型分支**。只看可用宽度/高度与安全区，所以 Duo 这类还没上市的设备
-> 不需要任何专用代码；SE 能分栏也是同一条规则推出来的结果，不是给它开的后门。
+> 关键点：**不按机型分支**。只看可用宽度/高度与安全区 —— SE 能分栏就是同一条规则推出来的
+> 结果，不是给它开的后门；反过来，任何「宽但不矮」的容器（分屏等）也会自然落到单栏。
 
 ### 2.2 导航：系统默认的底部浮条，app 只负责避让
 
@@ -99,13 +98,14 @@
 **我们能做、也该做的只有一件事**：让内容避开左侧 `safeArea.leading`（横屏 62pt）。
 而几何原点已经在安全区内，所以**四屏只需要加自己的 16pt 页边距**
 （`.adaptivePagePadding()`，见 §5.2 的关键约定 1）；`AdaptiveLayout.contentWidth` 只用于
-「可用内容宽度」这类计算，**不要**再叠进页边距，也不要 `MonthPane` / 分栏内各减一遍
-（见 §3.1.1）。
+「可用内容宽度」这类计算，**不要**再叠进页边距，也不要 `MonthFlowView`（竖屏整屏）/
+分栏内各减一遍（见 §3.1.1）。
 
 ### 2.3 页内分栏的两条约束（只用于首页横屏）
 
-1. **分栏用 `HStack` + 固定宽度的主栏**，详情栏 `frame(maxWidth:.infinity)`。
-   主栏不需要拖动分隔条 —— 它的宽度由内容决定（月历 7 列），不是用户偏好。
+1. **分栏用 `HStack` + 固定宽度的两栏**，两栏都 `.frame(width:)`（宽度由
+   `AdaptiveLayout.splitColumns(containerWidth:)` 给：主栏按容器宽 46% 夹在 260…440，
+   详情栏吃掉剩下的）。主栏不需要拖动分隔条 —— 它的宽度不是用户偏好。
 2. **详情栏里的文字列必须限宽**（阅读与编辑同为 660）。否则屏宽一宽，正文就会被
    拉成一行 100+ 个字。
 
@@ -120,34 +120,40 @@
 | 形态 | 版面 |
 |---|---|
 | 竖屏（402pt） | `‹ 年月` 胶囊 +「今天」→ 72pt 标题槽（32pt 月标题）→ 30pt 星期栏 → **连续月历流**（静止时正好六行，与改造前逐像素一致；上下滑无级滚动，有日记＝下划线、今天＝圆环、选中＝实心圆、未来 35%）；点日期 morph 到周视图、点年月胶囊 morph 到年历。设计稿里这三屏（`ph-home-portrait` / `ph-home-week` / `ph-home-year`）是**按实现 1:1 复刻**的对照基准，只有「翻月方式」从整页翻页改成连续滚动 |
-| 横屏（18 Pro 874 × 402） | 系统占位已含在安全区里 → **可用 750 × 382**；页面只再加 16pt 边距；**左栏月历 345pt + 右栏日记 356.5pt**；左栏是与竖屏同一套连续月历流（紧凑形态，行高 45pt）|
+| 横屏（18 Pro 874 × 402） | 系统占位已含在安全区里 → **可用 750 × 402**（宽 = 874 − 62 − 62；高因为首页几何 `.ignoresSafeArea(edges: .bottom)`、横屏顶部安全区为 0，就是屏高，`splitPaneHeight(402) = 330`）；页面只再加 16pt 边距；**左栏月历 345pt + 右栏日记 356.5pt**；左栏是与竖屏同一套连续月历流（紧凑形态，行高 45pt）|
 | 横屏（SE 667 × 375） | 同一条规则推出来的结果：SE 没有刘海，**整屏 667 都是可用宽度**；**左栏月历 307pt + 右栏日记 311.5pt**；因为屏矮，密度会自动隐藏农历行，六行日期每格约 40pt |
-| 横屏・高度不足 | 左栏降级为**周条**（一行 7 天，横向翻周），右栏高度不变 |
 | 横屏・年份 | **不提供年份切换**：整块头部隐藏、右栏标题行也**没有年份胶囊**；上下滑跨月时自然跨年 |
 | 横屏・回到今日 | 「今天」放在**右栏标题行**（左栏整行留给月标题与日期格子） |
 
 **日历密度按高度自适应**，这是替代原来「月↔周整屏 morph」的关键：
 
 ```
-可用高度 ≥ 6×60 + 标题        → 月格（显示农历；横屏一般到不了）
-可用高度 ≥ 6×38 + 标题        → 月格（隐藏农历行）
-否则                          → 周条（1 行，横向翻周）
+每行 ≥ 44 + 16 = 60pt   → 月格（显示农历行；横屏一般到不了）
+否则                    → 月格（隐藏农历行，行高下限 38pt）
 ```
 
+判据是 `CalendarDensity.resolve(availableHeight:rows:wantsLunar:)`（只剩这两档），
+`rows` 由调用方给（`HomeView.splitCalendarArea` 固定传 6）。
+**2026-10-01 清理**：原来还有第三档「放不下六周格就把左栏换成一行周条、横向翻周」
+（`.weekStrip`）—— 它**只判不画**（`HomeView` 只读 `showsLunar` 与 `rowHeight`，从来没有
+渲染分支），设计稿里那张降级稿也一并删了。现在高度再小也只是隐藏农历、行高夹在
+下限（38pt），超出的部分由 `HomeView` 的 `.clipped()` 裁掉。
+
 隐藏农历那一档的下限是 **38pt**（不是 44）：44pt 是「20pt 日号 **+ 11pt 农历** + 选中圆」
-需要的高度，既然农历行本来就不画，六行只需要 ~40pt 一格。若这里坚持 44，
-**SE 横屏（375pt 高）会被降级成周条** —— 左右分栏的左栏只剩一行日期，横屏首页等于
-没有月历。40pt 的格子放 ~14pt 日号 + ~32pt 选中圆仍然宽裕（日号字号本来就由格高推导）。
+需要的高度，既然农历行本来就不画，六行只需要 ~40pt 一格。若这里坚持 44，SE 横屏
+（375pt 高）的六行就放不下 —— 要么硬裁最后一行，要么再去降级；40pt 的格子放
+~14pt 日号 + ~32pt 选中圆仍然宽裕（日号字号本来就由格高推导）。
 
 横屏手机 18 Pro 402pt 高，扣掉顶部 8pt、底部给系统浮条让出的 64pt，日历区 330pt；
-标题槽 34 + 星期栏 26 = 60，剩 270 给 5–6 行 → 每格 45–54pt（日号 15–18pt）。
-SE 横屏 375pt 高，日历区 303pt，剩 243 给 6 行 → 每格 40pt（日号 ~14pt），仍然可点。
-如果连 38pt 都放不下（键盘弹起、Duo 折成一半），才自动变周条。
+标题槽 34 + 星期栏 26 = 60，剩 270 **固定按 6 行**分（横屏行高不跟「当月是 5 行还是 6 行」变）
+→ 每格 45pt（`rowHeight` 对商向下取整，日号 ~15.3pt）。
+SE 横屏 375pt 高，日历区 303pt，剩 243 给 6 行 → 每格 40pt（243/6 = 40.5 向下取整，日号 ~14pt），仍然可点。
+如果连 38pt 都放不下（键盘弹起、分屏这类极端高度），行高就停在 38pt，超出日历区的那部分被裁掉。
 
 **年月切换（仅竖屏）**：竖屏**保持现在的整屏年历 + 缩放 morph**，不加新入口、不改形状。
 - 横屏**不提供**年份切换（只上下滑切月），也没有任何可以点进年历的按钮。
 
-**morph 终点即真实排版**：`MonthPane` 的标题槽 / 星期栏高度（竖屏 `bigTitleH(72)` +
+**morph 终点即真实排版**：`MonthFlowView` 的标题槽 / 星期栏高度（竖屏 `bigTitleH(72)` +
 `weekdayHeaderH(30)`，横屏 34 + 26）**必须**与 morph 里的槽位用同一组常量，
 否则动画收尾、真实图层接上时会整体跳一下；年历迷你月的日期字号也必须由
 `CalendarLayout.miniMetrics` 统一提供 —— 年历页与 morph 起点各算一遍时，收尾会出现
@@ -168,7 +174,7 @@ SE 横屏 375pt 高，日历区 303pt，剩 243 给 6 行 → 每格 40pt（日�
 ├──────────────────────────────────────────────
 │ 28 29 30                  ← 上个月的最后一行（相邻月的日期不画，留白）
 │            ⌄ 16pt 空隙     ← 月份之间的间隔 = flowMonthGap
-│                 10月       ← 小标题 = 这一行字（竖屏 21pt / 横屏 18pt），
+│                 10月       ← 小标题（竖屏 15pt 字 / 横屏 13pt 字，带高 21 / 18pt），
 │                 1  2  3  4    并且站在 **1 号那一列**的正上方
 │                            （分隔线按格画：只在上图这几格日期上方有线）
 │  5  6  7  8  9 10 11
@@ -181,7 +187,7 @@ SE 横屏 375pt 高，日历区 303pt，剩 243 给 6 行 → 每格 40pt（日�
 1. **行高全局一致**：每个月 = 若干周行，都是 `rowH`；月份之间那条空隙属于**下一块**
    （`Block.top` 已经越过它），所以 `Block.top` 始终是「本月第一行的顶」。
    竖屏 `rowH = (日历区 − 标题槽 − 星期栏) / 6`（402×874 上 93.8pt）；横屏左栏
-   `rowH = (左栏 − 34 − 26) / 6`（18 Pro 45pt、SE 40.5pt，农历行按密度自动隐藏）。
+   `rowH = (左栏 − 34 − 26) / 6`（`CalendarDensity.rowHeight(availableHeight:rows:)` 对商**向下取整**：18 Pro 45pt、SE 40pt —— 243/6 = 40.5 取 40，农历行按密度自动隐藏）。
    横屏**固定按 6 行**算行高，不跟「当月是 5 行还是 6 行」变 —— 否则滚过月份边界时
    格子会忽高忽低。
 2. **月份之间隔一条 `flowMonthGap`（16pt）**，从上到下的次序是：**上个月的日期 → 小标题 → 分割线 → 本月日期**（这个次序改过三版，别再调换）。
@@ -305,15 +311,17 @@ SE 横屏 375pt 高，日历区 303pt，剩 243 给 6 行 → 每格 40pt（日�
    不放 `offset`，与月视图内部同一种写法。
 2. **月份边界那一周会被画两遍**。9/28–10/4 既是 9 月最后一行、也是 10 月第一行，
    两行在 morph 里都带「相邻月日期」时，动画中间同一批日期出现两次。现在只有
-   **被选中的那一行**（正在变成周条的那一行）带相邻月日期，其余行与月视图一致。
+   **被选中的那一行**（morph 之后就是周视图的那一行）带相邻月日期，其余行与月视图一致。
 
 | 周 → 月 | 用**同一份源**、同一条曲线倒放，所以那一行会回到它原来的位置。为此月视图**始终挂载**（morph 期间只把不透明度压到 0）：滚动位置是它的内部状态，卸载就丢。日记内容同样挂在选中行下面 —— 之前它按一条固定曲线往下滑 60pt，而选中行要往下走 400+pt 回自己那一行，行会从内容中间穿过去（截帧里「2026年9月17日 周四」正好印在 14–20 那一行上），现在两个方向都不会穿 |
 | 年 → 月 | 终点仍是 `fullMonthGridRect`（静止状态没变），跳转请求（`MonthFlowJump`）在 morph 一开始就发下去、月视图在幕后把偏移设到该月的静止位置。视口底部接着的**下个月那一条**（小标题 + 第一行日期，五行月份还有更下面的行）也必须画进动画：`peekFadesIn` 为真时它在 `t = 1 - progress` 的 0.55→1 段淡入；月→年方向同一块内容在头 10% 就迅速消失（它属于「要离开」的内容，不能飘进年视图）。小标题与第一行日期都按连续月历流那把尺子摆（`peek` 里的 `flowMonthGap` / `flowLabelTightGap` 与 `MonthFlowView.blockView` 是同一对常量），所以多出这条空隙后收尾那一帧仍然逐像素对齐。**浮条底下那一段（`hSafe` 之外）也要一起画**，否则同一批日期会分两次出现 |
 | 旋转进横屏分栏 | `settleToMonth()` 收掉年/周态与 morph；竖屏那条流卸载、横屏左栏的流按 `vm.monthPage` 重新静止 |
 
-**顶部月份的归属**：视口顶部落在哪一块（含它的小标题带）就显示哪个月，所以滚动时标题
-是实时切换的（`MonthFlowLayout.blockIndex(atOffset:)`）。竖屏滚动落定后把「当前月」写回
-`HomeViewModel.monthPage`（左上角「‹ 年月」胶囊、年历入口读它）；横屏落定后走
+**顶部月份的归属**：顶栏显示的是**占视口最多**的那一块（`MonthFlowLayout.dominantBlockIndex`，
+`MonthFlowView` 与 morph 共用这一个判定），滚动时实时切换；滚动落定后写回「当前月」的那一次
+问的是 `MonthFlowLayout.blockIndex(atOffset:)`（`MonthFlowView` 手势的 completion 里读它）。
+竖屏滚动落定后把「当前月」写回 `HomeViewModel.monthPage`（左上角「‹ 年月」胶囊、
+年历入口读它）；横屏落定后走
 `selectMonthPage`，把选中日带进新月份，右栏才跟着一起走（与改造前的翻月行为一致）。
 
 ### 3.1.0.1 竖屏底部必须让开系统浮条（本次一并修掉的问题）
@@ -339,11 +347,11 @@ SE 横屏 375pt 高，日历区 303pt，剩 243 给 6 行 → 每格 40pt（日�
 18 Pro 横屏（可用 750 × 402）：
 
 ```
-x:  0 ───── 62 ─ 78 ─────────── 423 ─ 439 ─────────────── 795.5 ─ 812 ─ 874
-    │ 安全区 │16│   左栏月历 345   │ 16 │    右栏日记 356.5       │16│安全区
+x:  0 ───── 62 ─ 78 ─────────── 423 ─ 439.5 ─────────────── 796 ─ 812 ─ 874
+    │ 安全区 │16│   左栏月历 345   │16.5│    右栏日记 356.5       │16│安全区
 y:  0 ───────────────────────────────────────────────────────────────
     │ 8pt 顶部留白                                                      │
-    │  月标题 34 → 星期栏 26 → 5/6 行日期（每格 45–54）                   │
+    │  月标题 34 → 星期栏 26 → 6 行日期（每格 45）                        │
     │                                                                   │
     │        ┌─────────────────────────┐ ← 系统浮条：y 338–402，居中    │
     │        │  日记  足迹  搜索  设置   │    会盖住两栏的最后一行        │
@@ -369,6 +377,9 @@ y:  0 ────────────────────────�
 - 实测 `app.tabBars` frame：18 Pro 横屏 `(0, 338, 874, 64)`、**SE 横屏
   `(0, 311, 667, 64)`** —— 浮条由系统绘制，**同一方向上高度与机型无关**
   （竖屏 83 / 横屏 64），两条都紧贴屏幕底边。
+  （2026-10-01 核实：竖屏那两个 frame 由 `PortraitLayoutUITests` / `MonthFlowUITests`
+  运行时读 `app.tabBars` 断言；横屏这两个只写在 `AdaptiveLayout` 的注释里，
+  测试断言的是由它推出的 `splitPaneHeight`，没有直接断言 frame。）
 - 所以页面**只需要加自己的 16pt 边距**，日历紧贴 `leading = 62 + 16 = 78`
   （SE 是 `0 + 16 = 16`）起。**不要**再减一次 `safeArea.leading`：重复避让会把日历
   推到 x ≈ 222，左半屏白白空着 —— 这就是「横屏没有充分利用屏幕、左右避让过多」的根因。
@@ -379,8 +390,7 @@ y:  0 ────────────────────────�
   最后一行日期会被浮条压住 20pt。
 - 导航形态交给系统（`TabView` 默认样式），app 不自己画第二条导航；
   宽度/高度都从几何与 `safeAreaInsets` 派生（只有浮条高度是按方向取的实测常量，
-  因为它由系统绘制、无法从安全区推出），Duo 折痕、左右不对称安全区、未来 27.1 的
-  `reservedRegion` 都能直接接上。
+  因为它由系统绘制、无法从安全区推出），左右不对称的安全区也能直接接上。
 
 ### 3.1.2 横屏翻月的手势与动画
 
@@ -389,8 +399,8 @@ y:  0 ────────────────────────�
 - 滚动落定后选中日跟着进入新月份的同一天（月末按当月天数夹住），右栏才和左栏对得上；
   拖动过程中不搬选中日，避免一帧一次数据库读取。相关回归：
   `LandscapeLayoutUITests.testLandscapeMonthSwipesVertically` /
-  `testSwipingMonthKeepsSelectionVisible`（一屏约 5 行、行高 45pt，所以「换个月份」
-  要滑过一整个月，测试里滑两次）。
+  `testSwipingMonthKeepsSelectionVisible`（一屏 6 行、行高 45pt —— 测试注释写「约 5–6 行」，
+  所以「换个月份」要滑过一整个月，测试里滑两次）。
 - 右栏标题行与内容区都限高到日历区高度（`paneH`），两栏底部对齐、都不压到浮条。
 
 ### 3.2 足迹 `ph-footprint-landscape.png`
@@ -403,17 +413,22 @@ y:  0 ────────────────────────�
 
 > 横屏的**真实可用宽度是 750pt**（874 − 62 − 62），达不到 900pt 的分栏阈值，所以
 > **做不了**左右分栏；正确做法是这里写的：不分栏，但把两个块**并排**放进同一列里。
+> （2026-10-01 核实：App 里没有 900pt 这条判据 —— 手机端只有 §2.1 那一条 548.5pt；
+> 已删除的宽屏设计稿里曾按 900pt 分栏，那是 iPad / Mac 的取值。）
 
 ### 3.3 搜索 `ph-search-landscape.png`
 
 - 手机横屏（可用 750pt）：**条件压成一行** —— 搜索框一行，下面
   「时间范围 | 地点」两组筛选并排成一行（省下约 60pt 竖高留给结果）；
   **结果保持与竖屏一致的单栏纵向列表** —— 横屏每行更长、摘要多显示半行，扫读更快。
-- **关键词栏**：搜索框下方一行「关键词」，每个生效中的关键词是一个可单独点掉的胶囊
-  （多个关键词时一眼看清在搜什么），右侧是「清除全部条件」。竖屏与横屏共用。
+- **条件栏**：搜索框下方**一行**「当前生效的全部条件」，每个条件是一个可单独点掉的胶囊
+  （关键词 / 时间 / 地点画在同一条里），右侧是「清除全部条件」。竖屏与横屏共用。
 
 > 多关键词的处理沿用实现里已有的 `activeFilterItems`（`SearchFilterItem`：keyword /
-> time / location 三类），不需要新模型 —— 只是把「关键词」这一类单独画成一行展示。
+> time / location 三类），不需要新模型。
+> **现状（2026-10-01 核实）**：关键词**没有**单独占一行 —— `SearchView.filterSummary`
+> 把三类条件一起画进同一条可横滑的胶囊栏（代码注释：「这是唯一的条件栏 —— 关键词不再
+> 另起一行」），点击按 `item.kind` 分派。
 
 ### 3.4 设置 `ph-settings-landscape.png`
 
@@ -446,33 +461,23 @@ y:  0 ────────────────────────�
 
 ---
 
-## 四、iPhone Duo
+## 四、为什么判定只看宽高，不看机型
 
-Apple 的适配指南（[Design for iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111466/)、
-[Raise the bar](https://developer.apple.com/videos/play/tech-talks/111462/)）里与本项目直接相关的四条：
+这一节原来叫「iPhone Duo」，列的是一套面向折叠屏的适配动作。2026-10-01 清理后只保留
+**已经落地的三条判据**（它们是 `AdaptiveLayout` 现在就能工作的原因），折叠屏专用的那套
+（折痕避免区 `FoldAvoidance`、27.1 的 `reservedRegion` / `ArrangementView` / `onHingeChange`）
+**没有实现、也不再规划** —— 等真有设备再说，届时不改版面也能接。
 
-1. **用尺寸类，不要用 idiom**。Duo 展开是 regular × regular，但仍是 iPhone；
-   内屏也不遵守 `supportedInterfaceOrientations`。
-2. **左右安全区不对称**。竖排的控制条可能出现在任意一侧，要分别处理 inset 与
-   layout margin，背景延伸到条下面、交互内容留在里面。
-3. **工具栏移到侧边由容器负责**。用 `TabView` / 导航容器的 bar，不要自己画悬浮条 ——
-   自己画的不会被系统接管，横过来就还在底部。
-4. **让系统处理折痕**。sheet / alert / menu 已经自动避开；自定义布局等 27.1 的
-   `reservedRegion`（`GeometryProxy` / `UIView`）再接。
-
-**本项目的动作**：
-
-| 现在做 | 说明 |
+| 判据 | 说明 |
 |---|---|
-| 删掉 `Screen.size` / `Screen.height` 作为布局依据的用法 | 保留 `Screen.safeAreaBottom`（底部安全区，编辑器要用），它从当前场景读、允许为 0 |
-| 所有分栏判定改用实测宽度 | 见 §5.1 的 `AdaptiveLayout` |
-| 左右 padding 分别取 `safeAreaInsets.leading/trailing` | 不假设对称 |
-| 给折痕预留一个「避免区」 | 定义一个 `FoldAvoidance` 环境值，27.0 先恒为 `nil`；27.1 到位后只改这一处 |
-| 不在 `fullScreenCover` 里假设全屏尺寸 | 编辑器已改成用几何尺寸 |
+| **用尺寸类 / 可用宽高，不要用 idiom** | 一个宽高都是 regular 的容器仍然是 iPhone，按型号分支的代码在它上面必然错。`AdaptiveLayout` 只看 `size` + `safeAreaInsets` |
+| **左右安全区分别读** | `contentWidth = width − leading − trailing`，不假设对称；页面 padding 恒为 16（不再叠安全区） |
+| **不在 `fullScreenCover` 里假设全屏尺寸** | 页面用几何尺寸排版。日记页现在是导航栈里 `navigationDestination` 推进的一页（`RootView.swift:42/72`），仍在 cover 里的只剩图片预览（`CalendarPaneViews.swift:46`、`DayContentView.swift:49`、`DiaryPageView.swift:110`），它们靠环境继承拿到同一个 `AdaptiveLayout`（见 §5.2） |
+| **底部浮条的高度按方向取实测值** | 它由系统绘制、安全区里推不出来（竖屏 83 / 横屏 64），见 `AdaptiveLayout.tabBarClearance` |
 
-**不要在 27.0 上提前用**：`ArrangementView` / `UIArrangementViewController` /
-`onHingeChange` / `reservedRegion` 都是 iOS 27.1 的 API（已在 Xcode 27.0 SDK 中确认不存在）。
-等 SDK 上线再接，本方案的 `AdaptiveLayout` 是它的超集，接的时候不用改版面。
+`Screen` 这一侧同步收口：`Screen.height` 已删除、`Screen.size` 收成 private，外面只剩
+`Screen.width`（`RichTextEngine` 测量前的兜底）与 `Screen.safeAreaBottom` /
+`Screen.keyboardObscuredHeight` 三个读法。
 
 ---
 
@@ -487,7 +492,8 @@ struct AdaptiveLayout {           // EnvironmentValue
     var size: CGSize
     var safeArea: EdgeInsets      // 四边分别给（横屏时 leading 往往非 0）
 
-    /// 底部为系统浮条 / 指示条预留
+    /// 底部安全区本身：`max(0, safeArea.bottom)`（竖屏 34 / 横屏 20 的 home indicator）
+    /// —— **不含浮条自身的高度**，浮条那 83 / 64 走下面的 `tabBarClearance`
     var bottomInset: CGFloat
 
     /// 可用内容宽度：扣掉左右安全区（横屏左侧 62pt 的导航胶囊）
@@ -515,31 +521,34 @@ struct AdaptiveLayout {           // EnvironmentValue
 
     /// 正文列宽上限：宽屏必须限宽，否则一行 100+ 字。
     /// 返回的是正文列本身，页面内边距（左右各 16）加在它外面。
-    func contentColumn(_ max: CGFloat = 660) -> CGFloat {
-        min(max, max(240, size.width - 2 * pagePadding))
+    func contentColumn(_ maxWidth: CGFloat = 660) -> CGFloat {
+        min(maxWidth, max(240, size.width - 2 * Self.pagePadding))
     }
 }
 ```
 
 **实现时不要把这些写成常量**：宽度/高度要从几何与 `safeAreaInsets` 派生（横屏时
-`leading` 就是导航胶囊那一条），这样 Duo 的折痕、左右不对称的安全区、未来的
-`reservedRegion` 都能接上。几何由 `RootView` 的 `.adaptiveLayoutReader()` 读一次并下发，
+`leading` 就是导航胶囊那一条），这样左右不对称的安全区也能直接接上。几何由 `RootView` 的 `.adaptiveLayoutReader()` 读一次并下发，
 页面内部不要再各自读 `UIScreen.main`。
+（2026-10-01 核实：`AdaptiveLayoutReader.resolve` 用场景的 `screen.bounds` 当界面尺寸、
+再用「内容尺寸 → 界面尺寸」的差值补出四边安全区 —— `GeometryProxy.size` 是扣掉安全区之后的
+尺寸，直接拿它判档会偏小；读不到场景时退回「内容尺寸 + 0 安全区」。它读的是场景，
+不是 `UIScreen.main`；页面侧只剩 `RichTextEngine` 的兜底用了一次 `Screen.width`。）
 
 ### 5.2 逐文件
 
 | 文件 | 改动 |
 |---|---|
-| `Views/RootView.swift` | 注入 `AdaptiveLayout`；`fullScreenCover` 里同样注入 |
-| `Views/Components/Components.swift` | `Screen.size/height` 降级为「仅编辑器键盘判定」内部使用；`TabBarClearance` 在横屏浮条悬底时留出高度 |
-| `Views/Home/HomeView.swift` | 判定 + 连续月历流 + `DayPane`（复用现有 `DayContentView`）。**竖屏保持 `mode/zoom/expand` 三个 morph 状态与 `YearPageView` 不变**；只在横屏走分栏分支，不引入新的年份入口 |
-| `Views/Home/MonthFlow.swift` | **新增**：连续月历流的几何（`MonthFlowLayout`）、视图（`MonthFlowView`）、小标题与 morph 源（`MonthFlowMorphSource`）、跳月请求（`MonthFlowJump`）。竖屏整屏与横屏左栏共用 |
-| `Views/Home/CalendarLayout.swift` | `density(areaH:)` 返回 `.month(lunar:)` / `.month` / `.weekStrip`（**只在横屏/高度不足时降级**；竖屏仍按现有 `monthCellH`）|
-| `Views/Home/CalendarGrids.swift` | `MonthCanvas` 支持 `rowOnly`（周条）绘制；`weekdayFontSize` 上限随格子宽度走 |
-| `Views/Home/DayContentView.swift` | 正文明细列限宽 660 并居中 |
+| `Views/RootView.swift` | 在导航栈上挂一次 `.adaptiveLayoutReader()` 注入 `AdaptiveLayout`。**现状（2026-10-01 核实）**：没有给 `fullScreenCover` 单独注入 —— 图片预览等 cover 靠环境继承拿到同一个值 |
+| `Views/Components/Components.swift` | **现状（2026-10-01 核实）**：`Screen.size/height` 仍在（`Screen.width` 只剩 `RichTextEngine` 的兜底一处），编辑器实际用的是 `Screen.safeAreaBottom` 与 `Screen.keyboardObscuredHeight`；`TabBarClearance` 是滚动内容底部的动态留白（默认 120 × 字号系数），浮条避让由 `AdaptiveLayout.tabBarClearance` 负责 |
+| `Views/Home/HomeView.swift` | 判定 + 连续月历流（`DayPane` 在 `Views/Home/CalendarPaneViews.swift`，复用现有 `DayContentView`）。**竖屏保持 `mode/zoom/expand` 三个 morph 状态与 `YearPageView` 不变**；只在横屏走分栏分支，不引入新的年份入口 |
+| `Views/Home/MonthFlow.swift` | **新增**：连续月历流的几何（`MonthFlowLayout`）、视图（`MonthFlowView`）、小标题与 morph 源（`MonthFlowMorphSource`）、跳月请求（`MonthFlowJump`）、当前显示偏移的引用盒子（`FlowRenderedOffset`）。竖屏整屏与横屏左栏共用 |
+| `Views/Home/CalendarLayout.swift` | `CalendarDensity.resolve(availableHeight:rows:wantsLunar:)` 返回「带农历行 / 不带农历行」两档，行高走 `CalendarDensity.rowHeight(availableHeight:rows:)`（**只在横屏按可用高度降级**；竖屏仍按现有 `monthCellH(areaH:)`）。2026-10-01 起 `.weekStrip` 那一档已删除 |
+| `Views/Home/CalendarGrids.swift` | 竖屏周视图用 `WeekRowCanvas`（没有 `MonthCanvas.rowOnly` 这个开关）；连续月历流的整块用 `MonthBlockCanvas`、按格分隔线走 `DayDraw.drawCellDividers`；`weekdayFontSize` 上限随格子宽度走 |
+| `Views/Home/DayContentView.swift` | 正文列限宽由调用方给（`DayPane.maxColumnWidth`：横屏分栏 560、默认 660），本视图自己只 `frame(maxWidth: .infinity)` |
 | `Views/Home/MorphViews.swift` | **保留**（竖屏 morph 要用）。横屏分支不创建它们即可 |
 | `Views/Footprint/FootprintView.swift` | 竖屏单栏；手机横屏把「趋势图 / 地点清单」并排 |
-| `Views/Search/SearchView.swift` | 手机横屏把「时间 / 地点」两组条件并排；「当前关键词」栏（`activeFilterItems` 里 `kind == .keyword` 的那些，画成可单独点掉的胶囊）|
+| `Views/Search/SearchView.swift` | 手机横屏把「时间 / 地点」两组条件并排（`layout.isPortrait` 分支）；生效条件合画成一条胶囊栏（`activeFilterItems` 的三类都画，不是只画 `kind == .keyword`）|
 | `Views/Settings/SettingsView.swift` | 竖屏 / 横屏共用单列卡片 |
 | `Views/Diary/DiaryPageView.swift` | 阅读 / 编辑**同为 660** 的正文列；格式栏横竖屏都是键盘上方的横排玻璃条；顶栏由 overlay 钉在页面顶部 |
 | `README.md` / `docs/design-system.md` | 补「自适应版面」一节，指向本文 |
@@ -553,7 +562,7 @@ struct AdaptiveLayout {           // EnvironmentValue
 2. **分栏宽度固定**：`HStack` 里两栏都 `.frame(width:)`，右栏内容变化不会带动布局；
    右栏内再限宽居中。
 3. **翻月与密度**：`CalendarLayout.displayedWeeks(inMonth:ws:)` 去掉空尾行后再判密度，
-   否则「5 行放得下」会被误判成「6 行放不下」，整块降级成周条；连续月历流要建
+   否则「5 行放得下」会被误判成「6 行放不下」，农历行被白丢；连续月历流要建
    1900–2100 的偏移，行数走 O(1) 的 `displayedWeekCount(inMonth:ws:)`（由
    `MonthFlowLayoutTests` 逐月对照两者一致）。
 4. **窄栏里的 UIKit 视图必须自己实现 `sizeThatFits`**：`UIViewRepresentable` 默认按
@@ -578,8 +587,8 @@ struct AdaptiveLayout {           // EnvironmentValue
   **竖屏单栏**同样让开浮条：18 Pro 日历区 665pt（812 − 64 − 83），六行月格与年历末行
   卡片都落在浮条顶边（y 791）之上。
 - 月视图（竖屏整屏 / 横屏左栏）是连续滚动的月份流：顶部大标题与星期栏钉住、标题实时
-  切换；月份之间隔一条 16pt 空隙（`flowMonthGap`），小标题（竖屏 21pt / 横屏 18pt，
-  就是那行字的高度）画在空隙里、站在 1 号那一列的正上方、夹在「上个月日期」与
+  切换；月份之间隔一条 16pt 空隙（`flowMonthGap`），小标题（字号竖屏 15pt / 横屏 13pt，
+  带高 21 / 18pt，也就是那行字的高度）画在空隙里、站在 1 号那一列的正上方、夹在「上个月日期」与
   「分割线」之间，底边离分割线 3pt；分隔线按格画、空白格不画；竖屏这条流铺到屏幕底边
   （日期从浮条下穿过、底部不留白），顶栏不画底色；点日期 morph 进周视图再返回时滚动
   位置不丢，且被顶栏挡住的那半行全程都被挡住。
@@ -591,7 +600,7 @@ struct AdaptiveLayout {           // EnvironmentValue
 | 原始想法 | 处理 | 理由 |
 |---|---|---|
 | 首页固定左月历、右日记 | **采纳** | 这是横屏手机唯一可行的排法：402pt 高塞不下「月格 + 日期行 + 内容」 |
-| 不再提供年历/周历切换 | **修订：竖屏一律不动** | 竖屏保留年历/周历与 morph；**横屏不提供年份切换**（上下滑切月即可），周条只在高度不足时作为**密度降级**出现 |
+| 不再提供年历/周历切换 | **修订：竖屏一律不动** | 竖屏保留年历/周历与 morph；**横屏不提供年份切换**（上下滑切月即可）；横屏只有「月格」一种形态，高度不足时只隐藏农历行（2026-10-01：原来设想的「周条降级」已删除，见 §3.1） |
 | 月历上下滑动切换月份 | **采纳** | 竖滑翻月在窄栏里手势冲突最小 |
 | 右上角回到今日 | **采纳** | 竖屏在右上角，横屏在右栏标题行右侧 |
 | 足迹：左图表、右统计 | **调整** | 统计只有 5 个数字，独占一栏太空。手机横屏改为「趋势图 / 地点清单」并排 |
@@ -610,8 +619,7 @@ open docs/design/landscape/phone.html    # 手机端（竖屏 / 横屏）
 open docs/design/landscape/gallery.html  # 总览
 
 # 重新导出 PNG（2×）
-node tools/capture_design_mockups.mjs            # 全部
-node tools/capture_design_mockups.mjs --phone    # 只手机端
+node tools/capture_design_mockups.mjs            # 全部（只有手机端）
 node tools/capture_design_mockups.mjs ph-home    # 只导出 id 含 ph-home 的
 ```
 
@@ -625,8 +633,12 @@ node tools/capture_design_mockups.mjs ph-home    # 只导出 id 含 ph-home 的
 | `frames-phone-portrait.js` | 手机**竖屏**每一张稿（1:1 复刻当前实现） |
 | `mockup.css` | 设计令牌（与 `Assets.xcassets`、`DesignSystem.swift` 一一对应） |
 
-`layoutFor()` 里手机那部分就是 §2.1 那张表的代码版 —— 实现 `AdaptiveLayout` 时直接对照，
-两边数不应该有第二个来源。
+> **2026-10-01 清理**：`frames-wide.js` / `wide.html` / `screens/wide-*.png`（iPad / Mac / Duo
+> 的宽屏三栏稿）已全部删除 —— 不再制作 iPad 端与桌面端。设计稿现在只有手机竖屏 / 横屏两套。
+
+`layoutFor()` 与 `AdaptiveLayout` 用的是同一条规则（2026-10-01 已对齐）：横屏 + 首页才分栏，
+主栏 = 容器宽 × 46%（夹在 260…440、给详情栏留够 240），其余给详情栏；竖屏一律单栏。
+两边仍然各自算一遍（稿子是排版示意，`AdaptiveLayout` 才是实现），但数值来源已经只有一处。
 
 **手机竖屏（1:1 复刻当前实现）**
 
@@ -642,11 +654,10 @@ node tools/capture_design_mockups.mjs ph-home    # 只导出 id 含 ph-home 的
 | 稿件 | 文件 |
 |---|---|
 | 首页 · 手机横屏（重点） | `screens/ph-home-landscape.png` |
-| 首页 · 手机横屏 · 高度不足 | `screens/ph-home-landscape-week.png` |
 | 足迹 · 手机横屏 | `screens/ph-footprint-landscape.png` |
 | 搜索 · 手机横屏 | `screens/ph-search-landscape.png` |
 | 设置 · 手机横屏 | `screens/ph-settings-landscape.png` |
 | 日记阅读 · 手机横屏 | `screens/ph-read-landscape.png` |
 
-> 设计稿是**可执行的规范**：`engine.js` 里的 `layoutFor()` 手机那部分是 §2.1 的代码版，
-> 实现 `AdaptiveLayout` 时可以直接对照。
+> 设计稿是**可执行的规范**，但 `engine.js` 里的 `layoutFor()` 手机那部分与 §2.1 目前
+> **不一致**（见上，2026-10-01 核实）—— 实现 `AdaptiveLayout` 时以 §2.1 与代码为准。
