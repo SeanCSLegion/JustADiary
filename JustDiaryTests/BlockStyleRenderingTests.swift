@@ -212,6 +212,63 @@ final class BlockStyleRenderingTests: XCTestCase {
                              "两行的引用块要把第二行也算进去")
     }
 
+    /// 引用块只跟**这一段文字**有关：后面再输入内容（或删光）都不能改变它。
+    ///
+    /// 回归点：`layoutFragmentFrame` 会把段落结尾那个空行（`characterRange` 为空的
+    /// extra line fragment）与段前距一起算进来 —— 文档末尾的引用因此比别处高出一整行，
+    /// 而**一旦后面输入了内容，那个空行就消失**，用户看到的就是「引用的蓝色背景高度
+    /// 会随着后续输入变化」。
+    func testQuoteBlockDoesNotChangeWhenContentFollows() {
+        func block(_ parts: [ContentPart]) -> CGRect? {
+            let tv = makeReader(parts)
+            layout(tv)
+            return tv.blockDecorations.quotes.first?.frame
+        }
+        func height(_ rect: CGRect?) -> CGFloat { rect?.height ?? -1 }
+        let quote = quote("引用一句话。")
+        guard let last = block([body("上文"), quote]),
+              let followed = block([body("上文"), quote, body("短")]),
+              let followedLong = block([body("上文"), quote,
+                                        body("后面这一段很长，长到会折行，用来看引用块会不会跟着变。")]) else {
+            return XCTFail("三种排版都该有引用块")
+        }
+        XCTAssertEqual(last, followed, "引用块不该因为后面多了一段而变")
+        XCTAssertEqual(last, followedLong, "引用块不该因为后面那段折行而变")
+
+        // 高度 = 真实行高 + 上下 6pt 内边距（不含段前距、不含结尾空行）。
+        let padding = BlockMetrics.quotePadding(.large) * 2
+        XCTAssertEqual(height(last), 17.90 + padding, accuracy: 1,
+                       "单行引用块 = 一行 17.9pt + 上下内边距")
+        XCTAssertLessThan(height(last), 17.90 + padding + 8, "不能把段前距也算进块里")
+    }
+
+    /// 两行的引用块要把两行都盖住（含行间），不是只有第一行。
+    func testQuoteBlockCoversEveryLineOfAWrappedParagraph() {
+        let tv = makeReader([quote("这一句很长，长到在这个宽度里会折成两行，从而检验引用块的高度是否把第二行也算进去。")])
+        layout(tv)
+        guard let block = tv.blockDecorations.quotes.first else { return XCTFail("应有引用块") }
+        let padding = BlockMetrics.quotePadding(.large) * 2
+        let twoLines = 17.90 * 2 + EditorBlockStyle.quote.lineSpacing
+        XCTAssertEqual(block.frame.height, twoLines + padding, accuracy: 1.5,
+                       "两行引用块 = 两行 + 行距 + 上下内边距")
+    }
+
+    /// 空引用行（刚点完引用按钮、还没输入）也要有块 —— 它的样式挂在自己的换行符上。
+    ///
+    /// 编辑区里这条空行**在**（它以换行符结尾），读模式的块尾换行会被
+    /// `readerChunk` 摘掉，所以只有「中间那条空引用行」会在读模式里出现。
+    func testEmptyQuoteLineStillGetsABlock() {
+        let (_, editor) = makeEditor([body("上文"), ContentPart(style: ContentPartStyle.quote, text: "")])
+        layout(editor)
+        XCTAssertEqual(editor.blockDecorations.quotes.count, 1, "编辑区：空引用行也要有底色块")
+        XCTAssertGreaterThan(editor.blockDecorations.quotes.first?.frame.height ?? 0, 10,
+                             "空引用行的块要有一行高（不是 0）")
+
+        let reader = makeReader([body("上文"), ContentPart(style: ContentPartStyle.quote, text: ""), body("下文")])
+        layout(reader)
+        XCTAssertEqual(reader.blockDecorations.quotes.count, 1, "读模式：中间的空引用行也要有块")
+    }
+
     /// 装饰层在**文字后面**：文本视图的子层顺序不能把底色盖在字上面。
     func testDecorationLayerStaysBehindTheText() {
         let tv = makeReader([quote("引用")])

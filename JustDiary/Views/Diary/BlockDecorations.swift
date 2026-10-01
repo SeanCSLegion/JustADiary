@@ -341,11 +341,11 @@ class DiaryTextView: UITextView {
             // 那一行就是这种），换行符就是 `lineStart` 处的那个字符。
             let paragraphLength = lineEnd < ns.length ? contentLength + 1 : contentLength
             if paragraphLength > 0, isQuoteParagraph(at: lineStart),
-               let textFrame = fragmentFrame(layoutManager: layoutManager,
-                                             contentManager: contentManager,
-                                             location: lineStart, length: paragraphLength) {
-                // `layoutFragmentFrame` 是文本容器的坐标，加上 `textContainerInset`
-                // 才是文本视图（= 滚动内容）的坐标。
+               let textFrame = textFrame(layoutManager: layoutManager,
+                                         contentManager: contentManager,
+                                         location: lineStart, length: paragraphLength) {
+                // 上面拿到的是文本容器的坐标，加上 `textContainerInset` 才是文本视图
+                // （= 滚动内容）的坐标。
                 let padded = textFrame.insetBy(dx: 0, dy: -padding)
                 let frame = CGRect(x: inset.left,
                                    y: padded.minY + inset.top,
@@ -362,6 +362,11 @@ class DiaryTextView: UITextView {
         return blocks
     }
 
+    /// 引用字号画出来的行高（空段落的那一块用它当高度）。
+    private var quoteLineHeight: CGFloat {
+        EditorFont.font(EditorBlockStyle.quote.designSize, typeSize: contentTypeSize).lineHeight
+    }
+
     /// 这一段是不是引用：看块类型（`.diaryBlockStyle`），再看旧的底色属性（导入内容
     /// 或本功能之前写的日记只带那一个）。
     private func isQuoteParagraph(at location: Int) -> Bool {
@@ -372,11 +377,22 @@ class DiaryTextView: UITextView {
         return false
     }
 
-    /// 这一段的排版框：它所有行片段的并集（TextKit 2 的 lazy layout 下，只把这一段
-    /// 排出来，不会牵动整篇）。
-    private func fragmentFrame(layoutManager: NSTextLayoutManager,
-                               contentManager: NSTextContentManager,
-                               location: Int, length: Int) -> CGRect? {
+    /// 这一段**真实文字**的排版框：它每一行的 `typographicBounds` 的并集。
+    ///
+    /// 不能用整段的 `layoutFragmentFrame`：那个框把段前距、段后距，以及**段落结尾那个
+    /// 空行**（`characterRange` 为空的 extra line fragment）全算进来了。后果有两个，
+    /// 都会直接落在引用块的底色上：
+    ///
+    /// * **块比文字大一圈**：段前距（引用 9pt）被算进块内，上下不再是 6pt 的内边距；
+    /// * **高度会变**：文档末尾的引用天然带着那个空行（+24pt），而**只要后面再输入
+    ///   内容，空行就没了** —— 用户看到的「引用的蓝色背景高度会随着后续输入变化」
+    ///   就是这么来的。
+    ///
+    /// 只并真实行（`characterRange.length > 0`）之后，块只跟这一段文字有关，与前后文
+    /// 无关。TextKit 2 是懒排版，这里只把这一段排出来，不会牵动整篇。
+    private func textFrame(layoutManager: NSTextLayoutManager,
+                           contentManager: NSTextContentManager,
+                           location: Int, length: Int) -> CGRect? {
         let documentStart = contentManager.documentRange.location
         guard let start = contentManager.location(documentStart, offsetBy: location),
               let end = contentManager.location(start, offsetBy: length),
@@ -390,10 +406,34 @@ class DiaryTextView: UITextView {
                                                       to: elementRange.location)
             // 已经走出这一段：停（枚举是从这里一路排到文末的）。
             if fragmentStart >= location + length { return false }
-            let frame = fragment.layoutFragmentFrame
-            guard !frame.isNull, !frame.isEmpty,
-                  frame.minY.isFinite, frame.height.isFinite else { return true }
-            rect = rect.map { $0.union(frame) } ?? frame
+            let fragmentFrame = fragment.layoutFragmentFrame
+            let origin = fragmentFrame.origin
+            guard origin.x.isFinite, origin.y.isFinite else { return true }
+            let lines = fragment.textLineFragments
+            let realLines = lines.filter { $0.characterRange.length > 0 }
+            if realLines.isEmpty {
+                // 空段落（刚点「引用」还没输入）只有一条 extra line fragment：它的高度
+                // 带着行距，直接用会让块比有字时高一行距（一打字就变矮）。所以只用它
+                // 定位，高度换成这一档字号自己的行高。
+                if let extra = lines.first?.typographicBounds {
+                    let bounds = CGRect(x: extra.minX + origin.x, y: extra.minY + origin.y,
+                                        width: 0, height: quoteLineHeight)
+                    rect = rect.map { $0.union(bounds) } ?? bounds
+                } else {
+                    let bounds = CGRect(x: origin.x, y: origin.y, width: 0, height: quoteLineHeight)
+                    rect = rect.map { $0.union(bounds) } ?? bounds
+                }
+                return true
+            }
+            for line in realLines {
+                // 行框在**片段内**的坐标，加上片段的原点才是容器坐标。
+                let bounds = line.typographicBounds.offsetBy(dx: origin.x, dy: origin.y)
+                // 只看**纵向**：块的宽度由列宽决定，而空段落的行框宽度是 0
+                // （`CGRect.isEmpty` 对宽度为 0 也成立，用它当守卫会把空引用行漏掉）。
+                guard !bounds.isNull, bounds.height > 0,
+                      bounds.minY.isFinite, bounds.height.isFinite else { continue }
+                rect = rect.map { $0.union(bounds) } ?? bounds
+            }
             return true
         }
         return rect

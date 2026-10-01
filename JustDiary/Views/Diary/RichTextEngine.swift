@@ -1288,6 +1288,15 @@ final class RichEditorController {
         let insertRange = NSRange(location: tv.selectedRange.location, length: 0)
         tv.textStorage.insert(attributed, at: insertRange.location)
         tv.selectedRange = NSRange(location: insertRange.location + attributed.length, length: 0)
+        // 图片下面那一段的**段前距为 0**：图片自己已经把上下留白给足，装配链路里也是
+        // 这样（`appendLine(followsImage:)`）。少了这一句，刚插完图片接着打字得到的
+        // 那一段会比重新打开时多出 8.5pt。
+        var typing = baseTypingAttributes()
+        if let style = (typing[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            style.paragraphSpacingBefore = 0
+            typing[.paragraphStyle] = style
+        }
+        tv.typingAttributes = typing
         notifyFormatChange()
     }
 

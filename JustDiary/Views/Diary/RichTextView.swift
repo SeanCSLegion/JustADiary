@@ -213,9 +213,9 @@ struct RichTextView: UIViewRepresentable {
             if let pv = textView as? PlaceholderTextView {
                 pv.refreshPlaceholder()
             }
-            // 引用块的底色跟着文字走：输入会改动这一段的排版框，装饰要重画
-            // （`layoutSubviews` 也会画一次，这里补的是「内容尺寸没变」的那些输入）。
-            (textView as? DiaryTextView)?.refreshBlockDecorations()
+            // 引用块的底色跟着文字走：`notifyFormatChange` 会一路调到
+            // `DiaryTextView.refreshBlockDecorations()`（`Coordinator.notifyFormatChange`
+            // 里统一挂的），这里不再重复调一次。
             parent.controller.notifyFormatChange()
         }
 
@@ -225,6 +225,10 @@ struct RichTextView: UIViewRepresentable {
 
         func notifyFormatChange() {
             tv?.refreshPlaceholder()
+            // 每一次格式 / 文本变更（`RichEditorController.apply`、
+            // `syncEmptyParagraphWithTypingAttributes`、标记增删……）都重画一次引用
+            // 装饰：这些改动不一定会触发布局，光靠 `layoutSubviews` 会漏。
+            tv?.refreshBlockDecorations()
         }
     }
 }
