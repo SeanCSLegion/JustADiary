@@ -72,6 +72,28 @@ final class MonthFlowUITests: XCTestCase {
         sleep(2)
     }
 
+    /// 整条月历流对旁白是**一个**元素：标签是月份、值是选中日，并且挂着
+    /// 「可调节」动作与两条具名动作（后一天 / 前一天）。
+    ///
+    /// XCUITest 读不到自定义动作的名字（那是旁白「操作」转子里的东西），所以这里守住
+    /// 能守的部分：元素存在、标签是月份、值是选中日。两条文案本身在单元测试
+    /// `CalendarAccessibilityTests` 里校验（编译产物的中英两份表都要有）。
+    func testMonthGridIsOneAccessibilityElementReportingTheSelectedDay() throws {
+        launchPortraitHome()
+
+        // 不锁元素类型：这个元素带默认动作，旁白那边可能被当成 button，也可能是 other。
+        let grid = app.descendants(matching: .any).matching(identifier: "home.monthGrid").firstMatch
+        XCTAssertTrue(grid.waitForExistence(timeout: 10), "整条月历流应该是一个无障碍元素")
+        // 元素类型不参与断言，但记一笔方便排查（`app.buttons` 里能找到就说明它是 button）。
+        XCTAssertTrue(app.buttons["home.monthGrid"].exists || app.otherElements["home.monthGrid"].exists,
+                      "元素应该能在 buttons 或 otherElements 里找到")
+        XCTAssertTrue(grid.label.contains("月"), "标签应该是月份，实际是「\(grid.label)」")
+
+        let value = grid.value as? String ?? ""
+        XCTAssertTrue(value.contains("月") && value.contains("日"),
+                      "值应该是「9月16日 周三」这样的选中日，实际是「\(value)」")
+    }
+
     func testScrollsContinuouslyAndKeepsTheHeaderPinned() throws {
         launchPortraitHome()
         let before = monthTitle().label

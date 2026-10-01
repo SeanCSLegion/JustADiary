@@ -41,6 +41,40 @@
         }
       }
     },
+    "a11y_next_day" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next day"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后一天"
+          }
+        }
+      }
+    },
+    "a11y_prev_day" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous day"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前一天"
+          }
+        }
+      }
+    },
     "a11y_share" : {
       "extractionState" : "stale",
       "localizations" : {

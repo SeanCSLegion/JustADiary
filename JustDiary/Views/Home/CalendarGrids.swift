@@ -226,7 +226,6 @@ struct MonthCanvas: View {
     var flags: Set<String>
     var showAdjacent: Bool = false
     var onTapDay: ((Date) -> Void)? = nil
-    var onAdjacentDaySelected: ((Date) -> Void)? = nil
 
     /// Canvas text cannot follow Dynamic Type automatically, so the design font
     /// sizes are scaled here.
@@ -283,11 +282,6 @@ struct MonthCanvas: View {
                                      DateUtil.calendar.component(.year, from: anchorMonth),
                                      L10n.monthName(DateUtil.calendar.component(.month, from: anchorMonth))))
         .accessibilityValue(L10n.formatDayKey(DateUtil.dayKeyOf(selectedDate)))
-        .accessibilityAdjustableAction { direction in
-            guard let onAdjacentDaySelected else { return }
-            let delta = direction == .increment ? 1 : -1
-            onAdjacentDaySelected(DateUtil.addDays(selectedDate, delta))
-        }
         .accessibilityAction {
             onTapDay?(selectedDate)
         }

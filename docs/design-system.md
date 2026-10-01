@@ -302,15 +302,25 @@ iOS 默认值：
 
 ---
 
-## 七、整理时发现、尚未补的界面缺口
+## 七、整理时发现的两处「文案/能力没接上」
 
-清理无用资源时顺带核实到两处「文案/能力已存在但没接上」的地方，记录在此：
+清理无用资源时顺带核实到两处「东西已经存在、但代码里没人用」的地方。第一条已经补上，
+第二条是一条禁令：
 
-1. **日历的可调节无障碍动作没有标签**。`MonthCanvas` 用
-   `.accessibilityAdjustableAction` 支持上下切换日期，但没给这个动作命名；
-   String Catalog 里原本有 `a11y_next_day`（后一天）与 `a11y_prev_day`（前一天）
-   两条文案，**却没有任何代码引用**。它们已作为无用键删除，补上动作标签时按上面的
-   语义重新添加即可（`git show bee42a5:JustDiary/Resources/Localizable.xcstrings` 可取回）。
+1. ~~**日历的可调节无障碍动作没有标签**~~ —— **2026-10-01 已补**。
+   现状：整条连续月历流（`MonthFlowView`）对旁白是**一个**元素，标签是月份、
+   值是选中日，上面挂着三件事 ——
+   `.accessibilityAdjustableAction`（上下轻扫 = 选中日 ±1 天，只挪选中日、不进周视图）、
+   默认动作（打开选中日），以及两条**具名动作**「后一天 / 前一天」
+   （`a11y_next_day` / `a11y_prev_day`）。
+   为什么要有具名动作：「可调节」这个动作本身在旁白里没有名字，只会念「可调整」+
+   当前日期；具名动作会进「操作」转子，念得出「后一天 / 前一天」。
+   回归两条：`JustDiaryTests/CalendarAccessibilityTests`（两条文案在**编译产物**的中英两份
+   表里都存在、语义没反）与
+   `JustDiaryUITests/MonthFlowUITests.testMonthGridIsOneAccessibilityElementReportingTheSelectedDay`
+   （元素存在、标签是月份、值是选中日）。
+   顺带清掉了 `MonthCanvas` 上那个**回调永远是 nil** 的同名动作（它只用在年历的迷你月与
+   morph 图层上，两处都没传 `onAdjacentDaySelected`，动作从来不会触发）。
 2. **`month_jan`…`month_dec`、`week_monday`…`week_sunday` 共 19 条硬编码月/星期名**
    也没有任何引用——月名与星期名现在由 `DateFormatter` 按语言生成（见第四节）。
    这些键已作为无用资源删除，不要再往目录里加硬编码日期名。
@@ -341,7 +351,11 @@ iOS 默认值：
 | 注入点 | `DiaryRepository.dbPathOverride` / `imagesDirOverride` | 被 `dbPath()` / `imagesDir()` 读，但全仓零赋值；删掉后这两个函数直接取 Documents |
 | 遗留助手 | `Radius.concentric(outer:inset:)` | 零调用，规则本身留在第一节（嵌套圆角 = 外圆角 − 内缩量） |
 | 零引用文案 | `read_start_time_loc`（只被已删的 `L10n.startLine` 用）、`share_image_placeholder`、`index_future_toast` | 删后 catalog 199 键 |
+| 死钩子 | `MonthCanvas.onAdjacentDaySelected` 与它那条可调节动作 | 两处调用（年历迷你月、morph 图层）都没传这个回调，动作永远不会触发 |
 | 尺寸读法 | `Screen.height`（零调用）、`Screen.size` 收成 private | 版面判定一律走 `AdaptiveLayout` 的几何 |
+
+**删了又接回来的**：`a11y_next_day` / `a11y_prev_day`（2026-09-15 当作零引用键删除，
+2026-10-01 接上日历的具名无障碍动作时加回，见第七节）。
 
 **保留（零引用，但属于能力/钩子）**
 

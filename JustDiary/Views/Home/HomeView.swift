@@ -371,7 +371,9 @@ struct HomeView: View {
                           // 翻月后把选中日带进新月份，右栏才跟着一起走。
                           onSettle: { month in
                               selectMonthPage(CalendarLayout.monthKey(month))
-                          })
+                          },
+                          // 旁白的上/下轻扫：只挪选中日，右栏立刻跟着换。
+                          onAdjacentDaySelected: { selectDay($0) })
                 .frame(width: calendarW, height: paneH)
                 .clipped()
 
@@ -460,7 +462,8 @@ struct HomeView: View {
                           rowH: rowH,
                           jump: monthJump,
                           onTapDay: { day, source in openDay(day, source: source) },
-                          onSettle: settleFlow)
+                          onSettle: settleFlow,
+                          onAdjacentDaySelected: { selectDay($0) })
                 .frame(width: w, height: hFull)
                 .opacity(mode == .month && !morphing ? 1 : 0)
                 .allowsHitTesting(mode == .month && !morphing)

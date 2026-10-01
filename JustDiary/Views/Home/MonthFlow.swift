@@ -352,6 +352,17 @@ struct MonthFlowView: View, Animatable {
     var onTapDay: (Date, MonthFlowMorphSource) -> Void
     /// 滚动落定后回调「顶部现在是哪个月」（竖屏只改标题，横屏还要把选中日带过去）。
     var onSettle: (Date) -> Void = { _ in }
+    /// VoiceOver 的「可调节」动作（上/下轻扫）选中相邻的一天。
+    ///
+    /// 只移动选中日、**不**进周视图 —— 旁白会念出新的值，要打开这一天再用默认动作。
+    /// 也不强制把流滚到那一天：整条流对旁白来说是一个元素，可见与否不影响读数。
+    var onAdjacentDaySelected: ((Date) -> Void)? = nil
+
+    /// 把选中日挪 `delta` 天（旁白的上/下轻扫与两条具名动作共用）。
+    private func adjustDay(_ delta: Int) {
+        guard let onAdjacentDaySelected else { return }
+        onAdjacentDaySelected(DateUtil.addDays(selectedDate, delta))
+    }
 
     /// 屏幕上这一帧的位置。**普通属性**（不是 `@State`）—— 原因见 `FlowRenderedOffset`。
     private let rendered = FlowRenderedOffset()
@@ -419,9 +430,18 @@ struct MonthFlowView: View, Animatable {
                                          DateUtil.calendar.component(.year, from: top?.month ?? Date()),
                                          L10n.monthName(DateUtil.calendar.component(.month, from: top?.month ?? Date()))))
             .accessibilityValue(L10n.formatDayKey(DateUtil.dayKeyOf(selectedDate)))
+            .accessibilityAdjustableAction { direction in
+                adjustDay(direction == .increment ? 1 : -1)
+            }
+            // 「可调节」这个动作本身**没有名字**：旁白只念「可调整」+ 当前日期，
+            // 用户不知道上下轻扫会做什么。所以两个方向各挂一条**具名动作**（进
+            // 旁白的「操作」转子），念得出「后一天 / 前一天」。
+            .accessibilityAction(named: Text(L10n.str("a11y_prev_day"))) { adjustDay(-1) }
+            .accessibilityAction(named: Text(L10n.str("a11y_next_day"))) { adjustDay(1) }
             .accessibilityAction {
                 onTapDay(selectedDate, morphSource(layout: layout, off: off, tapped: nil))
             }
+            .accessibilityIdentifier("home.monthGrid")
         }
         .frame(width: size.width, height: size.height, alignment: .top)
         .onChange(of: jump) { _, request in
