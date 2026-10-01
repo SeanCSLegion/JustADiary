@@ -4,7 +4,10 @@ import ImageIO
 
 // MARK: - Content part parse cache
 
-final class ContentPartCache {
+/// `nonisolated`：这个缓存自己用 `NSLock` 守着，本来就是给任意线程用的
+/// （分享长图在后台任务里渲染，见 `ShareBlock.capped`）。工程默认的 MainActor
+/// 隔离在这里并不成立。
+nonisolated final class ContentPartCache {
     static let shared = ContentPartCache()
 
     private let lock = NSLock()
@@ -37,7 +40,7 @@ final class ContentPartCache {
 }
 
 extension ContentFlatten {
-    static func parseContentCached(_ json: String) -> [ContentPart] {
+    nonisolated static func parseContentCached(_ json: String) -> [ContentPart] {
         ContentPartCache.shared.parts(for: json)
     }
 }

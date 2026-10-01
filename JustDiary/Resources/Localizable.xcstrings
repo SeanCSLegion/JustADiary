@@ -517,6 +517,23 @@
         }
       }
     },
+    "editor_location_full_accuracy" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use precise location…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用精确位置…"
+          }
+        }
+      }
+    },
     "editor_location_missing_msg" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2995,6 +3012,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已同时恢复应用设置。"
+          }
+        }
+      }
+    },
+    "settings_share_loc" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Location in shared image"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享位置精度"
+          }
+        }
+      }
+    },
+    "settings_share_loc_hidden" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐藏"
+          }
+        }
+      }
+    },
+    "settings_share_loc_sub" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No exact place or street"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "精确地点与街道不分享"
           }
         }
       }

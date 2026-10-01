@@ -4,6 +4,19 @@ nonisolated struct ShareBlock {
     var time: Int64
     var loc: String
     var parts: [ContentPart]
+
+    /// 由库里的一条片段构造分享块。
+    ///
+    /// 地点**只**经 `LocationResolver.shareText` 从地区列按上限重建 —— `loc_text`
+    /// 根本不参与，所以「分享长图里不会出现地点名与街道」这条规则只有一处实现，
+    /// 也没有第二条能绕过它的路径（旧实现直接把 `loc_text` 抄进长图）。
+    static func capped(_ block: EditBlock, cap: String) -> ShareBlock {
+        ShareBlock(time: block.startTimeUtc,
+                   loc: LocationResolver.shareText(recorded: block.locPrecision,
+                                                   region: LocRegion(block: block),
+                                                   cap: cap),
+                   parts: ContentFlatten.parseContentCached(block.contentJson))
+    }
 }
 
 /// 分享长图渲染器（2026-09 重做）。

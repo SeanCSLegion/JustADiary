@@ -1,3 +1,6 @@
 "NSLocationWhenInUseUsageDescription" = "Used to record your location automatically when writing";
+/* Temporary precise-location prompt: the key here is the purpose key inside
+   NSLocationTemporaryUsageDescriptionDictionary (not the dictionary's value). */
+"JustDiaryPreciseLocation" = "Used to record where you are at the precision you pick (a district, for example)";
 "NSPhotoLibraryAddUsageDescription" = "Used to save the diary image you export to your photo library";
 "NSUserNotificationsUsageDescription" = "Used to remind you when you haven't written yet";

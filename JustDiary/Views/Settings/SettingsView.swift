@@ -309,6 +309,24 @@ struct SettingsView: View {
                 }
             }
             RowDivider(horizontalPadding: RowDivider.textInset)
+            // 分享长图里的地点上限。选项**只有**隐藏 / 区县 / 城市 / 省份：
+            // 精确地点与街道不在 `LocPrecision.shareable` 里，用户选不到。
+            // 选项由 `shareable` 派生（加一级就自动出现），不必手写四遍。
+            menuRow(icon: "mappin.and.ellipse", title: L10n.str("settings_share_loc"),
+                    sub: L10n.str("settings_share_loc_sub"),
+                    value: vm.shareLocPrecisionLabel) {
+                option(L10n.str("settings_share_loc_hidden"),
+                       selected: vm.settings.shareLocPrecision == LocPrecision.none) {
+                    vm.setShareLocPrecision(LocPrecision.none)
+                }
+                ForEach(LocPrecision.shareable, id: \.self) { level in
+                    option(L10n.precisionLabel(level),
+                           selected: vm.settings.shareLocPrecision == level) {
+                        vm.setShareLocPrecision(level)
+                    }
+                }
+            }
+            RowDivider(horizontalPadding: RowDivider.textInset)
             switchRow(icon: "pencil", title: L10n.str("settings_history_edit"),
                       sub: L10n.str("settings_history_edit_sub"),
                       isOn: Binding(get: { vm.settings.allowHistoryEdit },

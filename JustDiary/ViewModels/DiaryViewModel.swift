@@ -464,7 +464,10 @@ final class DiaryViewModel {
             locating = false
             return
         }
-        let snapshot = await LocationResolver.resolve(location: loc)
+        // 用户上一次手动选过的精度（`settings.defaultLocPrecision`）在这里生效：
+        // 它只会让这条记录更粗，不会顶穿 Apple 当前权限算出来的上限。
+        let snapshot = await LocationResolver.resolve(location: loc,
+                                                      preferred: settings.defaultLocPrecision)
         // Coordinates with no address are not a usable record: treat that as "no
         // location" so the entry is saved without one instead of carrying an
         // empty place that can never be filled in later.
@@ -488,6 +491,15 @@ final class DiaryViewModel {
             snapshot.locText = LocationResolver.text(for: snapshot.region, precision: precision)
         }
         location = snapshot
+        // 记住这次手动选择，下一条新日记照这个精度记录（仍受权限上限约束）。
+        // 以前只改当前这条快照，新日记又回到「权限能给多细就给多细」，
+        // 于是每次写日记都要重新选一遍。
+        // 以 `SettingsStore` 里的当前值为准落盘：本 VM 手里的 `settings` 可能是
+        // 进入编辑器时的快照，整份写回去会把别处改过的设置项一起顶掉。
+        var stored = SettingsStore.load()
+        stored.defaultLocPrecision = precision
+        SettingsStore.save(stored)
+        settings = stored
     }
 
     /// Looks the location up again. Only a new block may do this: the address of
@@ -496,6 +508,27 @@ final class DiaryViewModel {
         guard editingIndex == nil else { return }
         location = nil
         beginLocate()
+    }
+
+    /// 只在系统里关掉了「精确位置」时才需要申请（`requestTemporaryFullAccuracy`）。
+    ///
+    /// 与「重新获取位置」一样只对新片段开放：已有片段的地点不能重取。
+    var canRequestFullAccuracy: Bool {
+        canRelocate && LocStatus.isReducedAccuracy
+    }
+
+    /// 向系统临时申请一次精确位置，拿到后重新定位。
+    ///
+    /// 只授了「模糊位置」时系统只保证约 5km（坐标还被吸附到所在区域的代表点），
+    /// 因此新片段的上限只有城市。用户想要更细的级别时，走 Apple 的这条正路，
+    /// 而不是在菜单里给一个系统根本给不出的级别。
+    func requestFullAccuracyAndRelocate() {
+        guard canRelocate else { return }
+        locating = true
+        Task {
+            _ = await LocationService.shared.requestTemporaryFullAccuracy()
+            await fetchLocation()
+        }
     }
 
     /// Whether the block being edited was already saved.
@@ -508,12 +541,16 @@ final class DiaryViewModel {
     var locationText: String { location?.locText ?? "" }
 
     /// Precisions the location menu offers for the current block.
+    ///
+    /// 新片段：不粗于这次定位的上限（`LocationSnapshot.maxPrecision`，由 Apple 的
+    /// 权限与这次定位的 `horizontalAccuracy` 算出来）；已有片段：由它自己的地区列
+    /// 决定 —— 那条地点早就存在库里、阅读页也照常显示，菜单只决定按哪一级显示。
     var precisionOptions: [String] {
         guard let location else { return [] }
         if let recorded = location.recordedPrecision {
             return LocationResolver.availablePrecisions(for: location.region, recorded: recorded)
         }
-        return LocationResolver.availablePrecisions()
+        return LocationResolver.availablePrecisions(maxPrecision: location.maxPrecision)
     }
 
     /// Rebuilds the editor's location state from a stored block.
@@ -524,15 +561,15 @@ final class DiaryViewModel {
     private static func locationSnapshot(from block: EditBlock) -> LocationSnapshot? {
         let precision = block.locPrecision.isEmpty ? LocPrecision.none : block.locPrecision
         guard !block.locText.isEmpty || precision != LocPrecision.none else { return nil }
-        let region = LocRegion(country: block.country, countryCode: block.countryCode,
-                               region1: block.region1, region2: block.region2, region3: block.region3,
-                               locQuality: block.locQuality)
         return LocationSnapshot(latitude: block.latitude,
                                 longitude: block.longitude,
                                 locText: block.locText,
                                 locPrecision: precision,
-                                region: region,
+                                region: LocRegion(block: block),
                                 placemark: nil,
+                                // 库里重建的快照没有「这一次定位的上限」（菜单走
+                                // `recordedPrecision` + 地区列），照抄它自己的精度。
+                                maxPrecision: precision,
                                 recordedPrecision: precision,
                                 recordedText: block.locText)
     }
@@ -561,10 +598,14 @@ final class DiaryViewModel {
     func shareDiary() {
         // 面板已经开着时不再重复渲染（否则预览会闪回进度圈）。
         guard !showShareSheet else { return }
-        let shareBlocks = blocks.map { block in
-            ShareBlock(time: block.startTimeUtc, loc: block.locText,
-                       parts: ContentFlatten.parseContentCached(block.contentJson))
-        }
+        // 分享图上的地点**只从记录的地区列重建**，并按设置里的上限（`share_loc_precision`）
+        // 降级：精确地点与街道永远进不了分享图，与记录时的精度无关。
+        // 详见 `LocationResolver.shareText`。
+        //
+        // 上限直接读当前的设置，而不是这份 VM 手里的 `settings` 快照：分享精度不影响
+        // 任何常驻界面，改它时没必要广播刷新，所以那一份快照可能是旧的。
+        let cap = SettingsStore.load().shareLocPrecision
+        let shareBlocks = blocks.map { ShareBlock.capped($0, cap: cap) }
         let isDark = UITraitCollection.current.userInterfaceStyle == .dark
         let dayKey = actualDayKey
         // `auto_time` 只是显示开关：`ShareBlock.time` 仍照常带上 `startUtc`，

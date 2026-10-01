@@ -334,11 +334,25 @@ iOS 默认值：
 | 语言 / 主题 / 周起始 / 导出范围 | `Menu` + 勾选 | 互斥取值的紧凑写法；iOS 26 下就是新的玻璃菜单外观 |
 | 导入方式（跳过 / 覆盖） | 仍是 `confirmationDialog` | 它确认的是一个会覆盖已有数据的动作 |
 | 位置精度（编辑页胶囊） | `Menu` + 勾选 | 同上；「重新获取位置」只留给新建片段（见 `docs/location-recording.md`） |
+| 分享位置精度 | `Menu` + 勾选 | 四个值（隐藏 / 区县 / 城市 / 省份）；**精确地点与街道不在选项里**，见 `docs/location-recording.md` §五 |
 | 新一天开始时间 | 单轮 `Picker`，标签用应用自己的时间文案 | 规则只有小时；旧实现多了一个改了也没用的分钟轮，且小时写死 `0…23`，12 小时制语言下读起来是错的 |
 | 提醒时间 | `DatePicker(.hourAndMinute)` + `.wheel` | 由系统按应用语言与设备的 12/24 小时制格式化；旧实现同样写死 |
 
 时间选择器的 sheet 用 `.medium` detent，不再写死 `.height(320)`——大字号下那个高度
 会把轮盘和按钮裁掉。
+
+### 9.1 设置行的说明必须一行放得下
+
+行的形状是「图标 38 + 间距 12 ｜ 标题 + 说明 ｜ 值 + 箭头」，最窄的 iPhone（375pt）
+扣掉页边距 / 卡片内边距 / 行内边距 / 图标 / 右侧的值与箭头之后，**说明那一列只剩约
+170pt**。超了就会折成两行、行高跟着跳（`settings_share_loc_sub` 第一版写了 29 个字，
+整整两行）。约定：
+
+- 中文说明控制在 **12 字以内**（13pt 字号下约 156pt）；
+- `SettingsTests.testSettingsRowDescriptionsFitOneLine` 按 170pt 逐个量 `settings_*_sub`，
+  超了直接红 —— 加设置项时不用靠眼睛估；
+- 只卡中文：英文同字号字宽更大，现有条目本来就在 200–260pt，靠 `rowLabel` 的
+  `lineLimit(2)` 兜底。
 
 ---
 
@@ -401,3 +415,61 @@ iOS 默认值：
 **不要提前用的 API**（iOS 27.1 才有，Xcode 27.0 SDK 中确认不存在）：
 `ArrangementView` / `UIArrangementViewController` / `onHingeChange` / `UIHingeInteraction` /
 `GeometryProxy.reservedRegion`。本方案的宽度分档是这些 API 的超集，接入时不需要改版面。
+
+---
+
+## 十一、日记页的进入方式（导航层级）
+
+日历 → 某一天是**层级**关系，所以日记页是导航栈里**推进**出来的一页（从右往左进入、
+可以从左边缘右滑返回），与 Apple 自己的「日历 → 某一天」「备忘录 → 某一条」一致；
+以前它是 `fullScreenCover`（从下往上弹出、只能点「返回」关掉）。要点：
+
+- **结构**：`RootView` 用 `NavigationStack(path: $appState.diaryPath)` 包住 `TabView`，
+  日记页是它的 `navigationDestination`（`DiaryRoute` 一天一条路由）。推进时整块 tab 树
+  （含底部浮条）一起被盖住，和以前的 cover 观感相同，不需要 `.toolbar(.hidden, for: .tabBar)`。
+- **只给 tab 树挂 `.id(...)`**：语言 / 主题变化要重建 tab，但日记页在 `navigationDestination`
+  里（`.id` 之外），设置一动不会把正开着的日记页重建掉。
+- **顶栏自绘 ⇒ 导航栏藏起来**：`DiaryPageView.topBarOverlay` 就是顶栏，所以
+  `.toolbar(.hidden, for: .navigationBar)`。代价是 UIKit 连
+  `interactivePopGestureRecognizer` 一起停掉（隐藏导航栏时它内部 delegate 的
+  `shouldBegin` 返回 false）——**实测隐藏导航栏后右滑完全不响应**，由
+  `Views/Components/InteractiveBackSwipe.swift` 把内部 delegate 换成自己的判定接回来。
+- **编辑态不给右滑**：正文还没落库，弹回等于无声丢掉这半篇（页面自己的规则是
+  「先退出编辑，再退出页面」，有内容时点「返回」会先问一句）。判定就是 `vm.isRead`。
+- **返回落到进来时的那个 tab**：从搜索结果点进去的，右滑回来还在搜索页（关键词与结果都还在）。
+- 回归测试：`JustDiaryUITests/DiaryPageTransitionUITests`（盖住浮条、右滑返回、编辑态不给滑、
+  从搜索结果推进后回到搜索页）。
+
+---
+
+## 十二、设置变化怎么传播（最小更新）
+
+设置改动**不该重建界面**：以前 `uiTick` 被塞进 tab 树的 `.id(...)`，于是改任何一个
+开关都会把四个 tab（连同搜索关键词、结果、滚动位置、开着的日记页）整个重建。
+现在的分工是：
+
+| 机制 | 含义 | 谁在用 |
+|---|---|---|
+| `RootView.treeIdentity` = `"\(AppLanguage.current)#\(AppConfigService.themeID)"` | 换 identity ⇒ 整棵树重建 | **只有语言与主题**：文案与配色是全局的，改一次就得全部重来（`DayDraw` 里缓存的文字颜色也一起换） |
+| `DiaryRepository.bumpUiTick()` → `.uiTickChanged` | 便宜的广播：各页 VM `refreshSettings()`，由 `@Observable` 决定真正重画哪一块 | 周起始、自动记录时间（显示）、以及导入 |
+| `DiaryRepository.bumpDiaryVersion()` → `.diaryVersionChanged` | 数据变了：各页重新读库 | 保存 / 删除 / 改开始时间后的 `day_key` 重算 / 导入 |
+| 什么都不广播 | 只在**用到的那一刻**读设置 | 分享位置精度（`shareDiary()` 直接读 `SettingsStore.load()`）、历史编辑开关、自动插入地点 —— 没有常驻界面显示它们，而日记页每次打开都会新建 VM 读一遍最新设置 |
+
+**已知观感问题（未修）**：设置页改成原位更新之后，**菜单类**设置项（语言 / 主题 /
+周起始 / 分享位置精度 / 导出）选完值，紧接着上下滑动设置页，那一行会「先飘一下再
+归位」；开关类的行没有这个现象。试过的办法都没效果：把菜单内容改成常量
+（不用 `ForEach`）、给该行 `.transaction { $0.animation = nil }`；几何探针、逐帧对比
+与 60fps 录屏也量不到位移（默认字号与 XXL 字号都试过，行高始终 56pt）。它只是观感，
+不影响行为，暂时留着；真要修，方向大概是别让菜单行的值原位变化（例如把选择放到
+sheet 里，或让整页在设置变化时重建 —— 后者会把上一节的最小更新又换回去）。
+
+判断新设置项属于哪一档：
+
+1. 它改变的是**每一处文案 / 配色**吗？→ 进 `treeIdentity`（目前只有语言与主题）；
+2. 有**常驻**界面显示它，而且用户能在那个界面开着的时候改它吗？→ `bumpUiTick()`；
+3. 只影响一次性的动作（分享渲染、进入编辑时的行为）？→ 什么都不广播，动作发生时读。
+
+回归测试：`JustDiaryUITests/SettingsMinimalUpdateUITests` —— 在搜索页留下关键词与结果，
+再去设置页改「一周从哪一天开始」和「分享位置精度」，回搜索页状态必须还在（没被重建），
+同时首页星期栏第一格立刻从「一」变「日」（该生效的照样立刻生效）。把 tick 塞回
+`.id` 时这条用例会红（实测）。

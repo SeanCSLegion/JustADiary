@@ -21,41 +21,59 @@ struct RootView: View {
         Binding(get: { appState.activeTab }, set: { appState.activeTab = $0 })
     }
 
+    /// 决定整棵 tab 树是否换 identity（SwiftUI 的 `.id`）。
+    ///
+    /// **只有语言与主题**在 identity 里：文案与配色是全局的，改一次就得整棵树重建
+    /// （画布里缓存的文字颜色也一起换）。
+    ///
+    /// 其余设置项（周起始、时间显示、分享精度、历史编辑…）**不换 identity** ——
+    /// 它们只广播 `uiTickChanged`，常驻的那几页收到后刷新自己那份 `settings`，
+    /// 由 `@Observable` 决定到底重画哪一块。以前把 tick 也塞进 `.id`，于是改任何一个
+    /// 开关都会把四个 tab（连同搜索关键词、结果、滚动位置）整个重建掉。
+    ///
+    /// 读一下 `uiTick` 是为了订阅「设置有变化」这件事本身：语言 / 主题变化也会 bump 它，
+    /// body 才会重新求值、`AppLanguage.current` 与 `themeID` 的新值才会进到 identity 里。
+    private var treeIdentity: String {
+        let _ = appState.uiTick
+        return "\(AppLanguage.current)#\(AppConfigService.themeID)"
+    }
+
     var body: some View {
-        // Read the ui tick inside body so a .uiTickChanged notification (language,
-        // theme, week start, …) invalidates RootView and re-evaluates the modifiers
-        // below (.preferredColorScheme / .environment(\.locale) / .id). Without the
-        // read, @Observable invalidation would not reach RootView and language/theme
-        // changes would only take effect after the app is restarted.
-        let settingsTick = appState.uiTick
-        return TabView(selection: activeTab) {
-            Tab(L10n.str("index_title"), systemImage: "house.fill", value: AppTab.home) {
-                HomeView(openEditor: { dayKey in
-                    appState.editorDayKey = dayKey
-                    appState.presentEditor = true
-                })
-                .diaryBackground()
-            }
-            Tab(L10n.str("footprint_title"), systemImage: "figure.walk", value: AppTab.footprint) {
-                FootprintView()
+        return NavigationStack(path: $appState.diaryPath) {
+            TabView(selection: activeTab) {
+                Tab(L10n.str("index_title"), systemImage: "house.fill", value: AppTab.home) {
+                    HomeView(openEditor: { dayKey in
+                        appState.openDiary(dayKey: dayKey)
+                    })
                     .diaryBackground()
-            }
-            Tab(L10n.str("search_title"), systemImage: "magnifyingglass", value: AppTab.search) {
-                SearchView(openDiary: { dayKey in
-                    appState.editorDayKey = dayKey
-                    appState.presentEditor = true
-                })
-                .diaryBackground()
-            }
-            Tab(L10n.str("settings_title"), systemImage: "gearshape.fill", value: AppTab.settings) {
-                SettingsView()
+                }
+                Tab(L10n.str("footprint_title"), systemImage: "figure.walk", value: AppTab.footprint) {
+                    FootprintView()
+                        .diaryBackground()
+                }
+                Tab(L10n.str("search_title"), systemImage: "magnifyingglass", value: AppTab.search) {
+                    SearchView(openDiary: { dayKey in
+                        appState.openDiary(dayKey: dayKey)
+                    })
                     .diaryBackground()
+                }
+                Tab(L10n.str("settings_title"), systemImage: "gearshape.fill", value: AppTab.settings) {
+                    SettingsView()
+                        .diaryBackground()
+                }
+            }
+            .tabBarMinimizeBehavior(.onScrollDown)
+            // 导航形态用系统默认的底部浮条，不引入第二套导航。实测（见
+            // docs/adaptive-layout-plan.md §2.2）系统在横屏仍把浮条留在底部居中，
+            // 所以横屏不需要我们做任何导航侧的改动。
+            .id(treeIdentity)
+            // 日记页：系统的从右往左推进 + 边缘右滑返回，顶栏按钮由页面自己画
+            // （见 `DiaryPageView.topBarOverlay`），所以把导航栏整条藏起来。
+            .navigationDestination(for: DiaryRoute.self) { route in
+                DiaryPageView(dayKey: route.dayKey)
+                    .toolbar(.hidden, for: .navigationBar)
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
-        // 导航形态用系统默认的底部浮条，不引入第二套导航。实测（见
-        // docs/adaptive-layout-plan.md §2.2）系统在横屏仍把浮条留在底部居中，
-        // 所以横屏不需要我们做任何导航侧的改动。
         .tint(Theme.primary())
         .preferredColorScheme(AppConfigService.colorScheme)
         // Publish the system text-size category so the explicit design sizes can
@@ -65,11 +83,9 @@ struct RootView: View {
         .environment(\.diaryDynamicTypeSize, dynamicTypeSize)
         .environment(\.locale, AppLanguage.locale)
         // 版面判定只在这里读一次几何：所有页面用 @Environment(\.adaptiveLayout)。
+        // 挂在导航栈上（而不是 TabView 上）：推进出来的日记页是栈的兄弟节点，
+        // 挂在里层它就读不到。
         .adaptiveLayoutReader()
-        // Rebuild the whole tree whenever the language or any settings-driven UI
-        // tick changes. This guarantees all L10n strings, the color scheme and the
-        // canvas layers re-render immediately instead of after an app restart.
-        .id("\(AppLanguage.current)#\(settingsTick)")
         .overlay(alignment: .topLeading) {
             // UI-test-only probe that exposes the live app language/theme through
             // the accessibility tree. It reads the ui tick so it always reflects
@@ -82,23 +98,6 @@ struct RootView: View {
                     .allowsHitTesting(false)
                     .accessibilityIdentifier("app.state")
             }
-        }
-        .fullScreenCover(isPresented: Binding(
-            get: { appState.presentEditor },
-            set: { appState.presentEditor = $0 }), onDismiss: {
-            DiaryRepository.shared.bumpDiaryVersion()
-        }) {
-            // The cover inherits the environment from the view it is attached
-            // to, but the `.environment(\.diaryDynamicTypeSize, …)` above is
-            // applied further in, so the editor was reading the default
-            // category and none of its text followed 设置 › 文字大小. Inject it
-            // explicitly here as well.
-            DiaryPageView(dayKey: appState.editorDayKey)
-                .environment(\.diaryDynamicTypeSize, dynamicTypeSize)
-                .environment(\.locale, AppLanguage.locale)
-                // 与上面同理：presentation 不会从更内层继承环境，这里补上版面判定
-                // （编辑器在横屏要限宽、格式栏要贴右侧）。
-                .adaptiveLayoutReader()
         }
         .task {
             await DiaryRepository.shared.prepare()
@@ -126,8 +125,7 @@ struct RootView: View {
                     await DiaryRepository.shared.deleteDiaryByDay(key)
                     DiaryRepository.shared.bumpDiaryVersion()
                 }
-                appState.editorDayKey = key
-                appState.presentEditor = true
+                appState.openDiary(dayKey: key)
             }
             consumeLaunchIntent()
         }
@@ -144,6 +142,13 @@ struct RootView: View {
                 consumeLaunchIntent()
             }
         }
+        // 从日记页回到日历（点返回、右滑返回都一样走这里）：主页日历要重画
+        // 那一天的小圆点。以前这活挂在 cover 的 `onDismiss` 上。
+        .onChange(of: appState.diaryPath) { _, path in
+            if path.isEmpty {
+                DiaryRepository.shared.bumpDiaryVersion()
+            }
+        }
     }
 
     private func consumeLaunchIntent() {
@@ -151,8 +156,7 @@ struct RootView: View {
         let dayKey = LaunchIntent.dayKey.isEmpty ? nil : LaunchIntent.dayKey
         LaunchIntent.clear()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            appState.editorDayKey = dayKey
-            appState.presentEditor = true
+            appState.openDiary(dayKey: dayKey)
         }
     }
 

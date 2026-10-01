@@ -58,6 +58,10 @@ struct DiaryPageView: View {
         // 高度的空白。顶栏不在这一层 —— 它由 `topBarOverlay` 钉在页面顶部。
         .ignoresSafeArea(edges: .bottom)
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        // 这一页是导航栈里推进出来的，顶栏由页面自己画（导航栏被藏起来），
+        // 于是系统的「右滑返回」也不会起手 —— 由这个 helper 重新打开。
+        // 编辑态**不给**右滑：正文还没落库，弹回就等于无声丢掉（点「返回」会先问一句）。
+        .interactiveBackSwipe(canGoBack: vm.isRead)
         .task {
             vm.dayKey = dayKey
             vm.onDismiss = { dismiss() }
@@ -697,7 +701,11 @@ struct DiaryPageView: View {
     }
 
     /// Location chip that opens the precision menu (and, for a block that does
-    /// not exist yet, "look it up again").
+    /// not exist yet, "use precise location" / "look it up again").
+    ///
+    /// The levels come from `vm.precisionOptions`: for a new block they stop at
+    /// what Apple's permission and this fix's `horizontalAccuracy` can actually
+    /// support, so the menu never offers a level the system cannot deliver.
     private func locationMenu(text: String) -> some View {
         Menu {
             ForEach(vm.precisionOptions, id: \.self) { precision in
@@ -714,6 +722,14 @@ struct DiaryPageView: View {
             }
             if vm.canRelocate {
                 Divider()
+                if vm.canRequestFullAccuracy {
+                    Button {
+                        Haptics.tap()
+                        vm.requestFullAccuracyAndRelocate()
+                    } label: {
+                        Text(L10n.str("editor_location_full_accuracy"))
+                    }
+                }
                 Button {
                     Haptics.tap()
                     vm.refreshLocation()

@@ -18,6 +18,15 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<!-- 用户在系统里只授了「模糊位置」时，App 用这条用途说明向系统临时申请一次
+		     精确位置（LocationService.requestTemporaryFullAccuracy()，键见
+		     LocationService.fullAccuracyPurposeKey）。英文文案在
+		     Resources/en.lproj/InfoPlist.strings，键就是下面这个用途键。 -->
+		<key>JustDiaryPreciseLocation</key>
+		<string>用于按你选择的精度记录当前所在位置（例如区县）</string>
+	</dict>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>用于把你导出的日记图片保存到相册</string>
 	<key>NSUserNotificationsUsageDescription</key>

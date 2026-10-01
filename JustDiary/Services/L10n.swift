@@ -246,4 +246,10 @@ nonisolated enum L10n {
         default: return ""
         }
     }
+
+    /// 分享位置精度的显示名：`none` 是「隐藏」，其余沿用级别名
+    /// （分享只可能取到区县 / 城市 / 省份，见 `LocPrecision.shareable`）。
+    static func sharePrecisionLabel(_ precision: String) -> String {
+        precision == LocPrecision.none ? str("settings_share_loc_hidden") : precisionLabel(precision)
+    }
 }

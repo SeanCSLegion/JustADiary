@@ -33,33 +33,36 @@ final class SettingsViewModel {
         notifStatusText = enabled ? L10n.str("settings_notif_on") : L10n.str("settings_notif_off")
     }
 
-    func save() {
-        SettingsStore.save(settings)
+    /// 只改需要的字段并落盘。
+    ///
+    /// 以前是「整份 `settings` 写回去」，而这一页的 `settings` 只是进入本页时的一份
+    /// 快照（TabView 会一直留着这一页）：在别处改过的设置项会被这份过期副本悄悄写回
+    /// 旧值。现在以 `SettingsStore` 里的当前值打底，只动要动的那一项。
+    private func update(_ mutate: (inout AppSettings) -> Void) {
+        var s = SettingsStore.load()
+        mutate(&s)
+        SettingsStore.save(s)
+        settings = s
     }
 
     func setTheme(_ mode: String) {
-        settings.themeMode = mode
-        save()
+        update { $0.themeMode = mode }
         AppConfigService.applyAll()
     }
 
     func setLanguage(_ lang: String) {
-        settings.appLanguage = lang
-        save()
-        settings = SettingsStore.load()
+        update { $0.appLanguage = lang }
         DiaryRepository.shared.bumpUiTick()
         Task { await ReminderService.rearm() }
     }
 
     func setWeekStart(_ value: String) {
-        settings.weekStart = value
-        save()
+        update { $0.weekStart = value }
         DiaryRepository.shared.bumpUiTick()
     }
 
     func setAutoTime(_ value: Bool) {
-        settings.autoTime = value
-        save()
+        update { $0.autoTime = value }
         // `auto_time` 现在决定开始时间是否显示（编辑器 / 阅读页 / 首页 / 分享长图），
         // 必须和其他显示类设置一样广播 UI tick，否则常驻的首页会保持旧值。
         // 注意：这里只刷新显示，`start_time_utc` 的记录与存储完全不受影响。
@@ -67,22 +70,32 @@ final class SettingsViewModel {
     }
 
     func setAutoLoc(_ value: Bool) {
-        settings.autoLoc = value
-        save()
+        update { $0.autoLoc = value }
         if value {
             LocationService.shared.requestPermission()
             Task { await DiaryRepository.shared.backfillBlockRegions() }
         }
     }
 
+    /// 分享长图里的地点精度上限（隐藏 / 区县 / 城市 / 省份）。
+    ///
+    /// 取值由 `AppSettings.normalize()` 收在「可分享」的那几级里。这里**不广播**
+    /// 任何刷新：分享时按当时的值渲染（`DiaryViewModel.shareDiary()` 直接读设置），
+    /// 页面没有一处常驻显示它，不必为它惊动别的界面。
+    func setShareLocPrecision(_ value: String) {
+        update { $0.shareLocPrecision = value }
+    }
+
+    var shareLocPrecisionLabel: String {
+        L10n.sharePrecisionLabel(settings.shareLocPrecision)
+    }
+
     func setAllowHistoryEdit(_ value: Bool) {
-        settings.allowHistoryEdit = value
-        save()
+        update { $0.allowHistoryEdit = value }
     }
 
     func setRemindEnabled(_ value: Bool) {
-        settings.remindEnabled = value
-        save()
+        update { $0.remindEnabled = value }
         if value {
             Task {
                 let granted = await ReminderService.requestEnable()
@@ -112,8 +125,10 @@ final class SettingsViewModel {
     }
 
     func applyDayStart() {
-        save()
+        // 选择器直接绑在 `settings.dayStartHour` 上，所以取本页刚选好的值，
+        // 但只把这一项写回库里（见 `update`）。
         let newHour = settings.dayStartHour
+        update { $0.dayStartHour = newHour }
         Task {
             let conflicts = await DiaryRepository.shared.recomputeDayKeys(dayStartHour: newHour)
             DiaryRepository.shared.bumpDiaryVersion()
@@ -125,7 +140,12 @@ final class SettingsViewModel {
     }
 
     func applyRemindTime() {
-        save()
+        let hour = settings.remindHour
+        let minute = settings.remindMinute
+        update {
+            $0.remindHour = hour
+            $0.remindMinute = minute
+        }
         Task { await ReminderService.rearm() }
     }
 
