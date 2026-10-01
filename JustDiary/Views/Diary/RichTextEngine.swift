@@ -580,6 +580,72 @@ final class RichEditorController {
         return EditorDesignSize.blockStyle(for: size)
     }
 
+    /// 光标落定之后，把 UIKit 抹掉的**块类型**补回打字态。
+    ///
+    /// UIKit 每次光标移动 / 文字变更都会按「光标处的文字」重算 `typingAttributes`，
+    /// 而它只认自己认识的那些键：`.diaryBlockStyle`（这一段是引用 / 正文 / 标题）与
+    /// `.diaryDesignSize`（设计字号）会被丢掉。丢掉之后「引用」就只剩 15pt 字号 +
+    /// 16pt 缩进 —— 引用按钮灭了、底色没了，回车续出来的新行顶着引用的缩进却不是引用
+    /// （用户报的 bug），光标挪开再回来也一样，得点一次别的格式再取消才能回到列首。
+    ///
+    /// 段落自己才是块类型的权威（`restyle` / `parts(from:)` 用的是同一套判据），所以
+    /// 这里只补这两个自定义键；字号、段落几何、行内样式都还是 UIKit 算出来的那套 ——
+    /// 只有**文末那条空行**例外，见下。
+    func resyncBlockAttributesWithCaret() {
+        guard let tv = textView, let caret = caretBlockStyle() else { return }
+        let block = caret.block
+        if EditorFont.blockStyle(of: tv.typingAttributes) != block {
+            tv.typingAttributes[.diaryBlockStyle] = block.rawValue
+        }
+        if EditorFont.designSize(of: tv.typingAttributes, typeSize: dynamicTypeSize) != block.designSize {
+            tv.typingAttributes[.diaryDesignSize] = NSNumber(value: Double(block.designSize))
+        }
+        guard caret.trailingEmptyLine else { return }
+        // 文末那条空行的段落几何**完全**由打字态决定，而 UIKit 是照上一段的换行符推导
+        // 出来的：上一段是列表 / 待办时，那份悬挂缩进（18 / 26pt）与更小的段距会留到
+        // 这一行上 —— 打字得到的明明是正文，折行却缩进 18pt、段距也不是正文的。
+        // 所以按块类型重排一遍；居中延续（R4）保留，引用照旧强制左对齐。
+        let alignment = (tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.alignment
+        tv.typingAttributes[.paragraphStyle] = PartsCodec.paragraphStyle(
+            block, center: alignment == .center && block != .quote, typeSize: dynamicTypeSize)
+    }
+
+    /// 光标所在那一段的块类型，以及它是不是**文末那条没有自己字符的空行**。
+    ///
+    /// * 有文字的段落：看**段落第一个字符**（UIKit 会把后续字符上的自定义键抹掉）；
+    /// * 中间那条空行：看它**自己的换行符**（B22：空行的行盒就是它排出来的）；
+    /// * 文末那条空行没有自己的字符，它的行样式按「延续上一段」推导（UIKit 自己也是
+    ///   这么算打字态的），所以看文末那个字符。
+    ///
+    /// 段落没有块类型（导入内容、列表 / 待办的行首标记、图片后面那个空换行）时返回
+    /// nil，调用方什么都不做。
+    private func caretBlockStyle() -> (block: EditorBlockStyle, trailingEmptyLine: Bool)? {
+        guard let tv = textView else { return nil }
+        let storage = tv.textStorage
+        guard storage.length > 0 else { return nil }
+        let location = tv.selectedRange.location
+        var probe = -1
+        var trailingEmptyLine = false
+        if Self.paragraphIsEmpty(in: storage, location: location) {
+            if let terminator = emptyParagraphTerminator(in: storage, at: location) {
+                probe = terminator.location
+            } else if min(max(0, location), storage.length) >= storage.length {
+                probe = storage.length - 1
+                trailingEmptyLine = true
+            } else {
+                return nil
+            }
+        } else {
+            let para = paragraphRange(in: storage, around: location)
+            guard para.location < storage.length else { return nil }
+            probe = para.location
+        }
+        guard let block = EditorFont.blockStyle(of: storage.attributes(at: probe, effectiveRange: nil)) else {
+            return nil
+        }
+        return (block, trailingEmptyLine)
+    }
+
     /// Restyles one paragraph (newline included), preserving bold/italic traits.
     private func restyle(_ attributed: NSMutableAttributedString, range: NSRange,
                          to block: EditorBlockStyle, cancelCenter: Bool = false) {
@@ -878,15 +944,23 @@ final class RichEditorController {
     ///
     /// List and to-do markers are real characters at the line start, so UIKit's
     /// own newline cannot carry them onto the next line: pressing Return inside
-    /// an item has to start the next item here. The same rule *ends* the style
-    /// on an empty item — that is what keeps "the style continues on the next
-    /// line" from trapping the user, because Return twice yields a plain
+    /// an item has to start the next item here. Quote needs the same treatment
+    /// for a different reason — see the branch below. The same rule *ends* the
+    /// style on an empty line — that is what keeps "the style continues on the
+    /// next line" from trapping the user, because Return twice yields a plain
     /// paragraph.
+    ///
+    /// `range` is what this keystroke replaces — the range UIKit hands to
+    /// `shouldChangeTextIn`, i.e. the selection when there is one. The branches
+    /// that insert the newline themselves delete it first: they never hand the
+    /// edit back to UIKit, so leaving the selected text in place would push the
+    /// newline into the middle of it.
     ///
     /// Returns true when the keystroke has been consumed here.
     @discardableResult
-    func handleReturn(at location: Int) -> Bool {
+    func handleReturn(in range: NSRange) -> Bool {
         guard let tv = textView else { return false }
+        let location = range.location
         let storage = tv.textStorage
         let ns = storage.string as NSString
         let para = paragraphRange(in: storage, around: location)
@@ -896,18 +970,28 @@ final class RichEditorController {
         if contentEnd > lineStart, contentEnd <= ns.length, ns.character(at: contentEnd - 1) == 0x0A {
             contentEnd -= 1
         }
+        // 选区：这个回车是**替换**它。只有「自己插换行」的两条路径会调用它 ——
+        // 返回 false 的那些不能删（UIKit 还要拿原来那个 range 去应用它自己的编辑）。
+        func replaceSelection() -> Int {
+            guard range.length > 0, NSMaxRange(range) <= storage.length else { return location }
+            storage.deleteCharacters(in: range)
+            return min(max(0, location), storage.length)
+        }
 
         if let kind = Self.markerKind(in: storage, at: lineStart) {
             let contentStart = lineStart + 1
             guard contentEnd > contentStart else {
                 // Empty item: end the list here, leaving the line where it is
                 // (now a plain empty paragraph). Return again for a blank line.
+                // 空项上不该有选区（这一行只有一个标记），真选了就交回 UIKit。
+                guard range.length == 0 else { return false }
                 removeMarker(kind: kind, at: lineStart)
                 return true
             }
             // Start a new item: a newline plus the marker for the next line, so
             // what is typed next belongs to a fresh item of the same kind.
-            let insertAt = min(max(location, contentStart), contentEnd)
+            let insertAt = range.length > 0 ? replaceSelection()
+                                            : min(max(location, contentStart), contentEnd)
             let bodyAttributes = markerTypingAttributes(kind: kind)
             let insertion = NSMutableAttributedString()
             insertion.append(NSAttributedString(string: "\n", attributes: bodyAttributes))
@@ -924,17 +1008,57 @@ final class RichEditorController {
             return true
         }
 
+        // 这一行是不是引用：有字的段落看**段落第一个字符**（和 `restyle` /
+        // `parts(from:)` 同一套判据），文末那条空行没有自己的字符，只能看打字态。
+        let lineAttrs = lineStart < ns.length ? storage.attributes(at: lineStart, effectiveRange: nil) : [:]
+        let quoted = Self.attributesAreQuote(lineAttrs)
+            || (contentEnd <= lineStart && isQuoteActive())
+
         // An empty quoted line ends the quote the same way: the line becomes a
         // plain empty paragraph and this Return is consumed.
-        if contentEnd <= lineStart, isQuoteActive() {
+        if contentEnd <= lineStart, quoted {
+            // 空行上只有它自己的换行符可选；真选了就交回 UIKit（替换换行符 = 并段）。
+            guard range.length == 0 else { return false }
             tv.typingAttributes = baseTypingAttributes()
             // The line itself has to stop looking like a quote too, not just the
             // next typed character.
             syncEmptyParagraphWithTypingAttributes()
+            // 这一行的行盒跟着打字态变（文末那条空行只能这么排），所以要把它的排版
+            // 作废重来一次，光标才会从引用的缩进退回列首。
+            ensureCaretGeometry()
+            notifyFormatChange()
+            return true
+        }
+
+        // 有文字的引用行：下一行**接着引用**（R2「新行延续该行样式」）。
+        // 这一句不能交给 UIKit 的换行去做：它的换行只继承 `typingAttributes`，而
+        // UIKit 每次都按光标处的文字重算这个字典，且**只认自己认识的那些键** ——
+        // `.diaryBlockStyle` 会被丢掉。丢掉的后果正是用户报的那一条：新行拿到的是
+        // 「15pt + 引用的缩进」，却没有「这一段是引用」这个块类型 —— 底色没了、引用
+        // 按钮灭了，接着回车（以及之后在别处点一下再回来）还是这份缩进，要点一次别的
+        // 格式再取消才能回到列首。所以换行符由我们自己插，带上引用的整套属性。
+        if quoted {
+            let attrs = typingAttributes(for: .quote)
+            let insertAt = range.length > 0 ? replaceSelection()
+                                            : min(max(location, lineStart), contentEnd)
+            storage.insert(NSAttributedString(string: "\n", attributes: attrs), at: insertAt)
+            tv.selectedRange = NSRange(location: insertAt + 1, length: 0)
+            tv.typingAttributes = attrs
+            // 文档中间那条新空行有自己的换行符，行样式要一并写成引用（B22）；文末那条
+            // 空行没有字符，它的行盒本来就由打字态排出。
+            syncEmptyParagraphWithTypingAttributes()
+            // 文末那条空行 TextKit 不会自动排（B27），光标几何得手动催一次。
+            ensureCaretGeometry()
             notifyFormatChange()
             return true
         }
         return false
+    }
+
+    /// `handleReturn(in:)` 的光标版本（没有选区时用）。测试与旧的调用点用它。
+    @discardableResult
+    func handleReturn(at location: Int) -> Bool {
+        handleReturn(in: NSRange(location: location, length: 0))
     }
 
     /// Drops `kind`'s marker from the line starting at `location`, if it is

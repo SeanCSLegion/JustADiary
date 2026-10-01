@@ -222,6 +222,75 @@ final class EditorEmptyLineTests: XCTestCase {
         XCTAssertFalse(isQuoted(at: 2), "结束引用后这一行自己的底色也要去掉")
     }
 
+    // MARK: - B29：引用换行之后，缩进跟着这一行的**样式**走
+
+    /// 走一遍 `RichTextView.Coordinator.shouldChangeTextIn` 的那条路：编辑器能拦就拦，
+    /// 拦不住才交给 UIKit 自己的换行。
+    private func pressReturn() {
+        let caret = tv.selectedRange.location
+        if controller.shouldBlockNewline(at: caret) { return }
+        if controller.handleReturn(at: caret) { return }
+        tv.insertText("\n")
+    }
+
+    /// 用户报的那条：引用行上回车之后，新行的缩进（也就是光标位置）必须跟它的样式一致。
+    ///
+    /// 改动前：回车由 UIKit 做，新行只剩下「引用的缩进 + 15pt 字号」——块类型被 UIKit
+    /// 从打字态里抹掉了，所以它不再是引用（没有底色、引用按钮灭了），缩进却一直在，
+    /// 而且**再回车也还是这份缩进**，得点一次别的格式再取消才回得来。
+    func testReturnOnAQuotedLineKeepsTheIndentOnlyWhileTheLineIsAQuote() {
+        controller.load(parts: [])
+        controller.toggleQuote()
+        layout()
+        XCTAssertEqual(caretRect().minX, BlockMetrics.quoteTextInset(.large), accuracy: 2,
+                       "刚点完引用：光标落在引用的文字缩进处（这一行就是引用）")
+
+        tv.insertText("甲")
+        pressReturn()
+        layout()
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .quote,
+                       "新行是引用（文末那条空行没有自己的字符，样式就在打字态里）")
+        XCTAssertEqual(caretRect().minX, BlockMetrics.quoteTextInset(.large), accuracy: 2,
+                       "光标仍在引用缩进处 —— 它确实是引用，缩进是对的")
+
+        pressReturn()
+        layout()
+        XCTAssertNotEqual(EditorFont.blockStyle(of: tv.typingAttributes), .quote,
+                          "空引用行上再回车 = 结束引用")
+        XCTAssertEqual(caretRect().minX, 0, accuracy: 0.5,
+                       "结束引用后光标要回到列首（改动前它一直留在引用缩进里）")
+
+        tv.insertText("乙")
+        layout()
+        XCTAssertFalse(isQuoted(at: 2), "接着输入的不是引用")
+        XCTAssertEqual(paragraphStyle(at: 2)?.headIndent ?? -1, 0, accuracy: 0.01,
+                       "这一行从列首开始排（没有留下引用的缩进）")
+    }
+
+    /// 中间那条引用行（上下都有别的段落）同样：续出来的空行在引用缩进处，
+    /// 在它上面回车结束后回到列首，而且**上下两段都不动**。
+    func testReturnOnAQuotedLineInTheMiddleMovesTheIndentWithTheStyle() {
+        controller.load(parts: [body("甲"), ContentPart(style: ContentPartStyle.quote,
+                                                        runs: [TextRun(text: "引")]),
+                                body("乙")])
+        XCTAssertEqual(tv.textStorage.string, "甲\n引\n乙\n")
+        tv.selectedRange = NSRange(location: 3, length: 0) // 引用文字末尾
+        layout()
+
+        pressReturn()
+        layout()
+        XCTAssertEqual(tv.textStorage.string, "甲\n引\n\n乙\n")
+        XCTAssertTrue(isQuoted(at: 4), "新行是引用")
+        XCTAssertEqual(caretRect().minX, BlockMetrics.quoteTextInset(.large), accuracy: 2)
+
+        pressReturn()
+        layout()
+        XCTAssertFalse(isQuoted(at: 4), "结束引用后这一行不再是引用")
+        XCTAssertEqual(caretRect().minX, 0, accuracy: 0.5, "光标回到列首")
+        XCTAssertFalse(isQuoted(at: 0), "上一行不动")
+        XCTAssertFalse(isQuoted(at: 5), "下一行不动")
+    }
+
     // MARK: - 选区：摘掉标记不能让选区「长大」
 
     /// 选中两行列表项（选区到第二个标记为止，不含它的文字）点引用：两个标记都被摘掉，

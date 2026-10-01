@@ -269,6 +269,39 @@ final class BlockStyleRenderingTests: XCTestCase {
         XCTAssertEqual(reader.blockDecorations.quotes.count, 1, "读模式：中间的空引用行也要有块")
     }
 
+    /// 文末那条空行（**没有自己的字符**的那一种）也要有块：用户点完「引用」还没输入、
+    /// 或者引用行上回车续出一行时，光标就停在它上面。
+    ///
+    /// 它是唯一没有字符的段落，行盒由打字态排出，所以只有光标停在上面时才算得出它的
+    /// 样式；光标不在它上面时它连样式都没有，不该画（读了别的段的样式反而会画错）。
+    func testTrailingEmptyQuoteLineGetsABlockWhileTheCaretIsOnIt() {
+        // 空文档：点引用之后光标所在的那一行就是它。
+        let (controller, editor) = makeEditor([])
+        layout(editor)
+        XCTAssertEqual(editor.blockDecorations.quotes.count, 0, "还没点引用：没有块")
+        controller.toggleQuote()
+        layout(editor)
+        XCTAssertEqual(editor.blockDecorations.quotes.count, 1, "点完引用：这一行也要有底色块")
+        let emptyBlock = editor.blockDecorations.quotes.first
+        XCTAssertEqual(emptyBlock?.frame.height ?? 0, 17.90 + BlockMetrics.quotePadding(.large) * 2,
+                       accuracy: 1.5, "一块 = 一行引用 + 上下内边距")
+        XCTAssertEqual(emptyBlock?.frame.width ?? 0, width, accuracy: 0.5, "底色块横跨整列")
+
+        // 载入一篇以引用结尾的日记：光标落在文末那条空行上（回车续出来的就是它）。
+        let (controller2, editor2) = makeEditor([body("上文"), quote("引用")])
+        editor2.selectedRange = NSRange(location: editor2.textStorage.length, length: 0)
+        // 真实链路里这一步由 `RichTextView.Coordinator` 在光标变化时做（UIKit 会把块
+        // 类型从打字态里抹掉，见 `resyncBlockAttributesWithCaret`）。
+        controller2.resyncBlockAttributesWithCaret()
+        layout(editor2)
+        XCTAssertTrue(controller2.isQuoteActive(), "文末那条空行接着上面的引用")
+        XCTAssertEqual(editor2.blockDecorations.quotes.count, 2,
+                       "引用行自己的块 + 文末空行的块")
+        XCTAssertGreaterThan(editor2.blockDecorations.quotes.last?.frame.minY ?? 0,
+                             editor2.blockDecorations.quotes.first?.frame.minY ?? 0,
+                             "空行的块在引用行下面")
+    }
+
     /// 装饰层在**文字后面**：文本视图的子层顺序不能把底色盖在字上面。
     func testDecorationLayerStaysBehindTheText() {
         let tv = makeReader([quote("引用")])

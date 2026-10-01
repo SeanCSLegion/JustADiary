@@ -329,7 +329,20 @@ class DiaryTextView: UITextView {
         let barInset = BlockMetrics.quoteBarInset(contentTypeSize)
         // 底色块横跨整个正文列（列宽由文本视图的宽度和内缩决定）。
         let columnWidth = bounds.width - inset.left - inset.right
-        guard columnWidth > 40, textStorage.length > 0 else { return [] }
+        guard columnWidth > 40 else { return [] }
+        // 一段的排版框（文本容器坐标）→ 底色块 + 竖条（文本视图坐标）。
+        func block(for textFrame: CGRect) -> BlockDecorationLayer.QuoteBlock {
+            let padded = textFrame.insetBy(dx: 0, dy: -padding)
+            let frame = CGRect(x: inset.left,
+                               y: padded.minY + inset.top,
+                               width: columnWidth,
+                               height: padded.height)
+            let bar = CGRect(x: inset.left + barLeading,
+                             y: frame.minY + barInset,
+                             width: barWidth,
+                             height: max(0, frame.height - barInset * 2))
+            return BlockDecorationLayer.QuoteBlock(frame: frame, bar: bar)
+        }
         let ns = textStorage.string as NSString
         var blocks: [BlockDecorationLayer.QuoteBlock] = []
         var lineStart = 0
@@ -344,22 +357,58 @@ class DiaryTextView: UITextView {
                let textFrame = textFrame(layoutManager: layoutManager,
                                          contentManager: contentManager,
                                          location: lineStart, length: paragraphLength) {
-                // 上面拿到的是文本容器的坐标，加上 `textContainerInset` 才是文本视图
-                // （= 滚动内容）的坐标。
-                let padded = textFrame.insetBy(dx: 0, dy: -padding)
-                let frame = CGRect(x: inset.left,
-                                   y: padded.minY + inset.top,
-                                   width: columnWidth,
-                                   height: padded.height)
-                let bar = CGRect(x: inset.left + barLeading,
-                                 y: frame.minY + barInset,
-                                 width: barWidth,
-                                 height: max(0, frame.height - barInset * 2))
-                blocks.append(BlockDecorationLayer.QuoteBlock(frame: frame, bar: bar))
+                blocks.append(block(for: textFrame))
             }
             lineStart = lineEnd + 1
         }
+        // 文档末尾那条**空行**没有自己的字符（文档以换行结尾，或者整个文档为空），上面的
+        // 循环走不到它 —— 它的行盒由打字态排出来（B22 的同一件事）。只有光标正停在它上面
+        // 时才画：那时它算不算引用才有确定含义。「点完引用还没输入」看到的就是这一行，
+        // 而回车续出来的空引用行也是它 —— 少了这块底色，用户看到的就只是「一行缩进」。
+        let caret = selectedRange
+        if caret.length == 0, caret.location >= ns.length,
+           ns.length == 0 || ns.character(at: ns.length - 1) == 0x0A,
+           EditorFont.blockStyle(of: typingAttributes) == .quote,
+           let textFrame = trailingEmptyLineFrame(layoutManager: layoutManager,
+                                                  contentManager: contentManager) {
+            blocks.append(block(for: textFrame))
+        }
         return blocks
+    }
+
+    /// 文档末尾那条空行的行框（文本容器坐标）。
+    ///
+    /// 它没有自己的字符，TextKit 也就不给它独立的排版片段：它的行盒挂在**贴着文末**那个
+    /// 片段的 extra line fragment 上（`characterRange` 为空的那一条）。从文末**反向**
+    /// 枚举取第一个片段即可，不用把整篇排一遍。
+    ///
+    /// 空文档连片段都没有 —— 那一行就在文本容器顶端，高度取这一档字号的引用行高。
+    private func trailingEmptyLineFrame(layoutManager: NSTextLayoutManager,
+                                        contentManager: NSTextContentManager) -> CGRect? {
+        let documentEnd = contentManager.documentRange.endLocation
+        var frame: CGRect?
+        layoutManager.enumerateTextLayoutFragments(from: documentEnd,
+                                                   options: [.ensuresLayout, .reverse]) { fragment in
+            guard let element = fragment.textElement,
+                  let elementRange = element.elementRange,
+                  contentManager.offset(from: elementRange.endLocation, to: documentEnd) == 0 else {
+                return false
+            }
+            let origin = fragment.layoutFragmentFrame.origin
+            for line in fragment.textLineFragments where line.characterRange.length == 0 {
+                let bounds = line.typographicBounds.offsetBy(dx: origin.x, dy: origin.y)
+                guard bounds.minY.isFinite else { continue }
+                // 高度换成这一档字号自己的行高：extra line fragment 的高度带着行距，
+                // 直接用它会让这一块比有字时高一行距（和 `textFrame` 里同一条规则）。
+                let lineBox = CGRect(x: bounds.minX, y: bounds.minY, width: 0, height: quoteLineHeight)
+                frame = frame.map { $0.union(lineBox) } ?? lineBox
+            }
+            return false
+        }
+        if frame == nil, textStorage.length == 0 {
+            frame = CGRect(x: 0, y: 0, width: 0, height: quoteLineHeight)
+        }
+        return frame
     }
 
     /// 引用字号画出来的行高（空段落的那一块用它当高度）。

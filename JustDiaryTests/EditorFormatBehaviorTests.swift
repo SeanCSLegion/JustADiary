@@ -210,20 +210,190 @@ final class EditorFormatBehaviorTests: XCTestCase {
 
     func testReturnOnAnEmptyQuotedLineEndsTheQuote() {
         let (controller, tv) = makeEditor([line(ContentPartStyle.quote, "引用")])
-        // End of the quoted text: Return continues the quote, as UIKit's own
-        // newline carries the quote attributes.
+        // End of the quoted text: Return opens the next line as a quote too — the
+        // editor inserts that newline itself (`handleReturn`), because UIKit's
+        // own one only inherits `typingAttributes`, where the block type is gone.
         tv.selectedRange = NSRange(location: 2, length: 0)
-        XCTAssertFalse(controller.handleReturn(at: 2))
+        XCTAssertTrue(controller.handleReturn(at: 2), "引用行的回车由编辑器处理")
 
-        // The empty line after it is quoted (that is what Return just produced),
-        // so Return again ends the quote instead of stacking another one.
+        // The line after it is quoted, so Return again ends the quote instead of
+        // stacking another one.
         tv.selectedRange = NSRange(location: 3, length: 0)
-        tv.typingAttributes = controller.typingAttributes(for: .quote)
         XCTAssertTrue(controller.handleReturn(at: 3))
         XCTAssertNotEqual(EditorFont.blockStyle(of: tv.typingAttributes), .quote,
                           "the next typed paragraph is plain again")
         XCTAssertEqual(styles(controller), [ContentPartStyle.quote],
                        "the quoted line above is untouched")
+    }
+
+    // MARK: - B29: 引用换行 = 新行**接着引用**（不是「顶着引用缩进的正文」）
+
+    /// 引用行上回车：新行要是**真的引用** —— 块类型、字号、段落几何三样都得跟上。
+    ///
+    /// 改动前这里交给 UIKit 的换行：它只继承 `typingAttributes`，而 UIKit 会把
+    /// `.diaryBlockStyle` 抹掉 —— 新行只剩「15pt + 引用的缩进」，底色没了、引用按钮
+    /// 灭了，再回车还是这份缩进（用户报的 bug）。
+    func testReturnOnAQuotedLineContinuesTheQuote() {
+        let (controller, tv) = makeEditor([line(ContentPartStyle.quote, "甲")])
+        XCTAssertEqual(tv.textStorage.string, "甲\n")
+
+        tv.selectedRange = NSRange(location: 1, length: 0) // 引用文字末尾
+        XCTAssertTrue(controller.handleReturn(at: 1), "引用行的回车由编辑器处理")
+
+        XCTAssertEqual(tv.textStorage.string, "甲\n\n", "在光标处插入一个换行")
+        XCTAssertEqual(tv.selectedRange, NSRange(location: 2, length: 0), "光标落在新行行首")
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .quote,
+                       "之后输入的文字还是引用")
+        XCTAssertEqual(typingDesignSize(tv), EditorDesignSize.quote, "字号也是引用那一档")
+        XCTAssertEqual((tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? -1,
+                       BlockMetrics.quoteTextInset(.large), accuracy: 0.01,
+                       "新行让开左侧竖条（它确实是引用）")
+        // 新行自己的那个换行符也要是引用：空行的行盒与底色块都看它（B22）。
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.textStorage.attributes(at: 2, effectiveRange: nil)),
+                       .quote)
+
+        tv.insertText("乙")
+        XCTAssertEqual(styles(controller), [ContentPartStyle.quote, ContentPartStyle.quote],
+                       "接着输入的字落在新的引用行上")
+    }
+
+    /// 光标在引用行**中间**回车：拆出来的两段都还是引用。
+    func testReturnInTheMiddleOfAQuoteKeepsBothHalvesQuoted() {
+        let (controller, tv) = makeEditor([line(ContentPartStyle.quote, "甲乙")])
+        tv.selectedRange = NSRange(location: 1, length: 0)
+        XCTAssertTrue(controller.handleReturn(at: 1))
+        XCTAssertEqual(tv.textStorage.string, "甲\n乙\n")
+
+        tv.insertText("丙")
+        XCTAssertEqual(tv.textStorage.string, "甲\n丙乙\n")
+        XCTAssertEqual(styles(controller), [ContentPartStyle.quote, ContentPartStyle.quote])
+    }
+
+    /// **有选区**时回车：这个回车是替换选区。自己插换行的那两条路径（引用 / 列表）
+    /// 不把编辑交回 UIKit，所以选中的文字得由它们删掉 —— 否则新行会插在选中文字中间。
+    func testReturnWithASelectionReplacesIt() {
+        let (controller, tv) = makeEditor([line(ContentPartStyle.quote, "甲乙丙")])
+        XCTAssertTrue(controller.handleReturn(in: NSRange(location: 1, length: 1)))
+        XCTAssertEqual(tv.textStorage.string, "甲\n丙\n", "选中的「乙」被一个换行替换")
+        XCTAssertEqual(tv.selectedRange, NSRange(location: 2, length: 0), "光标落在新行行首")
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .quote)
+        XCTAssertEqual(styles(controller), [ContentPartStyle.quote, ContentPartStyle.quote])
+
+        let (listController, listTV) = makeEditor([ContentPart(style: ContentPartStyle.list, items: ["甲乙"])])
+        XCTAssertTrue(listController.handleReturn(in: NSRange(location: 1, length: 1)))
+        XCTAssertEqual(listTV.textStorage.string, "\(marker)\n\(marker)乙\n",
+                       "列表项：选中的「甲」被「换行 + 标记」替换，剩下的「乙」还在自己的项里")
+        XCTAssertEqual(listController.currentParts().first?.items, ["乙"])
+    }
+
+    /// 空行上只有一个换行符可选：真选了就交回 UIKit（替换换行符 = 并段），
+    /// 编辑器不认领这一次回车。
+    func testReturnWithASelectionOnAnEmptyQuotedLineIsLeftToUIKit() {
+        let (controller, tv) = makeEditor([line(ContentPartStyle.quote, "甲"), body("乙")])
+        tv.textStorage.insert(NSAttributedString(string: "\n",
+                                                 attributes: controller.typingAttributes(for: .quote)),
+                              at: 2)
+        XCTAssertEqual(tv.textStorage.string, "甲\n\n乙\n")
+
+        XCTAssertFalse(controller.handleReturn(in: NSRange(location: 2, length: 1)))
+        XCTAssertEqual(tv.textStorage.string, "甲\n\n乙\n", "文本没被改动")
+    }
+
+    /// 用户的复现路径：新日记 → 点引用 → 输入 → 回车（新行还是引用）→ 再回车
+    /// （空引用行上结束引用，缩进跟着回到列首）。
+    func testTypingInAQuoteAndPressingReturnTwiceEndsItOnAPlainLine() {
+        let (controller, tv) = makeEditor([])
+        controller.toggleQuote()
+        tv.insertText("甲")
+        XCTAssertEqual(styles(controller), [ContentPartStyle.quote])
+
+        XCTAssertTrue(controller.handleReturn(at: 1))
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .quote,
+                       "回车之后新行仍是引用（不是只剩缩进的正文）")
+
+        XCTAssertTrue(controller.handleReturn(at: tv.selectedRange.location))
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .body,
+                       "空引用行上再回车 = 结束引用")
+        XCTAssertEqual((tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? -1, 0,
+                       "结束引用之后不该还留着引用的缩进")
+
+        tv.insertText("乙")
+        XCTAssertEqual(styles(controller), [ContentPartStyle.quote, ContentPartStyle.body])
+    }
+
+    /// UIKit 每次移动光标都会按光标处的文字重算 `typingAttributes`，而它只认自己认识
+    /// 的键：`.diaryBlockStyle` / `.diaryDesignSize` 会被抹掉。抹掉之后引用就只剩
+    /// 「15pt + 缩进」，所以光标一落定就要按**光标所在那一段**把块类型补回来。
+    func testResyncRestoresTheBlockTypeUIKitDrops() {
+        let (controller, tv) = makeEditor([body("甲"), line(ContentPartStyle.quote, "乙")])
+        XCTAssertEqual(tv.textStorage.string, "甲\n乙\n")
+
+        // UIKit 重算之后的打字态：只剩字号与段落几何，没有自定义键。
+        func dropCustomKeys() {
+            var typing = tv.typingAttributes
+            typing.removeValue(forKey: .diaryBlockStyle)
+            typing.removeValue(forKey: .diaryDesignSize)
+            tv.typingAttributes = typing
+        }
+
+        tv.selectedRange = NSRange(location: 2, length: 0) // 引用行（有文字）
+        dropCustomKeys()
+        controller.resyncBlockAttributesWithCaret()
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .quote)
+        XCTAssertEqual(typingDesignSize(tv), EditorDesignSize.quote)
+
+        // 文末那条空行没有自己的字符：它的样式由上一段延续（UIKit 自己也是这么推导的），
+        // 所以「引用行下面那一条空行」也还是引用。
+        tv.selectedRange = NSRange(location: 4, length: 0)
+        dropCustomKeys()
+        controller.resyncBlockAttributesWithCaret()
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .quote)
+        XCTAssertTrue(controller.isQuoteActive(), "引用按钮在这条空行上也要保持选中")
+
+        // 正文行上不会被误判成引用。
+        tv.selectedRange = NSRange(location: 0, length: 0)
+        dropCustomKeys()
+        controller.resyncBlockAttributesWithCaret()
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .body)
+    }
+
+    /// 文档中间那条空引用行（样式写在它自己的换行符上，B22）在光标落上去之后也要
+    /// 认得出自己是引用 —— 否则在它上面回车既结束不了引用，还会再续一份缩进。
+    func testResyncReadsAnEmptyQuotedLineFromItsOwnNewline() {
+        let (controller, tv) = makeEditor([body("甲"), body("乙")])
+        tv.textStorage.insert(NSAttributedString(string: "\n",
+                                                 attributes: controller.typingAttributes(for: .quote)),
+                              at: 2)
+        XCTAssertEqual(tv.textStorage.string, "甲\n\n乙\n")
+
+        tv.selectedRange = NSRange(location: 2, length: 0)
+        tv.typingAttributes = controller.typingAttributes(for: .body) // UIKit 抹掉键之后的样子
+        controller.resyncBlockAttributesWithCaret()
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .quote)
+        XCTAssertTrue(controller.isQuoteActive())
+        XCTAssertTrue(controller.handleReturn(at: 2), "空引用行上的回车被吃掉（结束引用）")
+    }
+
+    /// 文末那条空行接着**列表 / 待办**时：块类型是正文，但 UIKit 从上一段的换行符推出
+    /// 的段落几何还带着标记的悬挂缩进（18 / 26pt）与更小的段距 —— 在那里打字得到的是
+    /// 正文，折行却缩进 18pt、段间距也不对。按块类型重排一遍。
+    func testResyncDropsTheMarkerIndentFromTheTrailingEmptyLine() {
+        let (controller, tv) = makeEditor([ContentPart(style: ContentPartStyle.list, items: ["甲"])])
+        tv.selectedRange = NSRange(location: tv.textStorage.length, length: 0)
+        // UIKit 在光标移动时按上一段的换行符重算：段落样式就是标记那一份。
+        tv.typingAttributes = controller.markerTypingAttributes(kind: "bullet")
+        XCTAssertEqual((tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? 0,
+                       BlockMetrics.markerIndent(kind: "bullet", .large), accuracy: 0.01,
+                       "前提：这份打字态带着标记的悬挂缩进")
+
+        controller.resyncBlockAttributesWithCaret()
+        let fixed = tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle
+        XCTAssertEqual(EditorFont.blockStyle(of: tv.typingAttributes), .body, "这一行是正文")
+        XCTAssertEqual(fixed?.headIndent ?? -1, 0, accuracy: 0.01, "正文没有悬挂缩进")
+        XCTAssertEqual(fixed?.firstLineHeadIndent ?? -1, 0, accuracy: 0.01)
+        XCTAssertEqual(fixed?.paragraphSpacingBefore ?? -1,
+                       EditorBlockStyle.body.paragraphSpacingBefore, accuracy: 0.01,
+                       "段前距也回到正文的（不是标记那种更小的）")
     }
 
     // MARK: - B5 / R1: character styles

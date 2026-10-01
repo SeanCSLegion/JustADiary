@@ -7,7 +7,10 @@ import XCTest
 /// 2. 列表 / 待办的空项上点「引用」：标记被摘掉之后，光标要停在**这一行**，接着输入的
 ///    字就该落在引用行上；
 /// 3. 空行上开 / 关「居中」：光标要跟着走到列中间 / 回到行首（这条量的是光标窗口坐标，
-///    不是内部属性 —— 用户看到的就是它）。
+///    不是内部属性 —— 用户看到的就是它）；
+/// 4. 引用行上回车：新行**接着引用**（光标留在引用缩进处），空引用行上再回车才结束引用、
+///    光标回到列首（用户报的：改动前新行顶着引用的缩进，却已经不是引用了，而且再回车
+///    也还是这份缩进）。
 final class EditorStyleButtonUITests: XCTestCase {
 
     private var app: XCUIApplication!
@@ -207,5 +210,53 @@ final class EditorStyleButtonUITests: XCTestCase {
         XCTAssertLessThanOrEqual(cancelled.minX, frame.minX + 4,
                                  "取消居中后光标要回到行首，实际 \(cancelled)")
         attach("center-cancelled")
+    }
+
+    // MARK: - 4. 引用换行：新行接着引用，再回车才结束
+
+    func testReturnInAQuoteContinuesTheQuoteAndASecondReturnEndsIt() throws {
+        launch()
+        openWriteMode()
+        editor.tap()
+        let frame = editor.frame
+
+        app.buttons["引用"].tap()
+        usleep(700_000)
+        XCTAssertTrue(app.buttons["引用"].isSelected, "引用按钮点亮")
+
+        editor.typeText("abc")
+        usleep(700_000)
+        XCTAssertEqual(state(), "quote|abc")
+
+        // 回车：新行**接着引用** —— 按钮不灭，光标仍在引用缩进处（这一行确实是引用）。
+        editor.typeText("\n")
+        usleep(700_000)
+        XCTAssertEqual(state(), "quote|abc", "回车之后是一条空引用行（空行不入库）")
+        XCTAssertTrue(app.buttons["引用"].isSelected, "新行还是引用，按钮不该灭")
+        let onQuoteLine = try XCTUnwrap(waitForCaret(), "回车后的光标")
+        XCTAssertGreaterThanOrEqual(onQuoteLine.minX, frame.minX + 8,
+                                    "光标在引用的文字缩进处，实际 \(onQuoteLine)")
+        XCTAssertLessThanOrEqual(onQuoteLine.minX, frame.minX + 22,
+                                 "但也不该比引用缩进还靠右，实际 \(onQuoteLine)")
+        attach("quote-after-return")
+
+        editor.typeText("def")
+        usleep(700_000)
+        XCTAssertEqual(state(), "quote,quote|abcdef", "接着输入的字落在新的引用行上")
+
+        // 空引用行上再回车 = 结束引用：这一行回到正文，光标回到列首。
+        editor.typeText("\n") // 开出一条空引用行
+        usleep(700_000)
+        editor.typeText("\n") // 在它上面再回车
+        usleep(700_000)
+        XCTAssertFalse(app.buttons["引用"].isSelected, "空引用行上再回车 = 结束引用")
+        let afterEnding = try XCTUnwrap(waitForCaret(), "结束引用后的光标")
+        XCTAssertLessThanOrEqual(afterEnding.minX, frame.minX + 4,
+                                 "结束引用后光标要回到列首（改动前它一直留在引用缩进里），实际 \(afterEnding)")
+        attach("quote-return-ended")
+
+        editor.typeText("ghi")
+        usleep(700_000)
+        XCTAssertEqual(state(), "quote,quote,body|abcdefghi", "接着输入的是正文")
     }
 }

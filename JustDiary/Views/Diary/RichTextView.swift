@@ -201,8 +201,9 @@ struct RichTextView: UIViewRepresentable {
                 // List/to-do items — and an empty quoted line, which ends the
                 // quote — handle Return themselves: the marker for the next item
                 // is a real character, not something UIKit's own newline can
-                // carry over.
-                if parent.controller.handleReturn(at: caret) {
+                // carry over. `range` 一并交过去：有选区时它就是选区，这两条
+                // 路径不把编辑交回 UIKit，得自己把选中的文字替换掉。
+                if parent.controller.handleReturn(in: range) {
                     return false
                 }
             }
@@ -220,6 +221,9 @@ struct RichTextView: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            // UIKit 刚刚按光标处的文字重算过 `typingAttributes`，自定义键（块类型）
+            // 被抹掉了：先按光标所在那一段补回来，再刷新格式栏的状态。
+            parent.controller.resyncBlockAttributesWithCaret()
             parent.controller.notifyFormatChange()
         }
 
