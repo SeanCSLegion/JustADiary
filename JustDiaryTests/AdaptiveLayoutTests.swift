@@ -102,4 +102,27 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCTAssertEqual(landscape.singleColumnCalendarHeight(containerHeight: 375, headerHeight: 64),
                        247)
     }
+
+    /// 年历迷你月里「这天有日记」那条标记条要贴紧日号。
+    ///
+    /// `flagGap` 是**日号盒底 → 条顶**的绝对间距：年历的日号只有 ~13pt（月视图 20pt），
+    /// 照搬 2pt 会让标记条显得「掉在下面」（实拍量到日号视觉底边到条顶 4.0pt，收到 0
+    /// 之后是 2.0pt）。月 / 周 / 连续流保持 2pt 不变。
+    func testYearMiniMonthsPullTheEntryMarkerCloserToTheDayNumber() {
+        let size = CGSize(width: 402, height: 665)
+        XCTAssertEqual(CalendarLayout.miniMetrics(in: size).flagGap, 0, "年历的迷你月")
+        XCTAssertEqual(CalendarLayout.monthMetrics(width: 402, areaH: 665, lunar: true).flagGap, 2,
+                       "月视图保持原样")
+        XCTAssertEqual(CalendarLayout.weekMetrics(width: 402, lunar: true).flagGap, 2,
+                       "周视图保持原样")
+        XCTAssertEqual(CalendarLayout.flowMetrics(width: 402, rowH: 94, lunar: true).flagGap, 2,
+                       "连续月历流保持原样")
+
+        // 年↔月 morph 的两端间距不同，插值必须覆盖它 —— 否则收尾换回真实图层时
+        // 标记条会「啪」地跳一下（与 MonthCanvas 里其它几何同一条约定）。
+        let mid = DayMetrics.lerp(CalendarLayout.miniMetrics(in: size),
+                                  CalendarLayout.monthMetrics(width: 402, areaH: 665, lunar: true),
+                                  0.5)
+        XCTAssertEqual(mid.flagGap, 1, accuracy: 0.001, "morph 中途应当是两端的中间值")
+    }
 }

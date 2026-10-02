@@ -174,7 +174,9 @@ enum DayDraw {
 
         if flags.contains(dayKey) {
             let w = min(20, m.cellW * 0.5)
-            let uy = numY + m.dayFont / 2 + 2
+            // 与日号的间距按 `flagGap` 走：年历的迷你月把它设成 0（日号小，2pt 会显得
+            // 标记条「掉在下面」），月/周/连续流仍是 2pt。
+            let uy = numY + m.dayFont / 2 + m.flagGap
             let underline = Path(roundedRect: CGRect(x: cx - w / 2, y: uy, width: w, height: 2),
                                  cornerRadius: Radius.hairline)
             let color: Color = isSelected ? Theme.onPrimary() : Theme.primary()

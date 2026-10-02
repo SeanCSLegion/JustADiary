@@ -109,6 +109,13 @@ struct DayMetrics {
     var lunarFont: CGFloat
     var lunarAlpha: Double
     var dividerAlpha: Double
+    /// 「这天有日记」那条标记条与日号之间的间距：**日号盒底 → 条顶**（pt）。
+    ///
+    /// 它是一个**绝对**值，而年历的日号只有 ~13pt（月视图是 20pt），同样的 2pt 摆在
+    /// 小字号下面就明显偏远 —— 实测年历里「日号视觉底边 → 条顶」有 4pt（2pt 间距加上
+    /// 字体自身的下伸部）。所以年历的迷你月用 `0`（见 `miniMetrics`），月/周/连续流
+    /// 保持 `2` 不变。
+    var flagGap: CGFloat = 2
 
     static func lerp(_ a: DayMetrics, _ b: DayMetrics, _ t: Double) -> DayMetrics {
         DayMetrics(cellW: CL.lerp(a.cellW, b.cellW, t),
@@ -116,7 +123,10 @@ struct DayMetrics {
                    dayFont: CL.lerp(a.dayFont, b.dayFont, t),
                    lunarFont: CL.lerp(a.lunarFont, b.lunarFont, t),
                    lunarAlpha: CL.lerp(a.lunarAlpha, b.lunarAlpha, t),
-                   dividerAlpha: CL.lerp(a.dividerAlpha, b.dividerAlpha, t))
+                   dividerAlpha: CL.lerp(a.dividerAlpha, b.dividerAlpha, t),
+                   // 年↔月 morph 的两端本来就不同（迷你月 0 / 月视图 2），这里跟着插值，
+                   // 收尾换回真实图层时标记条才不会「啪」地跳一下。
+                   flagGap: CL.lerp(a.flagGap, b.flagGap, t))
     }
 }
 
@@ -280,7 +290,10 @@ enum CalendarLayout {
                           dayFont: miniDayFont(cellW: cellW, cellH: cellH),
                           lunarFont: 6,
                           lunarAlpha: miniLunarHidden,
-                          dividerAlpha: 0)
+                          dividerAlpha: 0,
+                          // 年历的日号只有 ~13pt，标记条贴紧日号才不显得「掉在下面」
+                          // （月视图保持默认的 2pt，那里字号大一档，观感本来就合适）。
+                          flagGap: 0)
     }
 
     /// 「年→月」morph 里那条**下个月预告**（小标题 + 第一行日期）的几何。
