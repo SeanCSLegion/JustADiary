@@ -261,6 +261,11 @@ class DiaryTextView: UITextView {
         // 于是引用底色块被越拉越高：顶边不动、底边一路往下跑，下面的正文行数越多偏得越多。
         // 打开这个开关之后，每次尺寸变化都会重新按当前几何画一遍。
         blockDecorations.needsDisplayOnBoundsChange = true
+        // **重画之前那一帧也不能被拉伸**（B32）。尺寸变化与重画之间隔着一次提交：那一帧里
+        // 显示的还是旧图，默认的 `.resize` 会把它拉满新尺寸 —— 用户看到的就是「每次换行
+        // 之后，前面的引用背景闪一下」（最终位置是对的）。`.topLeft` 让旧图按原尺寸钉在
+        // 左上角（与画它时的坐标系一致），等重画把下面补上，这一帧就看不出来了。
+        blockDecorations.contentsGravity = .topLeft
         // 插在最底下：文本是后面的子层画的，装饰在文字后面。
         layer.insertSublayer(blockDecorations, at: 0)
         // 深浅色一换，引用块的图层颜色与标记图形的位图都要重画 —— 它们都是按当时的
@@ -388,11 +393,24 @@ class DiaryTextView: UITextView {
     /// 片段的 extra line fragment 上（`characterRange` 为空的那一条）。从文末**反向**
     /// 枚举取第一个片段即可，不用把整篇排一遍。
     ///
-    /// 空文档连片段都没有 —— 那一行就在文本容器顶端，高度取这一档字号的引用行高。
+    /// **但那条 extra line fragment 的几何靠不住**：它跟着排版进度走。实测同一条文末空行，
+    /// 刚插完换行时是 [26.90, 44.80]、下一拍是 [33.01, 50.91] —— 差一份行距（引用 6.11pt）。
+    /// 照它摆，回车那一瞬间块会偏高一份行距，过一拍才落到位（用户报的「每次换行之后，
+    /// 前面的引用背景闪一下」）。
+    ///
+    /// 所以这里改用**上一行真实文字的行框**当基准：空隙 = 上一段的 `lineSpacing` +
+    /// 这一段的 `paragraphSpacingBefore`（`PartsCodec` 装配时用的是同一个模型，见
+    /// `EditorBlockStyle.paragraphSpacing` 的注释）。上一行是已经排好的文字，三拍里都一样，
+    /// 于是块从第一拍起就在正确位置上（33.01，与输入一个字之后同一行框）。
+    ///
+    /// 整篇没有真实文字（空文档、或者只有空行）时退回 extra line fragment / 容器顶端。
     private func trailingEmptyLineFrame(layoutManager: NSTextLayoutManager,
                                         contentManager: NSTextContentManager) -> CGRect? {
+        let documentStart = contentManager.documentRange.location
         let documentEnd = contentManager.documentRange.endLocation
-        var frame: CGRect?
+        var extraFrame: CGRect?
+        var previousLine: CGRect?
+        var previousParagraphStart: Int?
         layoutManager.enumerateTextLayoutFragments(from: documentEnd,
                                                    options: [.ensuresLayout, .reverse]) { fragment in
             guard let element = fragment.textElement,
@@ -401,20 +419,37 @@ class DiaryTextView: UITextView {
                 return false
             }
             let origin = fragment.layoutFragmentFrame.origin
-            for line in fragment.textLineFragments where line.characterRange.length == 0 {
+            for line in fragment.textLineFragments {
                 let bounds = line.typographicBounds.offsetBy(dx: origin.x, dy: origin.y)
                 guard bounds.minY.isFinite else { continue }
-                // 高度换成这一档字号自己的行高、并贴下沿摆：extra line fragment 的行框
-                // 比真实行高出一份行距（和 `textFrame` 里同一条规则，见 `emptyLineBox`）。
-                let lineBox = emptyLineBox(extra: bounds, origin: .zero)
-                frame = frame.map { $0.union(lineBox) } ?? lineBox
+                if line.characterRange.length > 0 {
+                    // 文档顺序：最后一条真实行就是紧挨着文末空行的那一行。
+                    previousLine = bounds
+                } else {
+                    extraFrame = extraFrame.map { $0.union(bounds) } ?? bounds
+                }
             }
+            previousParagraphStart = contentManager.offset(from: documentStart, to: elementRange.location)
             return false
         }
-        if frame == nil, textStorage.length == 0 {
-            frame = CGRect(x: 0, y: 0, width: 0, height: quoteLineHeight)
+        if let previous = previousLine {
+            // 上一段的行距从它自己的段落样式上读（与 TextKit 排这一行用的是同一个值）。
+            let style = previousParagraphStart.flatMap {
+                textStorage.attribute(.paragraphStyle, at: min($0, max(0, textStorage.length - 1)),
+                                      effectiveRange: nil) as? NSParagraphStyle
+            }
+            let spacingBefore = (typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.paragraphSpacingBefore ?? 0
+            return CGRect(x: previous.minX,
+                          y: previous.maxY + (style?.lineSpacing ?? 0) + spacingBefore,
+                          width: 0, height: quoteLineHeight)
         }
-        return frame
+        if let extra = extraFrame {
+            return emptyLineBox(extra: extra, origin: .zero)
+        }
+        if textStorage.length == 0 {
+            return CGRect(x: 0, y: 0, width: 0, height: quoteLineHeight)
+        }
+        return nil
     }
 
     /// 引用字号画出来的行高（空段落的那一块用它当高度）。
@@ -424,11 +459,13 @@ class DiaryTextView: UITextView {
 
     /// 空段落那条 extra line fragment 对应的**行框**（文本容器坐标）。
     ///
-    /// 空行没有字形，TextKit 给它的这条行框比「真的输入一个字之后」那一行**高出一份
-    /// 行距**，而且是从下沿往上长的：实测同一条空引用行，空着时行框是 [26.90, 50.91]、
-    /// 输入一个字之后是 [33.01, 50.91]（下沿一样、上沿差 6.11pt，正好是引用的行距）。
-    /// 所以这里**取下沿当基准**、高度换成这一档字号的正常行高 —— 照上沿摆的话，块会比
-    /// 输入之后偏高一份行距（用户报的「新行的引用背景偏高，一打字才落到位」）。
+    /// 空行没有字形，TextKit 给它的这条行框比「真的输入一个字之后」那一行**高出一份行距**，
+    /// 而且是**贴下沿**的：实测中间那条空引用行，行框是 [26.90, 50.91]（高 24.01 = 行高
+    /// 17.9 + 行距 6.11），输入一个字之后是 [33.01, 50.91] —— 下沿一样、上沿差一份行距。
+    /// 所以这里取下沿当基准、高度换成这一档字号的正常行高。
+    ///
+    /// 文末那条**没有自己字符**的空行走 `trailingEmptyLineFrame`（它挂在上一段的 extra line
+    /// fragment 上，那条行框会跟着排版进度上下移，靠不住）。
     private func emptyLineBox(extra: CGRect, origin: CGPoint) -> CGRect {
         let bounds = extra.offsetBy(dx: origin.x, dy: origin.y)
         return CGRect(x: bounds.minX, y: bounds.maxY - quoteLineHeight,

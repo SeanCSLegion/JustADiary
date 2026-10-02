@@ -16,6 +16,17 @@ import SwiftUI
 ///   画在文字后面；
 /// * 两条链路（`PartsCodec` 装配 vs `RichEditorController` 实时输入）从同一处取几何，
 ///   所以同一个块在编辑态与阅读态**逐像素相同**（`testEditorAndReaderRenderIdentically`）。
+/// 复刻 `RichTextView.Coordinator` 里的光标回调：真机上光标一落定，UIKit 已经把打字态
+/// 重算过了，编辑器随后按光标所在那一段把它补回来。B32 那个「回车闪一下」只在带上这一步
+/// 的链路里出现，所以回归用例也得照着接。
+private final class SelectionResyncProbe: NSObject, UITextViewDelegate {
+    weak var controller: RichEditorController?
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        controller?.resyncBlockAttributesWithCaret()
+        controller?.notifyFormatChange()
+    }
+}
+
 final class BlockStyleRenderingTests: XCTestCase {
 
     private let width: CGFloat = 340
@@ -74,6 +85,44 @@ final class BlockStyleRenderingTests: XCTestCase {
         controller.dynamicTypeSize = typeSize
         controller.load(parts: parts)
         return (controller, tv)
+    }
+
+    /// 窗口版输入区：`makeEditor` 那个（不在窗口里、也没有第一响应者）复现不出 B32 的
+    /// 「回车闪一下」——那一下只在真实链路里出现（有窗口、有 delegate、高度跟着内容长）。
+    private var window: UIWindow?
+
+    private func makeWindowEditor(_ parts: [ContentPart]) -> (RichEditorController, PlaceholderTextView) {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 800))
+        let vc = UIViewController()
+        window.rootViewController = vc
+        window.makeKeyAndVisible()
+        self.window = window
+        let tv = PlaceholderTextView(frame: CGRect(x: 0, y: 0, width: width, height: 160), textContainer: nil)
+        tv.backgroundColor = .clear
+        tv.isScrollEnabled = false
+        tv.textContainerInset = BlockMetrics.textContainerInset
+        tv.textContainer.lineFragmentPadding = 0
+        tv.applyTypeSize(.large)
+        vc.view.addSubview(tv)
+        let controller = RichEditorController()
+        controller.textView = tv
+        controller.dynamicTypeSize = .large
+        controller.load(parts: parts)
+        let probe = SelectionResyncProbe()
+        probe.controller = controller
+        tv.delegate = probe
+        tv.becomeFirstResponder()
+        settle(tv)
+        return (controller, tv)
+    }
+
+    /// 让输入区按内容取高（真实链路里 SwiftUI 就是这么撑它的），再排一遍。
+    private func settle(_ tv: PlaceholderTextView) {
+        let height = max(160, tv.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)).height)
+        tv.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        window?.layoutIfNeeded()
+        tv.layoutIfNeeded()
+        tv.refreshBlockDecorations()
     }
 
     private func layout(_ tv: UITextView, height: CGFloat = 1200) {
@@ -302,28 +351,68 @@ final class BlockStyleRenderingTests: XCTestCase {
                              "空行的块在引用行下面")
     }
 
-    /// 空引用行的底色块要摆**将来输入文字的那个位置**上：没输入之前不能偏高（用户报的
-    /// 「换行之后、还没输入内容之前，新行的引用背景偏高，输入内容后才落到位」）。
+    /// 空引用行的底色块要摆**将来输入文字的那个位置**上，而且**回车那一瞬间就要在**。
     ///
-    /// 空段落那条 extra line fragment 的行框比真实行高出一份行距（实测空着 [26.90, 50.91]、
-    /// 有字 [33.01, 50.91]，下沿一样），所以块要贴**下沿**摆、高度换成正常行高。
+    /// 两条各自对应一个 bug：
+    /// * 空段落那条 extra line fragment 的行框比真实行高出一份行距（实测空着 [26.90, 50.91]、
+    ///   有字 [33.01, 50.91]，下沿一样），照上沿摆就会偏高（B31 ②）；
+    /// * 文末那条空行的 extra line fragment **自己会动**（刚插完换行 [26.90, 44.80]、
+    ///   下一拍 [33.01, 50.91]），照它摆，回车那一瞬间块偏高一份行距、过一拍才落到位 ——
+    ///   用户看到的就是「每次换行之后，前面的引用背景闪一下」（B32）。所以文末那条改成按
+    ///   **上一行真实文字 + 上一段行距 + 这一段段前距**算。
     func testEmptyQuoteLineBlockSitsWhereTheTypedLineWillBe() {
+        // ① 中间那条空引用行（有自己的换行符）。
         let (controller, editor) = makeEditor([quote("甲"), body("乙")])
+        layout(editor) // 先给输入区宽度：宽度为 0 时装饰层什么都不画
         editor.selectedRange = NSRange(location: 1, length: 0) // 引用文字末尾
         controller.resyncBlockAttributesWithCaret()
         XCTAssertTrue(controller.handleReturn(at: 1), "回车：中间那条空引用行")
-        layout(editor)
+        // 回车之后**先量一次**（这一帧就是用户看到的那一帧），再排版、再输入。
+        editor.refreshBlockDecorations()
         let empty = editor.blockDecorations.quotes.last?.frame
         XCTAssertNotNil(empty, "空引用行也要有块")
-
+        layout(editor)
+        let settled = editor.blockDecorations.quotes.last?.frame
         editor.insertText("丙")
         layout(editor)
         let typed = editor.blockDecorations.quotes.last?.frame
 
         XCTAssertEqual(empty?.minY ?? -1, typed?.minY ?? -2, accuracy: 0.5,
-                       "空着的时候块就该在输入之后的位置上（修复前偏高一份行距 6.11pt）")
+                       "空着的时候块就该在输入之后的位置上（B31 ② 之前偏高一份行距）")
         XCTAssertEqual(empty?.height ?? -1, typed?.height ?? -2, accuracy: 0.5,
-                       "高度也要一样（修复前多出一份行距）")
+                       "高度也要一样（B31 ② 之前多出一份行距）")
+        XCTAssertEqual(settled?.minY ?? -1, typed?.minY ?? -2, accuracy: 0.5)
+
+        // ② 文末那条空引用行（没有自己的字符）：回车过程中**每一次**装饰层刷新都必须已经
+        // 在对的位置上 —— 用户看到的就是回车这一帧（末一次刷新画出来的）。
+        // 照用户的路径**输入**一行引用（一起装载的文档排版是一次算完的，复现不出那一拍）。
+        let (controller2, editor2) = makeWindowEditor([])
+        controller2.toggleQuote()
+        editor2.insertText("甲")
+        controller2.resyncBlockAttributesWithCaret()
+        settle(editor2)
+
+        var duringReturn: [CGRect] = []
+        var capturing = false
+        controller2.onFormatChange = { [weak editor2] in
+            guard capturing, let editor2 else { return }
+            editor2.refreshBlockDecorations()
+            if let block = editor2.blockDecorations.quotes.last?.frame { duringReturn.append(block) }
+        }
+        capturing = true
+        XCTAssertTrue(controller2.handleReturn(at: 1), "回车：文末续出来的空引用行")
+        capturing = false
+
+        editor2.insertText("乙")
+        settle(editor2)
+        let afterTyping = editor2.blockDecorations.quotes.last?.frame
+
+        XCTAssertFalse(duringReturn.isEmpty, "回车过程中装饰层刷新过")
+        for block in duringReturn {
+            XCTAssertEqual(block.minY, afterTyping?.minY ?? -2, accuracy: 0.5,
+                           "回车这一帧块就不能偏高（B32：之前是 26.90，输入之后才跳到 33.01）")
+            XCTAssertEqual(block.height, afterTyping?.height ?? -2, accuracy: 0.5)
+        }
     }
 
     /// 装饰层在**文字后面**：文本视图的子层顺序不能把底色盖在字上面。
@@ -338,8 +427,9 @@ final class BlockStyleRenderingTests: XCTestCase {
 
     /// 渲染出来的引用底色块有几行像素（一行里匹配的像素要过半，免得把抗锯齿边缘算成行）。
     ///
-    /// 量的是**像素**而不是 `frame`：这个 bug 里几何一直是对的，错的是图层里那张已经画好的
-    /// 图 —— `refreshBlockDecorations` 每次都算对了，但 CALayer 在 bounds 变化时默认不重画。
+    /// 量的是**像素**而不是 `frame`：B30 那个 bug 里几何一直是对的，错的是图层里那张已经
+    /// 画好的图 —— `refreshBlockDecorations` 每次都算对了，但 CALayer 在 bounds 变化时默认
+    /// 不重画，只把旧图拉伸填满新尺寸。
     private func quoteBlockPixelHeight(_ tv: DiaryTextView) -> Int {
         let rendered = image(of: tv)
         guard let cgImage = rendered.cgImage else { return 0 }
