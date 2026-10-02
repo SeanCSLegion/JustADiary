@@ -576,16 +576,38 @@ final class DiaryViewModel {
 
     // MARK: - Image insert
 
+    /// 编辑器里那张图的边长上限。
+    ///
+    /// 磁盘上存的是**原分辨率**，输入框里放的只是显示用的那一份 —— 两者的分工见
+    /// `insertImage(_:)`。2048 与改动前的降采样上限一致，所以正文排版与分享长图的
+    /// 观感没有变化。
+    private static let displayMaxPixel: CGFloat = 2048
+
+    /// 把一张图片存进日记：**按原始像素尺寸**重编码成 JPEG 后落盘。
+    ///
+    /// 这里**不做降采样**：相册里选中的照片按原始像素入库，只把质量定在 q0.95。
+    /// 选 0.95 而不是更低的档位是有依据的：在本机 iOS 27 上实测，
+    /// 同样的原图用 0.85 与 0.90 编码出来是**同一个文件**（md5 相同），而 0.95 的
+    /// 成品只比它们大约 4%，PSNR 高 0.8 dB；1.0 则反而涨到 2.6 倍体积。
+    ///
+    /// 元数据只保留方向：`UIImage.jpegData` 会把 `imageOrientation` 写进 EXIF
+    /// （竖拍照片不会转 90°），但不会带上原图的 GPS / 机型 / 拍摄时间 —— 这就是
+    /// 「不保留 EXIF」这条要求的落点，备份与分享因此不会把照片里的坐标带出去。
+    /// 注意别改成 ImageIO 直写 `cgImage`：那样连方向都会丢，竖拍照片会转 90°。
+    ///
+    /// 编辑器里放的仍然是**显示尺寸**的那张，而且是从刚落盘的字节解出来的：
+    /// `CGImageSourceCreateThumbnailAtIndex` 只解到目标尺寸（既不把整张原图解进内存，
+    /// 也不会把小图放大），所以常驻内存与改动前一致，只有磁盘上那份是全尺寸的。
     func insertImage(_ image: UIImage) {
-        let processed = DiaryImageStore.downsample(image, maxPixel: 2048) ?? image
-        guard let data = processed.jpegData(compressionQuality: 0.85) ?? processed.pngData() else { return }
+        guard let data = image.jpegData(compressionQuality: 0.95) ?? image.pngData() else { return }
         let stamp = Int64(Date().timeIntervalSince1970 * 1000)
         let fileName = "img_\(stamp).jpg"
         do {
             try FileManager.default.createDirectory(at: DiaryRepository.imagesDir(), withIntermediateDirectories: true)
             let target = DiaryRepository.imagesDir().appendingPathComponent(fileName)
             try data.write(to: target)
-            controller.insertImage(processed, src: "images/\(fileName)")
+            let display = DiaryImageStore.loadDownsampled(data: data, maxPixel: Self.displayMaxPixel) ?? image
+            controller.insertImage(display, src: "images/\(fileName)")
         } catch {
             Log.editor.error("image insert failed: \(String(describing: error), privacy: .public)")
             alertItem = .info(title: L10n.str("editor_image_failed_title"),

@@ -87,14 +87,6 @@ nonisolated final class DiaryImageStore {
         return image
     }
 
-    static func downsample(_ image: UIImage, maxPixel: CGFloat) -> UIImage? {
-        guard maxPixel > 0 else { return image }
-        let maxDim = max(image.size.width, image.size.height)
-        guard maxDim > maxPixel else { return image }
-        guard let data = image.jpegData(compressionQuality: 0.9) ?? image.pngData() else { return image }
-        return loadDownsampled(data: data, maxPixel: maxPixel)
-    }
-
     static func rounded(_ image: UIImage, size: CGSize, radius: CGFloat) -> UIImage {
         guard radius > 0, size.width > 0, size.height > 0 else { return image }
         let renderer = UIGraphicsImageRenderer(size: size)

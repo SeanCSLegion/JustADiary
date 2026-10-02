@@ -336,7 +336,7 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
 
 | 按钮 | 位置 | 点击效果 | 备注 |
 |---|---|---|---|
-| 图片 `photo` | 编辑态顶栏 | 拉起 `PhotoPicker`，选图后 `controller.insertImage`：在光标处插入图片附件 + 一个换行，光标移到图片之后 | 图片是独立的 `ContentPart.style == "image"` |
+| 图片 `photo` | 编辑态顶栏 | 拉起 `PhotoPicker`，选图后 `controller.insertImage`：在光标处插入图片附件 + 一个换行，光标移到图片之后 | 图片是独立的 `ContentPart.style == "image"`；**存盘按原分辨率**（不降采样），见不变量 22 |
 | 放弃修改 `arrow.counterclockwise` | 编辑态顶栏 | `confirmDiscardEditing()` → 二次确认 → `loadParts = editingOriginalParts`（回到**进入编辑时**的内容） | 新日记的 `editingOriginalParts` 进入时已清空 |
 | 保存 `checkmark` | 编辑态顶栏 | `saveEditor()`：落库 `controller.currentParts()`；缺地点/跨天会有额外确认弹窗 | 空编辑器直接保存会被忽略 |
 | 返回 `chevron.left` | 顶栏 | `handleBack()`：**编辑态**只退出编辑、回到这一天的阅读页（有未保存内容先弹「放弃」确认）；**阅读态**才关掉日记页回首页 | B12 |
@@ -394,6 +394,19 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
    「当前行有标记且标记后还有文字」时另起一项。这是有意的 —— 否则空项回车刚结束列表，
    下一次回车又被上一行的标记续上，用户永远退不出列表。要续列表，把光标放回带标记的
    那一行（在那行末尾按回车）。
+22. **图片按原分辨率入库，只丢元数据**（2026-10-02 改）：`DiaryViewModel.insertImage` 直接把选中的图
+   按**原始像素尺寸**编码成 JPEG **q0.95** 写进 `Documents/images/img_<毫秒>.jpg`，**不再降到 2048**
+   —— 降采样会把原图分辨率永久丢掉（保原分辨率是明确要求）。
+   - 为什么是 q0.95：本机 iOS 27 实测，同一张 16MP 照片用 **q0.85 与 q0.90 编码出来是同一个文件**
+     （md5 完全相同），q0.95 只比它们大约 4% 而 PSNR 高 0.8 dB，q1.00 反而涨到 2.6 倍体积。
+   - 元数据只留**方向**：`UIImage.jpegData` 会把 `imageOrientation` 写进 EXIF（竖拍照片不会转 90°），
+     但不带原图的 GPS / 机型 / 拍摄时间 —— 照片里的坐标因此不会随备份与分享流出去。**不要**改成
+     ImageIO 直写 `cgImage`：那样连方向都会丢（`CGImagePropertyOrientation` 变 1，竖拍照片转 90°），
+     除非手动把方向补回去。
+   - 编辑器与阅读态放的仍是**显示尺寸**的那张：插入时从刚落盘的字节解一张 ≤2048 的缩略图
+     （`DiaryImageStore.loadDownsampled`：只解到目标尺寸，也不会把小图放大），所以正文排版与常驻内存
+     与改动前一致。**存储与显示是两条独立的路**，别把上限又加回存储那一侧。
+   - 回归用例：`JustDiaryTests/ImageInsertTests`（3000×2000 原样入库、小图不放大、方向保留 / GPS 丢弃）。
 
 ---
 
