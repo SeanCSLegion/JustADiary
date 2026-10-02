@@ -415,6 +415,27 @@ final class BlockStyleRenderingTests: XCTestCase {
         }
     }
 
+    /// B33：输入区**长高**时装饰层不能跟着改尺寸。
+    ///
+    /// 图层的尺寸以前从 `bounds` 起算，于是正文写到超过输入区最小高度之后，每换一行
+    /// 图层就跟着改一次尺寸；CALayer 一改尺寸就要重画那张位图 —— 用户看到的就是
+    /// 「正文写多了之后，引用背景闪一下」，哪怕算出来的几何一个字都没变。
+    func testGrowingTheEditorDoesNotResizeTheDecorationLayer() {
+        let (_, editor) = makeEditor([quote("引用"), body("下文")])
+        layout(editor, height: 200)
+        let layerBefore = editor.blockDecorations.frame
+        let blockBefore = editor.blockDecorations.quotes.first?.frame
+        let drawnBefore = quoteBlockPixelHeight(editor)
+        XCTAssertGreaterThan(drawnBefore, 20, "先确认底色块真的画出来了")
+
+        // 正文继续往下写：输入区从 200 长到 900。
+        layout(editor, height: 900)
+        XCTAssertEqual(editor.blockDecorations.frame, layerBefore,
+                       "输入区长高不该动装饰层的尺寸（一改尺寸就要重画一次，那一下就是闪）")
+        XCTAssertEqual(editor.blockDecorations.quotes.first?.frame, blockBefore, "块的几何没变")
+        XCTAssertEqual(quoteBlockPixelHeight(editor), drawnBefore, "画出来还是那一块")
+    }
+
     /// 装饰层在**文字后面**：文本视图的子层顺序不能把底色盖在字上面。
     func testDecorationLayerStaysBehindTheText() {
         let tv = makeReader([quote("引用")])

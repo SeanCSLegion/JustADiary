@@ -1544,8 +1544,9 @@ final class RichEditorController {
             let h = storedH * w / storedW
             if let image = DiaryImageStore.shared.image(for: attachment.payload.src,
                                                         maxPixel: max(storedW, storedH) * 3) {
-                attachment.image = DiaryImageStore.rounded(image, size: CGSize(width: w, height: h),
-                                                           radius: Radius.image)
+                attachment.image = DiaryImageStore.shared.rounded(for: attachment.payload.src, image: image,
+                                                                   size: CGSize(width: w, height: h),
+                                                                   radius: Radius.image)
             }
             attachment.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             // Re-adding the attribute is what makes the layout manager pick the
@@ -1729,7 +1730,9 @@ enum PartsCodec {
                     let h = storedH * w / storedW
                     let attachment = PayloadAttachment(payload: AttachmentPayload(src: src, w: storedW, h: storedH))
                     if let image = DiaryImageStore.shared.image(for: src, maxPixel: max(storedW, storedH) * 3) {
-                        attachment.image = DiaryImageStore.rounded(image, size: CGSize(width: w, height: h), radius: Radius.image)
+                        attachment.image = DiaryImageStore.shared.rounded(for: src, image: image,
+                                                                       size: CGSize(width: w, height: h),
+                                                                       radius: Radius.image)
                     }
                     attachment.bounds = CGRect(x: 0, y: 0, width: w, height: h)
                     let att = NSMutableAttributedString(attachment: attachment)

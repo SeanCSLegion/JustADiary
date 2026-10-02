@@ -48,6 +48,30 @@ nonisolated final class DiaryImageStore {
     private init() {
         cache.countLimit = 200
         cache.totalCostLimit = 150 * 1024 * 1024
+        roundedCache.countLimit = 200
+        roundedCache.totalCostLimit = 60 * 1024 * 1024
+    }
+
+    /// 圆角图缓存：见 `rounded(for:image:size:radius:)`。
+    private let roundedCache = NSCache<NSString, UIImage>()
+
+    /// 带缓存的圆角图。
+    ///
+    /// `rounded(_:size:radius:)` 是一次完整的位图渲染（裁剪 + 重画），而 `PartsCodec`
+    /// **每装配一次内容**就要给每张图来一次：阅读态每个块一次、进出编辑各一次、换字号
+    /// 再来一次、分享长图再一次。一张 340×255 的图在 3x 下是 1020×765 的位图，
+    /// 几张图叠起来就是「进编辑态卡一下」里能直接省掉的那一份。
+    ///
+    /// 键 = 原图 src + 目标尺寸 + 圆角半径 + 屏幕缩放（尺寸或字号变了才重画）。
+    func rounded(for src: String, image: UIImage, size: CGSize, radius: CGFloat) -> UIImage {
+        let scale = UIGraphicsImageRendererFormat.preferred().scale
+        let key = "\(normalizeKey(src))|\(Int(size.width.rounded()))x\(Int(size.height.rounded()))" +
+                  "|r\(Int(radius.rounded()))|s\(Int(scale.rounded()))" as NSString
+        if let cached = roundedCache.object(forKey: key) { return cached }
+        let result = DiaryImageStore.rounded(image, size: size, radius: radius)
+        let cost = result.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        roundedCache.setObject(result, forKey: key, cost: cost)
+        return result
     }
 
     func image(for src: String, maxPixel: CGFloat) -> UIImage? {

@@ -151,7 +151,16 @@ struct RichTextView: UIViewRepresentable {
             controller?.handleTextWidthChange(width)
         }
         if autoFocus {
+            // 键盘早一点弹：以前固定等 0.25s，用户的感觉就是「进了编辑还要顿一下才出键盘」。
+            // 视图在 SwiftUI 这一轮更新里就挂进窗口了，多数情况下下一轮 runloop 就能拿到
+            // first responder —— 所以先立刻试一次，0.25s 那次留着给「还没挂上」的情况兜底
+            // （两者都只在还没成为 first responder 时动手，不会把用户的焦点抢回来）。
+            DispatchQueue.main.async {
+                guard !tv.isFirstResponder else { return }
+                tv.becomeFirstResponder()
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                guard !tv.isFirstResponder else { return }
                 tv.becomeFirstResponder()
             }
         }

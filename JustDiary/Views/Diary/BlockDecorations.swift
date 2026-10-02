@@ -318,12 +318,18 @@ class DiaryTextView: UITextView {
         blockDecorations.blockRadius = BlockMetrics.quoteCornerRadius(typeSize)
         blockDecorations.barRadius = BlockMetrics.quoteBarRadius(typeSize)
         let quotes = quoteBlocks()
-        // 图层默认尺寸是 0，尺寸不对就什么都画不出来。
-        var covered = bounds
+        // 图层只**盖住底色块自己**，不跟着输入区一起长（B33）。
+        //
+        // 以前这里从 `bounds` 起算，于是输入区每长高一点（正文写到超过最小高度之后，
+        // 每换一行都会）图层就跟着改尺寸；CALayer 一改尺寸就得重画那张位图，用户看到的
+        // 就是「引用背景闪一下」—— 哪怕算出来的几何一个字都没变。
+        // 底色块只有引用段落才有，把它们的框圈住就够了：正文继续往下写、输入区变高，
+        // 这一层纹丝不动，也就没有那一次重画。
+        var covered = CGRect.zero
         for quote in quotes { covered = covered.union(quote.frame) }
         let target = CGRect(x: 0, y: 0,
                             width: max(1, max(bounds.width, covered.maxX)),
-                            height: max(1, max(bounds.height, covered.maxY)))
+                            height: max(1, covered.maxY))
         if blockDecorations.frame != target { blockDecorations.frame = target }
         blockDecorations.quotes = quotes
     }
