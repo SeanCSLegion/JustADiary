@@ -125,4 +125,28 @@ final class AdaptiveLayoutTests: XCTestCase {
                                   0.5)
         XCTAssertEqual(mid.flagGap, 1, accuracy: 0.001, "morph 中途应当是两端的中间值")
     }
+
+    /// 年历里「选中 / 今日」那个圆要占满格子：它被 `cellW − circleMargin` 夹住，而
+    /// 迷你格只有 ~15pt 宽 —— 沿用月视图的 3pt 留边时圆只占格宽 80%（月视图 94%），
+    /// 看上去就是"圆偏小"。迷你月改 1pt 之后占比与月视图一致（实测直径 12.3 → 14.3pt）。
+    func testYearMiniMonthsLetTheSelectionCircleFillTheCell() {
+        let size = CGSize(width: 402, height: 665)
+        let mini = CalendarLayout.miniMetrics(in: size)
+        XCTAssertEqual(mini.circleMargin, 1, "年历的迷你月")
+
+        let cellW = CalendarLayout.miniGridRect(month: 1, in: size).width / 7
+        XCTAssertEqual(cellW - mini.circleMargin, 14.33, accuracy: 0.05, "圆直径")
+        XCTAssertGreaterThan((cellW - mini.circleMargin) / cellW, 0.9,
+                             "圆至少要占格宽九成，才和月视图同一个观感")
+        // 相邻两格的圆之间仍要留得下一丝缝（今天与选中日相邻时不会连成一坨）。
+        XCTAssertGreaterThan(cellW - (cellW - mini.circleMargin), 0.5, "相邻圆的间隙")
+
+        for other in [CalendarLayout.monthMetrics(width: 402, areaH: 665, lunar: true),
+                      CalendarLayout.weekMetrics(width: 402, lunar: true),
+                      CalendarLayout.flowMetrics(width: 402, rowH: 94, lunar: true)] {
+            XCTAssertEqual(other.circleMargin, 3, "月 / 周 / 连续流保持原样")
+        }
+        let mid = DayMetrics.lerp(mini, CalendarLayout.monthMetrics(width: 402, areaH: 665, lunar: true), 0.5)
+        XCTAssertEqual(mid.circleMargin, 2, accuracy: 0.001, "morph 中途应当是两端的中间值")
+    }
 }

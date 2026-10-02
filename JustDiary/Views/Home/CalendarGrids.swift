@@ -121,8 +121,9 @@ enum DayDraw {
         let lunarY = top + m.dayFont + 4 + lineH / 2
         let circleC = top + contentH / 2
         // 选中圆比内容再大一圈，让「选中」比「今天」更醒目；但受格宽/格高夹住，
-        // 相邻两格之间不会碰在一起。
-        let circleD = min(m.cellW - 3, contentH + 14, m.cellH - 3)
+        // 相邻两格之间不会碰在一起。留边走 `circleMargin`：年历的迷你格太窄，
+        // 照搬月视图的 3pt 会让圆只占格宽的 80%（月视图 94%），看着偏小。
+        let circleD = min(m.cellW - m.circleMargin, contentH + 14, m.cellH - 3)
 
         if isSelected {
             context.fill(Path(ellipseIn: CGRect(x: cx - circleD / 2, y: circleC - circleD / 2,

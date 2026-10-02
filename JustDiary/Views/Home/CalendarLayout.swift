@@ -116,6 +116,12 @@ struct DayMetrics {
     /// 字体自身的下伸部）。所以年历的迷你月用 `0`（见 `miniMetrics`），月/周/连续流
     /// 保持 `2` 不变。
     var flagGap: CGFloat = 2
+    /// 选中圆 / 今日圆相对格子的**每边**留边（pt）。
+    ///
+    /// 它同样是绝对值，而它决定的是「圆占格宽的比例」：月视图格宽 ~57pt，减 3pt 之后
+    /// 圆占 94%；年历迷你月格宽只有 ~15pt，减 3pt 就只剩 80% —— 圆因此显得小一圈
+    /// （实测直径 12.3pt，而格子 15.3pt）。迷你月改用 `1`，占比回到与月视图一致的 ~93%。
+    var circleMargin: CGFloat = 3
 
     static func lerp(_ a: DayMetrics, _ b: DayMetrics, _ t: Double) -> DayMetrics {
         DayMetrics(cellW: CL.lerp(a.cellW, b.cellW, t),
@@ -126,7 +132,9 @@ struct DayMetrics {
                    dividerAlpha: CL.lerp(a.dividerAlpha, b.dividerAlpha, t),
                    // 年↔月 morph 的两端本来就不同（迷你月 0 / 月视图 2），这里跟着插值，
                    // 收尾换回真实图层时标记条才不会「啪」地跳一下。
-                   flagGap: CL.lerp(a.flagGap, b.flagGap, t))
+                   flagGap: CL.lerp(a.flagGap, b.flagGap, t),
+                   // 选中/今日圆的留边同理：不插值的话 morph 收尾圆圈会缩一下。
+                   circleMargin: CL.lerp(a.circleMargin, b.circleMargin, t))
     }
 }
 
@@ -293,7 +301,10 @@ enum CalendarLayout {
                           dividerAlpha: 0,
                           // 年历的日号只有 ~13pt，标记条贴紧日号才不显得「掉在下面」
                           // （月视图保持默认的 2pt，那里字号大一档，观感本来就合适）。
-                          flagGap: 0)
+                          flagGap: 0,
+                          // 迷你格只有 ~15pt 宽：留边按 3pt 算的话圆只占格宽 80%，
+                          // 比月视图（94%）小一圈，看着就是「圆偏小」。
+                          circleMargin: 1)
     }
 
     /// 「年→月」morph 里那条**下个月预告**（小标题 + 第一行日期）的几何。
