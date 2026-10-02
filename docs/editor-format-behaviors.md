@@ -15,7 +15,7 @@
 > `JustDiary/Views/Diary/RichTextEngine.swift`。其中 `paragraphRanges(covering:)`
 > 一段的范围判定有缺陷，是「样式没及时生效 / 影响范围不对」的主要来源（见第五节 B1）。
 >
-> **状态：R1–R4 已按本文实现并验证**（B1–B11、B12–B34 全部修复，见第五、六、七节；
+> **状态：R1–R4 已按本文实现并验证**（B1–B11、B12–B35 全部修复，见第五、六、七节；
 > 只有 B15 的第 ② 项是「接受为已知限制」）。
 > 第二、三节的表格是**规范**（应该是什么样），第四、五节保留**修复前的现状**，
 > 便于回看问题从哪来。
@@ -234,6 +234,7 @@ Home Indicator 上方）。横屏曾经改成「竖排贴右侧」的面板 —�
 | **B32** | 中 | `DiaryTextView.trailingEmptyLineFrame(...)`（`BlockDecorations.swift`） | **每次换行之后，前面的引用背景会闪一下**（用户报）：最终位置是对的，但回车那一瞬间块偏高一份行距，过一拍才落到位 —— 实测文末那条空引用行，回车过程中装饰层算出来的位置先是 26.90，最后才是 33.01 | 文末那条空行挂在上一段片段的 **extra line fragment** 上，而那条行框**跟着排版进度上下移**：刚插完换行时是 [26.90, 44.80]、下一拍才是 [33.01, 50.91]（差一份行距 6.11pt）。B31 的「贴下沿摆」只对**已经稳定**的那种行框成立（中间那条空引用行就是稳定的），文末这条不稳定，所以还是会闪 | 文末那条空行改成不看 extra line fragment，用**上一行真实文字的行框 + 空隙**算：空隙 = 上一段的 `lineSpacing` + 这一段的 `paragraphSpacingBefore`（与 `PartsCodec` 装配模型同一套）。上一行是已经排好的文字，几拍里都一样，于是回车第一拍块就在 33.01。另外给装饰层加 `contentsGravity = .topLeft`：尺寸变化与重画之间那一帧，旧图按原尺寸原地摆、不被拉伸 | ✅ 修 |
 | **B33** | 中 | `DiaryTextView.refreshBlockDecorations()`（`BlockDecorations.swift`） | **正文写多、输入区超过最小高度之后，每换一行引用背景都要闪一下**（用户报）：几何算得没错，闪的是那一次重画 | 装饰层的尺寸从 `bounds` 起算，输入区每长高一点图层就跟着改尺寸；CALayer 一改尺寸就得重画那张位图 —— 而输入区在「内容超过最小高度 160pt」之后每打一行都会长高 | 图层只**盖住底色块自己**（`covered` 从 `CGRect.zero` 起算，不再并 `bounds`）：正文往下写、输入区变高，这一层纹丝不动，也就没有那一次重画 | ✅ 修 |
 | **B34** | 中 | `PartsCodec`（`RichTextEngine.swift`）、`DiaryImageStore`（`MediaStore.swift`）、`RichTextView.makeUIView` | **进编辑态有点卡**（用户报）：不知道是加载、定位还是键盘 | ① 每装配一次内容都要把每张图**重新圆角化**一次（`UIGraphicsImageRenderer` 整张位图重画，实测 1200×900 → 340×255@3x 要 **17.7ms/张**），而「进编辑」正好要装配一次；② 键盘固定等 0.25s 才 `becomeFirstResponder`，那 0.25s 就是「点了没反应」的那一下。定位那条链（`beginLocate` → `currentLocation` → 反向地理编码）本来就是 async / 非阻塞，不需要改 | ① `DiaryImageStore.rounded(for:image:size:radius:)`：按 **src + 尺寸 + 圆角 + 屏幕缩放** 缓存圆角图，`PartsCodec` 与 `refitImages` 都走它（实测缓存命中 0.16ms/张）；② 视图挂进窗口的那一轮就先试一次 `becomeFirstResponder`，0.25s 那次留作兜底 | ✅ 修 |
+| **B35** | 高 | `BlockDecorationLayer`（`BlockDecorations.swift`）、`RichEditorController.ensureCaretGeometry()` | **每次新建一个引用都会闪一下**（用户报；上一轮把「写正文行」那一条修好之后剩下的） | 两件事叠在一起：① 装饰层是**自己 new 出来的 CALayer**，不是 UIView 的 backing layer —— 直接改 `frame` / `backgroundColor` 会套上默认 **0.25s 的隐式动画**，底色块于是「长出来」而不是「出现」；新建引用正好要改这两样（图层尺寸从 1pt 变成一块高、块的样式落地），所以每次都闪。② `applyBlockStyle` / `toggleQuote` 只在改文本时刷一次装饰层，而那一次发生在 `setTypingAttributes` 与这一段排版**之前**：空行上新建引用时它算出来的还是「这一行不是引用」，块根本不画，要等下一次布局（下一次按键 / 滚动）才出现 | ① 装饰层改成**样式子层**（底色 = `backgroundColor` + `cornerRadius`，竖条同理），不再用 `draw(in:)`：没有位图就没有「改尺寸要重画」这一拍（B30/B32 治的是它的副作用），并且所有几何/样式都包在 `CATransaction` 的 `setDisableActions(true)` 里，瞬时生效；② `ensureCaretGeometry()` 每一遍排版之后补一次 `notifyFormatChange()`，块在点下去的那一帧就到位 | ✅ 修 |
 
 ### B1 的细节（为什么「行首」这个位置这么常见）
 
@@ -290,6 +291,7 @@ paragraphRanges 的循环：
 | **B32** | `trailingEmptyLineFrame` 改成「上一行真实行框 + 上一段 lineSpacing + 这一段 paragraphSpacingBefore」；装饰层加 `contentsGravity = .topLeft` | `BlockStyleRenderingTests.testEmptyQuoteLineBlockSitsWhereTheTypedLineWillBe` ②（窗口 + 第一响应者 + 光标回调的链路里，照用户路径**输入**一行引用再回车，检查回车过程中**每一次**装饰层刷新算出来的块都在最终位置上；去掉上一行基准就是 26.90 vs 33.01 —— 先确认能红再确认能绿） |
 | **B33** | `refreshBlockDecorations` 的 `covered` 从 `CGRect.zero` 起算（不再并 `bounds`） | `BlockStyleRenderingTests.testGrowingTheEditorDoesNotResizeTheDecorationLayer`（输入区 200 → 900，装饰层 frame 与块的几何都必须一动不动；去掉这一句就是 200 → 900） |
 | **B34** | ① `DiaryImageStore.rounded(for:image:size:radius:)` + 缓存；`PartsCodec` / `refitImages` 改走它；② `RichTextView.makeUIView` 里立刻试一次 `becomeFirstResponder` | `MediaStoreCacheTests`（同一 src + 尺寸再装配一次必须复用**同一个实例**；尺寸变了要重画 —— 去掉缓存第一条就变红）；`EditorFlowUITests`（键盘 / 光标那几条用例守住进编辑后的行为） |
+| **B35** | ① `BlockDecorationLayer` 换成样式子层（`backgroundColor` + `cornerRadius`，`CATransaction.setDisableActions(true)` 包住所有几何/样式；容器 frame 同样关动画）；② `ensureCaretGeometry()` 两遍排版后各补一次 `notifyFormatChange()` | `BlockStyleRenderingTests.testCreatingAQuoteOnAnEmptyLineDrawsItsBlockRightAway`（空行上点「引用」，同一帧就要有块、位置 34.51，且装饰层与子层上不许挂隐式动画；去掉补刷那一条就是「0 个块」—— 先确认能红再确认能绿）；既有的引用的像素用例（`testQuoteDecorationSpansTheColumnAndKeepsTheBarInside`、`testEditorAndReaderRenderIdentically`…）守住换成样式子层之后的画法一致 |
 
 行距 / 段距 / 图片留白的模型与实测数值不在本文范围，见
 `docs/editor-typography.md` 第五节（含 `JustDiaryTests/EditorSpacingTests`）。
@@ -386,7 +388,9 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
 16. **空行的那条行框比真实行高一份行距、要从下沿对齐**（B31）：空段落只有 extra line fragment，它的上沿比「输入一个字之后」高一份行距（引用 6.11pt），块按上沿摆就会偏高 —— 一打字才落到位。**文末那条空行例外**（B32）：它挂在上一段的 extra line fragment 上，那条行框会跟着排版进度上下移，连下沿都靠不住 —— 那一行改用「上一行真实文字的行框 + 上一段行距 + 这一段段前距」算，回车第一拍就落在最终位置上（否则会闪一下）。
 17. **装饰层只盖住底色块，不跟输入区长高**（B33）：这一层一改尺寸就得重画一次位图，而输入区在内容超过最小高度之后每打一行都会长高 —— 图层跟着长，用户就看到「每换一行闪一下」。`covered` 只并底色块的框（宽度仍取输入区宽度）。
 18. **装配内容里的图片走缓存**（B34）：圆角化是一次整张位图的重画（实测 17.7ms/张），而装配在进出编辑 / 换字号 / 旋转 / 分享时都会各来一次；缓存键 = src + 尺寸 + 圆角 + 屏幕缩放。
-19. **光标停在「列表项下一行的空行」上时回车不续列表**：那一行自己没有标记，而 R3 只在
+19. **装饰层是样式子层，且必须关掉隐式动画**（B35）：它不是 UIView 的 backing layer，直接改 `frame` / `backgroundColor` 会套上默认 0.25s 的隐式动画 —— 底色块会「长出来」而不是「出现」，看上去就是闪一下（B30–B34 追的那些闪，根子都在这里）。所以：用 `backgroundColor` + `cornerRadius` 画（没有位图，也就没有「改尺寸要重画」），所有几何/样式写在 `CATransaction.setDisableActions(true)` 里。
+20. **行样式切换之后要等排版落定再刷一次装饰层**（B35）：`applyBlockStyle` / `toggleQuote` 里那次刷新发生在 `setTypingAttributes` 与这一段排版之前，空行上新建引用时它算出来的还是「这一行不是引用」——`ensureCaretGeometry()` 每排完一遍补一次 `notifyFormatChange()`。
+21. **光标停在「列表项下一行的空行」上时回车不续列表**：那一行自己没有标记，而 R3 只在
    「当前行有标记且标记后还有文字」时另起一项。这是有意的 —— 否则空项回车刚结束列表，
    下一次回车又被上一行的标记续上，用户永远退不出列表。要续列表，把光标放回带标记的
    那一行（在那行末尾按回车）。
@@ -413,7 +417,7 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
 | 空行 / 段落范围判定 | `RichTextEngine.swift:1189-1239` |
 | 空行自己的换行符：取位置 / 写行样式 / 写对齐 / 跟打字态同步（B22） | `RichTextEngine.swift:1258-1343` |
 | 光标 / 选区按摘掉的标记回位（B23） | `RichTextEngine.swift:1374-1393` |
-| 末尾空段落的排版与光标几何（**B27**） | `RichTextEngine.swift:512-543` |
+| 末尾空段落的排版与光标几何（**B27**；**B35** 每遍排版后补刷装饰层） | `RichTextEngine.swift:500-534` |
 | `activeStyles`（B8） | `RichTextEngine.swift:1395-1415` |
 | `refitImages`（B10） | `RichTextEngine.swift:1525-1557` |
 | `apply`（含选区还原） | `RichTextEngine.swift:1602-1618` |
@@ -423,7 +427,7 @@ xcodebuild test -project JustDiary.xcodeproj -scheme JustDiary \
 | 进编辑态尽早拿 first responder（**B34**） | `JustDiary/Views/Diary/RichTextView.swift:153-168` |
 | 落库解析（B9 所在） | `RichTextEngine.swift:1910-2008` |
 | 引用底色块（**B29**：`quoteBlocks` / `trailingEmptyLineFrame`，含文末那条空行；**B31/B32**：`emptyLineBox` 贴下沿、`textFrame` 的 `emptyParagraph:`、文末那条按「上一行 + 空隙」算） | `JustDiary/Views/Diary/BlockDecorations.swift:332-434`、`407-453`、`469-475` |
-| 装饰层与「尺寸变了要重画 / 重画前那一帧不拉伸 / 只盖住底色块」（**B30/B32/B33**：`installDecorations` / `refreshBlockDecorations`） | `JustDiary/Views/Diary/BlockDecorations.swift:189-229`、`257-273`、`308-336` |
+| 装饰层与它的画法（**B30/B32/B33/B35**：`BlockDecorationLayer` 的样式子层与关动画、只盖住底色块、`installDecorations` / `refreshBlockDecorations`） | `JustDiary/Views/Diary/BlockDecorations.swift:184-268`、`299-310`、`343-374` |
 | 阅读区块渲染（图片 padding、块间距 0） | `JustDiary/Views/Diary/MediaViews.swift:61-92` |
 | 阅读块规范化（去结尾空行 / 去图片段距） | `RichTextEngine.swift:1782-1798`（`PartsCodec.readerChunk`；由 `ReadTextView.rebuild()` 91-104 调用） |
 | 格式栏位置（键盘上方、横竖屏一致，B11） | `JustDiary/Views/Diary/DiaryPageView.swift:37-54` |

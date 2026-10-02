@@ -436,6 +436,40 @@ final class BlockStyleRenderingTests: XCTestCase {
         XCTAssertEqual(quoteBlockPixelHeight(editor), drawnBefore, "画出来还是那一块")
     }
 
+    /// B35：点「引用」创建新引用时，底色块必须**在点下去这一帧就画出来**。
+    ///
+    /// `applyBlockStyle` / `toggleQuote` 原来只在改文本时刷一次装饰层，而那一次发生在
+    /// `setTypingAttributes` 与这一段排版**之前** —— 空行上新建引用时它算出来的还是
+    /// 「这一行不是引用」，底色块根本不画，要等下一次布局才出现（看上去就是闪一下）。
+    /// `ensureCaretGeometry()` 排完补刷一次之后，块在同一帧里就位。
+    func testCreatingAQuoteOnAnEmptyLineDrawsItsBlockRightAway() {
+        let (controller, editor) = makeEditor([body("甲")])
+        layout(editor)
+        // 真机链路里装饰层由 `RichTextView.Coordinator.notifyFormatChange` 刷新。
+        controller.onFormatChange = { [weak editor] in editor?.refreshBlockDecorations() }
+
+        editor.selectedRange = NSRange(location: 2, length: 0) // 文末那条空行
+        controller.resyncBlockAttributesWithCaret()
+        XCTAssertTrue(editor.blockDecorations.quotes.isEmpty, "还没点引用：没有块")
+
+        controller.toggleQuote() // 点「引用」
+        XCTAssertEqual(editor.blockDecorations.quotes.count, 1,
+                       "点下去这一帧就要有底色块（以前要等下一次布局才出现）")
+        XCTAssertEqual(editor.blockDecorations.quotes.first?.frame.minY ?? -1, 34.51, accuracy: 0.5,
+                       "块落在这一行将来输入的位置上（正文行下沿 + 行距 + 段前距）")
+
+        // 而且必须**瞬时**到位：装饰层不是 UIView 的 backing layer，不关掉隐式动画的话
+        // 底色块会套上默认 0.25s 的动画「长出来」—— 那一下就是用户看到的闪。
+        let pieces = editor.blockDecorations.sublayers ?? []
+        XCTAssertFalse(pieces.isEmpty, "底色块要有自己的子层")
+        for piece in pieces {
+            XCTAssertTrue(piece.animationKeys()?.isEmpty ?? true,
+                          "子层上不该挂着隐式动画：\(piece.animationKeys() ?? [])")
+        }
+        XCTAssertTrue(editor.blockDecorations.animationKeys()?.isEmpty ?? true,
+                      "装饰层自己也不该有隐式动画")
+    }
+
     /// 装饰层在**文字后面**：文本视图的子层顺序不能把底色盖在字上面。
     func testDecorationLayerStaysBehindTheText() {
         let tv = makeReader([quote("引用")])

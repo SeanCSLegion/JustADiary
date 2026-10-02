@@ -184,8 +184,19 @@ enum MarkerGlyph {
 /// 引用段落的底色与左侧竖条。
 ///
 /// 画在文本视图**自己的 layer 里、所有子层的最下面**，所以它在文字后面，跟着内容一起
-/// 滚动。之所以不用 `.backgroundColor` 属性：那个底色只覆盖有字的地方 —— 行尾参差、
-/// 没有内边距、也没有竖条。
+/// 滚动。之所以不用文字上的 `.backgroundColor` 属性：那个底色只覆盖有字的地方 ——
+/// 行尾参差、没有内边距、也没有竖条。
+///
+/// 每一块是**两个样式子层**（底色 = `backgroundColor` + `cornerRadius`，竖条同理），
+/// 由合成器直接画。这里刻意**不用 `draw(in:)`**（B35）：
+///
+/// * `draw(in:)` 的图层一改尺寸就得重画那张位图，而这一层的几何当然会变（引用块出现 /
+///   变高、输入区长高……）—— 那一次重画在屏幕上就是「闪一下」（B30/B31/B32/B33 追的
+///   都是它的不同触发路径）；
+/// * `backgroundColor` + `cornerRadius` 是图层**样式**，改尺寸/挪位置由合成器铺，
+///   既没有位图可拉伸、也没有「重画还没到」的那一拍。
+///
+/// 每块两个子层，只在**块的个数**变化时增删；几何变化只是改 frame，不触发任何重画。
 final class BlockDecorationLayer: CALayer {
     struct QuoteBlock: Equatable {
         /// 底色块（已经含上下内边距、横跨整个正文列）。
@@ -194,38 +205,69 @@ final class BlockDecorationLayer: CALayer {
         var bar: CGRect
     }
 
+    /// 一块用两个子层：偶数下标是底色，奇数下标是竖条。
+    private var pieces: [CALayer] = []
+
     var quotes: [QuoteBlock] = [] {
-        didSet { if quotes != oldValue { setNeedsDisplay() } }
+        didSet { if quotes != oldValue { rebuild() } }
     }
-    // 每个 setter 都先比一次：这些值每次布局都会被重新算一遍并赋回来，无脑
-    // `setNeedsDisplay()` 会让图层在**每一帧**都重画（滚动时最明显）。
     var blockColor: UIColor = .clear {
-        didSet { if !blockColor.isEqual(oldValue) { setNeedsDisplay() } }
+        didSet { if !blockColor.isEqual(oldValue) { applyStyle() } }
     }
     var barColor: UIColor = .clear {
-        didSet { if !barColor.isEqual(oldValue) { setNeedsDisplay() } }
+        didSet { if !barColor.isEqual(oldValue) { applyStyle() } }
     }
     var blockRadius: CGFloat = 9 {
-        didSet { if blockRadius != oldValue { setNeedsDisplay() } }
+        didSet { if blockRadius != oldValue { applyStyle() } }
     }
     var barRadius: CGFloat = 1.5 {
-        didSet { if barRadius != oldValue { setNeedsDisplay() } }
+        didSet { if barRadius != oldValue { applyStyle() } }
     }
 
-    override func draw(in ctx: CGContext) {
-        guard !quotes.isEmpty else { return }
-        ctx.setFillColor(blockColor.cgColor)
-        for quote in quotes {
-            ctx.addPath(CGPath(roundedRect: quote.frame, cornerWidth: blockRadius,
-                               cornerHeight: blockRadius, transform: nil))
-            ctx.fillPath()
+    /// 子层的分辨率跟着父层走（圆角由合成器画，也要这个值）。
+    override var contentsScale: CGFloat {
+        didSet {
+            for piece in pieces { piece.contentsScale = contentsScale }
         }
-        ctx.setFillColor(barColor.cgColor)
-        for quote in quotes {
-            ctx.addPath(CGPath(roundedRect: quote.bar, cornerWidth: barRadius,
-                               cornerHeight: barRadius, transform: nil))
-            ctx.fillPath()
+    }
+
+    /// 按块数增删子层，并把几何 / 样式铺上去。
+    private func rebuild() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        while pieces.count < quotes.count * 2 {
+            let piece = CALayer()
+            pieces.append(piece)
+            addSublayer(piece)
         }
+        while pieces.count > quotes.count * 2 {
+            pieces.removeLast().removeFromSuperlayer()
+        }
+        CATransaction.commit()
+        applyStyle()
+    }
+
+    private func applyStyle() {
+        // **关掉隐式动画**（B35）：这一层不是 UIView 的 backing layer，直接改
+        // `frame` / `backgroundColor` 会套上默认 0.25s 的隐式动画 —— 底色块于是
+        // 「长出来」而不是「出现」，看上去就是闪一下。所有几何/样式都瞬时生效。
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (index, quote) in quotes.enumerated() {
+            let block = pieces[index * 2]
+            apply(block, frame: quote.frame, color: blockColor, radius: blockRadius)
+            let bar = pieces[index * 2 + 1]
+            apply(bar, frame: quote.bar, color: barColor, radius: barRadius)
+        }
+        CATransaction.commit()
+    }
+
+    private func apply(_ piece: CALayer, frame: CGRect, color: UIColor, radius: CGFloat) {
+        // 只在真的变了的时候写：`frame` 赋值会走一趟合成器的属性事务，没必要每帧都来。
+        if piece.frame != frame { piece.frame = frame }
+        if piece.cornerRadius != radius { piece.cornerRadius = radius }
+        piece.contentsScale = contentsScale
+        if piece.backgroundColor != color.cgColor { piece.backgroundColor = color.cgColor }
     }
 }
 
@@ -256,16 +298,9 @@ class DiaryTextView: UITextView {
 
     private func installDecorations() {
         blockDecorations.contentsScale = displayScale
-        // **尺寸变了要重画**（B30）。这一层的高度跟着输入区走（输入区的高度又跟着行数长），
-        // 而 CALayer 在 bounds 变化时默认**不重画**，只把上一次画好的内容拉伸填满新尺寸 ——
-        // 于是引用底色块被越拉越高：顶边不动、底边一路往下跑，下面的正文行数越多偏得越多。
-        // 打开这个开关之后，每次尺寸变化都会重新按当前几何画一遍。
-        blockDecorations.needsDisplayOnBoundsChange = true
-        // **重画之前那一帧也不能被拉伸**（B32）。尺寸变化与重画之间隔着一次提交：那一帧里
-        // 显示的还是旧图，默认的 `.resize` 会把它拉满新尺寸 —— 用户看到的就是「每次换行
-        // 之后，前面的引用背景闪一下」（最终位置是对的）。`.topLeft` 让旧图按原尺寸钉在
-        // 左上角（与画它时的坐标系一致），等重画把下面补上，这一帧就看不出来了。
-        blockDecorations.contentsGravity = .topLeft
+        // 这一层是**样式子层**（B35）：底色块是 `backgroundColor` + `cornerRadius`，没有位图，
+        // 所以不需要 `needsDisplayOnBoundsChange` / `contentsGravity` 那一套 —— 尺寸变化与
+        // 重画之间的那一帧本来就不存在（B30/B32 治的是 `draw(in:)` 的副作用）。
         // 插在最底下：文本是后面的子层画的，装饰在文字后面。
         layer.insertSublayer(blockDecorations, at: 0)
         // 深浅色一换，引用块的图层颜色与标记图形的位图都要重画 —— 它们都是按当时的
@@ -330,7 +365,13 @@ class DiaryTextView: UITextView {
         let target = CGRect(x: 0, y: 0,
                             width: max(1, max(bounds.width, covered.maxX)),
                             height: max(1, covered.maxY))
-        if blockDecorations.frame != target { blockDecorations.frame = target }
+        if blockDecorations.frame != target {
+            // 同样的理由：这一层不是 UIView 的 backing layer，改 frame 会套上默认动画。
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            blockDecorations.frame = target
+            CATransaction.commit()
+        }
         blockDecorations.quotes = quotes
     }
 

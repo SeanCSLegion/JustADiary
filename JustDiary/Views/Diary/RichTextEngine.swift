@@ -509,12 +509,20 @@ final class RichEditorController {
     /// 两步：① 把「光标那一段 → 文档末尾」这一段排出来（增量，不整篇重排）；
     /// ② 在**下一轮 runloop**再让 UIKit 重取一次几何 —— 切换那一瞬间布局还没算完，
     /// 早做无效（上一轮试过「切换时立刻抖选区」，确认没用）。
+    ///
+    /// 每一步排完之后都补一次 `notifyFormatChange()`（B35）：调用方在改文本 / 打字态时已经
+    /// 刷新过一次装饰层，但那一次发生在**这一段排版之前** —— 空行上新建引用时它算出来的还是
+    /// 「这一行不是引用」，底色块根本不画；而后面没有第二次刷新，用户看到的就是引用背景
+    /// 晚一拍才出现（那一下闪）。排完再刷一次，块在点下去的这一帧就到位。
     func ensureCaretGeometry() {
         guard let tv = textView else { return }
         layOutThroughDocumentEnd(in: tv)
+        notifyFormatChange()
         DispatchQueue.main.async { [weak self, weak tv] in
             guard let self, let tv, tv.isFirstResponder else { return }
             self.layOutThroughDocumentEnd(in: tv)
+            // 下一轮那一遍排版也补一次：文末那一段是这一遍才真正排出来的。
+            self.notifyFormatChange()
         }
     }
 
