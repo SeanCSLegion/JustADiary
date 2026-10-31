@@ -146,6 +146,9 @@ struct AdaptiveLayout: Equatable {
     /// 整段变成 gutter：左栏在折痕前 `foldClearance` 结束，右栏在折痕后
     /// `foldClearance` 开始。这样内容不会压在曲面上，视觉上接近 Apple 的 50/50。
     /// 折痕贴边、或两栏会被挤到最低宽度以下时退回默认分栏。
+    ///
+    /// 竖屏半折的**横带**刻意不在这里处理：月历是连续滚动内容，按 Apple 指南
+    /// 不需要避让折痕；只有横屏分栏才把竖带当 gutter（D2）。
     func splitMetrics(containerWidth: CGFloat) -> SplitMetrics {
         let base = baseSplitMetrics(containerWidth: containerWidth)
         guard let fold = activeDivision,
@@ -411,6 +414,32 @@ extension View {
     /// 应用四屏统一的页面水平边距（见 `AdaptiveLayout.leadingPagePadding`）。
     func adaptivePagePadding() -> some View {
         modifier(AdaptivePagePadding())
+    }
+
+    /// 常规宽度的竖屏（iPhone Duo 内屏）把内容限宽并居中。
+    ///
+    /// Duo 内屏竖屏是 669pt 的 Regular/Regular，直接把 iPhone 单栏拉宽会让
+    /// 设置/足迹/搜索的行距显得空。按 D1 的决定只做**限宽居中**，不改这些
+    /// 页面的单栏结构与交互；首页保持原样（年/月/周 morph 的几何不受影响）。
+    /// 其他形态（普通 iPhone、Duo 横屏、Duo 外屏）不加这一层。
+    func regularWidthContentCap(_ width: CGFloat = 600) -> some View {
+        modifier(RegularWidthContentCap(width: width))
+    }
+}
+
+private struct RegularWidthContentCap: ViewModifier {
+    @Environment(\.adaptiveLayout) private var layout
+    let width: CGFloat
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if layout.isRegularWidth && layout.isPortrait {
+            content
+                .frame(maxWidth: width)
+                .frame(maxWidth: .infinity, alignment: .center)
+        } else {
+            content
+        }
     }
 }
 

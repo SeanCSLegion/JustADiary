@@ -12,6 +12,8 @@ struct SearchView: View {
 
     var body: some View {
         content
+            // Duo 内屏竖屏（Regular/Regular）限宽居中；横屏/外屏不变。
+            .regularWidthContentCap()
             .onAppear { vm.openDiary = openDiary }
             .sheet(isPresented: $vm.showTimeSheet) {
                 timeSheet

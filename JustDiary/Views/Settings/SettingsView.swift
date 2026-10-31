@@ -17,6 +17,8 @@ struct SettingsView: View {
             }
             // 四屏统一的页面边距（左侧让开系统占位）
             .adaptivePagePadding()
+            // Duo 内屏竖屏（Regular/Regular）限宽居中；其他形态不变。
+            .regularWidthContentCap()
             .padding(.top, 12)
         }
         .task { await vm.refreshStatus() }

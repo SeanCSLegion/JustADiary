@@ -67,6 +67,8 @@ struct FootprintView: View {
                 .padding(.bottom, max(24, layout.bottomInset + 44))
             }
         }
+        // Duo 内屏竖屏限宽居中；横屏/外屏和普通 iPhone 不变。
+        .regularWidthContentCap()
         .padding(.top, 12)
         .task { await vm.load() }
         .onReceive(NotificationCenter.default.publisher(for: .diaryVersionChanged)) { _ in

@@ -513,12 +513,19 @@ Apple 的适配指南与落地情况：
 4. 窗口尺寸：`resolve` 用 key window bounds，而不是 `screen.bounds`，
    50/50 分屏 / 可缩放窗口不再按整块屏算。
 
-**仍未做（P1/P2）**：
+**已实现（P1，2026-10-31）**：
 
-1. 半折**竖屏**的横带：月历仍横穿折痕。D2 还没拍板（加 40pt 空隙 vs 只挪浮动控件）。
-2. 内屏竖屏的常规宽度版面：目前仍是单栏；D1（限宽 vs 双列）还没定。
-3. `ArrangementView` / `onHingeChange` / 多窗口 / UI 测试矩阵。
-4. 设计稿：Duo 仍没有单独稿；如果 D1 选双列，需要补 669×951 / 951×669 的对照稿。
+1. 内屏竖屏常规宽度：`regularWidthContentCap(600)` 应用到设置 / 足迹 / 搜索，
+   内容限宽居中；首页保持单栏与年/月/周 morph 不动（D1 = 限宽）。
+2. 半折竖屏的横带：按 Apple 指南，月历是连续滚动内容，不插 40pt 空隙；
+   系统栏 / 弹层由系统避让（D2 = 滚动内容连续）。
+
+**仍未做（P2）**：
+
+1. `ArrangementView` / `onHingeChange` / 多窗口 / UI 测试矩阵。
+2. 可选的双列升级（首页分栏 / 设置双列 / 搜索主从 / 足迹图表+清单）；
+   目前只做限宽，保留竖屏交互。
+3. 设计稿：Duo 仍没有单独稿；如果做双列，需要补 669×951 / 951×669 的对照稿。
 
 `Screen` 这一侧同步收口：`Screen.height` 已删除、`Screen.size` 收成 private，外面只剩
 `Screen.width`（`RichTextEngine` 测量前的兜底）与 `Screen.safeAreaBottom` /
