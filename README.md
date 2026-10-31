@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/iOS-27%2B-black.svg)]()
 [![Swift](https://img.shields.io/badge/Swift-6.4-orange.svg)]()
-[![Xcode](https://img.shields.io/badge/Xcode-27-147EFB.svg)]()
+[![Xcode](https://img.shields.io/badge/Xcode-27.2-147EFB.svg)]()
 [![Written by AI](https://img.shields.io/badge/Written%20by-AI%20(DeepSeek)-7C3AED.svg)](#ai-参与与致谢)
 [![Data](https://img.shields.io/badge/Data-on--device%20only-success.svg)](#数据与隐私)
 
@@ -32,7 +32,7 @@ rich-text diary editor (semantic paragraph styles, inline formats, images, autom
 and location, todo lists), a footprint view that aggregates recorded places by country /
 province / city, and full-text search (SQLite FTS5 with CJK segmentation).
 
-- **Platform** — iOS 27+, iPhone only, SwiftUI, Swift 6.4, Xcode 27.
+- **Platform** — iOS 27+, iPhone only (incl. iPhone Duo), SwiftUI, Swift 6.4, Xcode 27.2.
 - **Dependencies** — none: no SPM packages, no network requests, no analytics. Everything
   stays on the device (SQLite database + local image store, zip-based backup import/export).
 - **Design** — Apple's Liquid Glass is used on the control layer only; content cards keep the
@@ -75,6 +75,9 @@ open JustDiary.xcodeproj        # ⌘R 运行，⌘U 测试
   - 按 WWDC26 session 8120 的建议，**内容区不使用 Liquid Glass**（下方没有可折射的内容，玻璃卡片会读作「浮在玻璃上的卡片」）。内容卡片统一走 `diaryCard(cornerRadius:)`：系统分组背景色 + 细描边 + 柔和阴影
   - 搜索框、编辑器格式栏、首页日期/返回胶囊、toast 都在控件层，走 `.glassEffect`；sheet 不覆盖 `presentationBackground`，用系统默认的新版玻璃外观
 - 统一的设计令牌见 `Views/Components/DesignSystem.swift`：`Radius`（圆角；嵌套面取「外圆角 − 内缩量」）、`Spacing`、`TypeSize`（字阶）
+- **iPhone Duo**：内屏 / 外屏 / 半折三态；系统 TabBar 自动侧置。`AdaptiveLayout` 读
+  `reservedRegions` / `toolbarVerticalEdge`：半折横屏把折痕带变成分栏 gutter，
+  竖排系统栏时底部只让 home indicator（不再按 64/83 的横栏留白）。
 - 跟随系统显示设置：**动态字体**（每个设计字号按最接近的 Apple 文本样式经 `UIFontMetrics` 解析，并设上限以保证字阶不倒挂；日历 Canvas 文字单独半速缩放）、
   **减弱动态效果**（morph 退化为快速交叉淡入）、**增强对比度**（卡片描边加深）、浅色/深色
 - 编辑器照 Apple 备忘录的做法管理字体：只给**语义段落样式**（大标题 28 / 小标题 22 / 正文 17 / 引用 15），
@@ -131,10 +134,10 @@ tools/               # 示例数据、设计稿截图等开发辅助脚本
 
 ## 构建与运行
 
-- 部署目标：**iOS 27.0**；设备族：**iPhone**（`TARGETED_DEVICE_FAMILY = "1"`）——不含 iPad，
+- 部署目标：**iOS 27.0**；设备族：**iPhone**（`TARGETED_DEVICE_FAMILY = "1"`，含 iPhone Duo）——不含 iPad，
   也未开启 Mac 上的「Designed for iPad」（`SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`）
-- 依赖：**无第三方依赖**（无 SPM/CocoaPods/Carthage），只需要 Xcode 27
-  - 「Swift 6.4」指 Xcode 27 自带的**编译器版本**（`swift --version` = Apple Swift 6.4）；
+- 依赖：**无第三方依赖**（无 SPM/CocoaPods/Carthage），只需要 Xcode 27.2
+  - 「Swift 6.4」指 Xcode 27.2 自带的**编译器版本**（`swift --version` = Apple Swift 6.4）；
     工程的**语言模式**仍是 `SWIFT_VERSION = 5.0`（见 `generate_project.py`），尚未切到 Swift 6 语言模式
 - 项目由 `generate_project.py` 生成（PBXFileSystemSynchronizedRootGroup）——**所有构建设置都改这个脚本再重新生成**，不要手改 `project.pbxproj`。克隆后先跑一次，新增/删除文件后也要重跑：
 
@@ -211,7 +214,7 @@ python3 tools/film_compare.py <改前目录> <改后目录> <用例> out.png    
 
 ## 文档
 
-- iOS 27 / Xcode 27（Swift 6.4）适配方案见 `docs/iOS27-upgrade-plan.md`
+- iOS 27 / Xcode 27.2（Swift 6.4）适配方案见 `docs/iOS27-upgrade-plan.md`
 - 界面规范（设计令牌 / 动态字体 / 日期格式 / Liquid Glass 边界）见 `docs/design-system.md`
 - **编辑页字体与段落样式**（字体模型、E1–E6 待办的处理结果、行距 / 段距 / 图片留白、往返测试）见 `docs/editor-typography.md`
 - **编辑页格式按钮的作用域**（每个按钮点一下 / 取消各影响什么、行样式换行延续、问题清单与修复记录）见 `docs/editor-format-behaviors.md`

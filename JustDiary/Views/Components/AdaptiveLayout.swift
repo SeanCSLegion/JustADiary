@@ -1,4 +1,26 @@
 import SwiftUI
+import UIKit
+
+/// 一个由系统保留的区间（折痕 / 摄像头）。
+///
+/// 刻意用应用自己的值类型，而不是把 SwiftUI `ReservedRegion` 直接放进
+/// `AdaptiveLayout`：后者是 iOS 27.1 才有的类型，会让整份版面模型、单元测试
+/// 和 27.0 的调用方都被 `@available` 传染。Reader 在 27.1+ 转换一次即可。
+nonisolated struct FoldRegion: Equatable, Sendable {
+    /// 包含交互留白（margins）的区间，单位是 Reader 内容坐标。
+    var frame: CGRect
+    var margins: EdgeInsets
+    var isActive: Bool
+}
+
+/// 分栏的结果。`gutter` 是两栏之间的总空隙（含中间 0.5pt 分隔线两侧的留白）；
+/// 有折痕时它会比默认的 16pt 宽，正好跨过折痕。
+nonisolated struct SplitMetrics: Equatable, Sendable {
+    var master: CGFloat
+    var detail: CGFloat
+    var gutter: CGFloat
+    var separatorWidth: CGFloat { gutter + 0.5 }
+}
 
 /// 版面判定：整套设计的**唯一**判据。
 ///
@@ -9,14 +31,24 @@ import SwiftUI
 /// - 左右安全区**分别**读取（横屏时 `leading` 往往非 0）。
 /// - 数值优先从几何 / `safeAreaInsets` 派生，不要写死设备常量。唯一的例外是底部
 ///   系统浮条的高度：浮条由系统绘制，安全区里推不出来（SE 横屏 `bottomInset = 0`
-///   但浮条照样占 64pt），所以按方向取实测值，见 `tabBarClearance`。
+///   但浮条照样占 64pt）。**iPhone Duo 的系统栏在侧边**，此时没有底部横条，
+///   见 `tabBarClearance`。
 ///
-/// 当前只做**手机竖屏 / 手机横屏**两套版面：横屏首页左右分栏（两栏都放得下时），
-/// 其余页面仍是单栏。
+/// 当前做**手机竖屏 / 手机横屏**两套版面，以及 iPhone Duo 的：
+/// - 折痕避让（横屏分栏把折痕带当分隔区）；
+/// - 侧置系统栏（`verticalBarEdge != nil` 时底部只让 home indicator）；
+/// - 窗口尺寸（分屏 / 可缩放窗口，不是整块屏幕尺寸）。
 struct AdaptiveLayout: Equatable {
     var size: CGSize
     /// 四边安全区，分别保存（横屏时 leading / trailing 常不相等）。
     var safeArea: EdgeInsets
+    /// 当前窗口是否 regular width（Duo 内屏是 Regular/Regular）。
+    var isRegularWidth: Bool = false
+    /// 系统竖排栏在哪一侧；nil 表示使用底部横排系统栏（普通 iPhone）。
+    var verticalBarEdge: HorizontalEdge? = nil
+    /// 折痕 / 摄像头区间。27.0 上恒为空。
+    var divisionRegions: [FoldRegion] = []
+    var occlusionRegions: [FoldRegion] = []
 
     // MARK: 内容边距
 
@@ -39,6 +71,25 @@ struct AdaptiveLayout: Equatable {
     /// 「宽但不矮」的尺寸（竖屏、Duo 竖屏）：保持单栏。
     var isPortrait: Bool { size.height >= size.width }
 
+    // MARK: iPhone Duo
+
+    /// 系统现在使用侧置的竖排栏（Duo 外屏、Duo 内屏横屏）。
+    var usesVerticalBars: Bool { verticalBarEdge != nil }
+
+    /// 当前是否有正在生效的折痕。平放时 `division` 是 inactive 的，这里返回 nil。
+    var activeDivision: FoldRegion? {
+        divisionRegions.first { $0.isActive && ($0.frame.width > 0.5 || $0.frame.height > 0.5) }
+    }
+
+    /// 折痕方向：横带（竖屏半折）还是竖带（横屏半折）。
+    ///
+    /// 注意 frame 是**带的形状**：竖折痕是一条窄而高的带（height > width），
+    /// 横折痕是一条宽而矮的带（width > height）。
+    var foldAxis: Axis? {
+        guard let region = activeDivision else { return nil }
+        return region.frame.height >= region.frame.width ? .vertical : .horizontal
+    }
+
     // MARK: 分栏的两栏尺寸（判定与分配共用同一组数字）
 
     /// 主栏（月历）最窄宽度：7 列每格还有 ~37pt，日期才点得准。
@@ -53,6 +104,9 @@ struct AdaptiveLayout: Equatable {
     static let splitSeparatorWidth: CGFloat = splitGutter + 0.5
     /// 分栏区块距页面顶部的留白。
     static let splitTopPadding: CGFloat = 8
+    /// 折痕带两侧还要再留的交互安全边。Apple 的 region frame 已经包含 20pt
+    /// margins；这里再加 8pt，让文字/按钮离曲面更远一点。
+    static let foldClearance: CGFloat = 8
 
     /// 首页分栏所需的**最小内容宽度**：260 + 240 + 16×2 + 16.5 = 548.5pt。
     ///
@@ -76,21 +130,51 @@ struct AdaptiveLayout: Equatable {
         size.width > size.height && contentWidth >= Self.minSplitContentWidth
     }
 
-    /// 分栏时两栏各自的宽度。
-    ///
-    /// 主栏先按容器宽的 46% 取（夹在 `minMasterWidth…maxMasterWidth`），但必须给
-    /// 详情栏留够 `minDetailWidth`，所以上界再夹一次；详情栏吃掉剩下的宽度。
-    /// 两栏之和 + 页边距 + 分隔线**正好**等于容器宽，横屏任何宽度都不会横向溢出
-    /// （由 `SplitLayoutTests` 在阈值以上的每一档宽度上守住）。
+    /// 分栏时两栏各自的宽度（不计折痕）。保留给既有调用/测试；
+    /// 首页实际排版用 `splitMetrics(containerWidth:)`，它会返回动态 gutter。
     ///
     /// 传容器宽（页面几何），不要传 `contentWidth`：这里算的是**实际排版**，
     /// 必须和真正可用的容器对齐。
     func splitColumns(containerWidth: CGFloat) -> (master: CGFloat, detail: CGFloat) {
+        let metrics = splitMetrics(containerWidth: containerWidth)
+        return (metrics.master, metrics.detail)
+    }
+
+    /// 分栏的完整结果：两栏宽度 + 中间空隙。
+    ///
+    /// 默认按 46% 分主栏。当横屏半折、且折痕带落在分栏区域内时，把折痕带
+    /// 整段变成 gutter：左栏在折痕前 `foldClearance` 结束，右栏在折痕后
+    /// `foldClearance` 开始。这样内容不会压在曲面上，视觉上接近 Apple 的 50/50。
+    /// 折痕贴边、或两栏会被挤到最低宽度以下时退回默认分栏。
+    func splitMetrics(containerWidth: CGFloat) -> SplitMetrics {
+        let base = baseSplitMetrics(containerWidth: containerWidth)
+        guard let fold = activeDivision,
+              fold.frame.height > fold.frame.width,   // 竖折痕（横屏半折）的带是窄而高
+              fold.frame.width > 0,
+              fold.frame.minX > Self.pagePadding + Self.foldClearance,
+              fold.frame.maxX < containerWidth - Self.pagePadding - Self.foldClearance
+        else { return base }
+
+        let gutter = max(Self.splitGutter, fold.frame.width + 2 * Self.foldClearance)
+        let master = fold.frame.minX - Self.pagePadding - Self.foldClearance
+        let detail = containerWidth
+            - 2 * Self.pagePadding
+            - (gutter + 0.5)
+            - master
+        guard master >= Self.minMasterWidth, detail >= Self.minDetailWidth else {
+            return base
+        }
+        return SplitMetrics(master: master, detail: detail, gutter: gutter)
+    }
+
+    private func baseSplitMetrics(containerWidth: CGFloat) -> SplitMetrics {
         let available = max(0, containerWidth - 2 * Self.pagePadding - Self.splitSeparatorWidth)
         let preferred = min(Self.maxMasterWidth,
                             max(Self.minMasterWidth, (containerWidth * 0.46).rounded()))
         let master = min(preferred, max(Self.minMasterWidth, available - Self.minDetailWidth))
-        return (master, max(Self.minDetailWidth, available - master))
+        return SplitMetrics(master: master,
+                            detail: max(Self.minDetailWidth, available - master),
+                            gutter: Self.splitGutter)
     }
 
     /// 分栏时两栏共同的高度（日历区与详情区同高，底部让出系统浮条）。
@@ -137,12 +221,18 @@ struct AdaptiveLayout: Equatable {
 
     /// 内容忽略底部安全区（`.ignoresSafeArea(edges: .bottom)`）时底部要让出的高度。
     ///
+    /// 普通 iPhone 的浮条紧贴屏幕底边，按方向取实测的 83 / 64。iPhone Duo
+    /// 的系统栏是**侧置**的（`verticalBarEdge != nil`）：底部没有横条，只剩
+    /// home indicator，所以让 `bottomInset` 即可。以前一律按方向减 64/83，
+    /// 在 Duo 横屏/外屏会白空一条。
+    ///
     /// 旧写法是 `bottomInset + 44`：它在有 home indicator 的机型上（横屏
     /// `bottomInset = 20`）碰巧等于 64，于是 18 Pro 上看起来是对的；但 iPhone SE
     /// 横屏 `bottomInset = 0`，只让出 44pt，最后一行日期会被浮条压住。浮条高度本来
-    /// 就与 home indicator 无关，所以这里直接按方向取，不再叠加 `bottomInset`。
+    /// 就与 home indicator 无关，所以横排时直接按方向取，不再叠加 `bottomInset`。
     var tabBarClearance: CGFloat {
-        isPortrait ? Self.tabBarHeightPortrait : Self.tabBarHeightLandscape
+        if usesVerticalBars { return bottomInset }
+        return isPortrait ? Self.tabBarHeightPortrait : Self.tabBarHeightLandscape
     }
 
     /// 正文列宽上限。宽屏必须限宽，否则一行 100+ 字。
@@ -205,56 +295,115 @@ extension View {
 nonisolated private struct LayoutGeometry: Equatable, Sendable {
     var size: CGSize
     var safe: EdgeInsets
+    var division: [FoldRegion]
+    var occlusion: [FoldRegion]
+}
+
+/// 把 `toolbarVerticalEdge` 从 SwiftUI 环境里带出来。该 key 是 iOS 27.1 才有的，
+/// 而 Reader 本身还要在 27.0 上编译，所以只用一个 availability-gated 的
+/// 零尺寸探针 + PreferenceKey，而不是给整个 Reader 加 `@available`。
+private struct ToolbarVerticalEdgeKey: PreferenceKey {
+    static var defaultValue: HorizontalEdge?
+    static func reduce(value: inout HorizontalEdge?, nextValue: () -> HorizontalEdge?) {
+        value = nextValue() ?? value
+    }
+}
+
+@available(iOS 27.1, *)
+private struct ToolbarVerticalEdgeProbe: View {
+    @Environment(\.toolbarVerticalEdge) private var edge
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .preference(key: ToolbarVerticalEdgeKey.self, value: edge)
+    }
 }
 
 private struct AdaptiveLayoutReader: ViewModifier {
     @State private var layout = AdaptiveLayout.defaultValue
+    @State private var verticalBarEdge: HorizontalEdge?
 
     func body(content: Content) -> some View {
         content
+            .background {
+                if #available(iOS 27.1, *) {
+                    ToolbarVerticalEdgeProbe()
+                }
+            }
+            .onPreferenceChange(ToolbarVerticalEdgeKey.self) { edge in
+                verticalBarEdge = edge
+            }
             .onGeometryChange(for: LayoutGeometry.self) { proxy in
-                LayoutGeometry(size: proxy.size, safe: proxy.safeAreaInsets)
+                LayoutGeometry(size: proxy.size,
+                               safe: proxy.safeAreaInsets,
+                               division: AdaptiveLayoutReader.divisionRegions(in: proxy),
+                               occlusion: AdaptiveLayoutReader.occlusionRegions(in: proxy))
             } action: { geometry in
-                let next = AdaptiveLayoutReader.resolve(geometry)
+                let next = AdaptiveLayoutReader.resolve(geometry, verticalBarEdge: verticalBarEdge)
                 guard next != layout else { return }
                 layout = next
             }
             .environment(\.adaptiveLayout, layout)
     }
 
-    /// 把几何解析成真实界面尺寸 + 四边安全区。
+    /// iOS 27.1 起系统才会报告折痕 / 摄像头区间；27.0 上返回空数组。
+    nonisolated static func divisionRegions(in proxy: GeometryProxy) -> [FoldRegion] {
+        guard #available(iOS 27.1, *) else { return [] }
+        return proxy.reservedRegions(kind: .division, options: .includeInactive)
+            .map(FoldRegion.init)
+    }
+
+    nonisolated static func occlusionRegions(in proxy: GeometryProxy) -> [FoldRegion] {
+        guard #available(iOS 27.1, *) else { return [] }
+        return proxy.reservedRegions(kind: .occlusion)
+            .map(FoldRegion.init)
+    }
+
+    /// 把几何解析成真实**窗口**尺寸 + 四边安全区 + Duo 环境。
     ///
     /// `GeometryProxy.size` 是**扣掉安全区之后**的内容尺寸（横屏 874×402 会读成
-    /// 750×382），拿它判档位会偏小，所以这里用场景的 `screen.bounds` 作为界面尺寸，
-    /// 并把「内容尺寸 → 界面尺寸」的差值当作安全区。若读不到场景（预览等），
-    /// 就退回内容尺寸 + 0 安全区 —— 那条路径只影响预览，不影响真机。
-    nonisolated static func resolve(_ geometry: LayoutGeometry) -> AdaptiveLayout {
+    /// 750×382），拿它判档位会偏小。这里用 **key window 的 bounds**，而不是
+    /// `screen.bounds`：iPhone Duo 的 50/50 分屏 / 可缩放窗口里，窗口可能只有
+    /// 屏幕的一半，用屏幕尺寸会把 `contentColumn`、`isPortrait` 全部算错。
+    /// 若读不到窗口（预览等），才退回内容尺寸。
+    nonisolated static func resolve(_ geometry: LayoutGeometry,
+                                    verticalBarEdge: HorizontalEdge?) -> AdaptiveLayout {
         // 几何回调由 SwiftUI 在主线程上触发，所以 UIKit 的读取可以安全地圈进
-        // `MainActor.assumeIsolated`；只把 Sendable 的 `CGSize` 带出这个作用域。
+        // `MainActor.assumeIsolated`；只把 Sendable 的值带出这个作用域。
         // 不把整个函数标成 `@MainActor`：`onGeometryChange` 的 action 是
         // nonisolated 的，那样会在调用处换成另一个警告。
-        let screenSize = MainActor.assumeIsolated { () -> CGSize? in
+        let window = MainActor.assumeIsolated { () -> (size: CGSize, regular: Bool)? in
             let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
-            guard let size = scene?.screen.bounds.size, size.width > 0, size.height > 0 else {
-                return nil
-            }
-            return size
+            guard let window = scene?.keyWindow else { return nil }
+            let size = window.bounds.size
+            guard size.width > 0, size.height > 0 else { return nil }
+            return (size, window.traitCollection.horizontalSizeClass == .regular)
         }
-        guard let bounds = screenSize else {
-            return AdaptiveLayout(size: geometry.size, safeArea: geometry.safe)
+        guard let window else {
+            return AdaptiveLayout(size: geometry.size,
+                                  safeArea: geometry.safe,
+                                  verticalBarEdge: verticalBarEdge,
+                                  divisionRegions: geometry.division,
+                                  occlusionRegions: geometry.occlusion)
         }
-        let dw = max(0, bounds.width - geometry.size.width)
-        let dh = max(0, bounds.height - geometry.size.height)
-        var insets = geometry.safe
-        if insets.leading + insets.trailing < dw - 1 {
-            // 差值多于左右安全区之和：说明还夹着导航条之类的条带，补到后沿。
-            insets.trailing = max(insets.trailing, dw - insets.leading)
-        }
-        if insets.top + insets.bottom < dh - 1 {
-            insets.bottom = max(insets.bottom, dh - insets.top)
-        }
-        return AdaptiveLayout(size: bounds, safeArea: insets)
+        let result = AdaptiveLayout(size: window.size,
+                                    safeArea: geometry.safe,
+                                    isRegularWidth: window.regular,
+                                    verticalBarEdge: verticalBarEdge,
+                                    divisionRegions: geometry.division,
+                                    occlusionRegions: geometry.occlusion)
+        return result
+    }
+}
+
+@available(iOS 27.1, *)
+extension FoldRegion {
+    nonisolated init(_ region: ReservedRegion) {
+        self.init(frame: region.frame,
+                  margins: region.margins,
+                  isActive: region.isActive)
     }
 }
 

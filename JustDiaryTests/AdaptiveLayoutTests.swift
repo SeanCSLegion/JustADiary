@@ -79,7 +79,7 @@ final class AdaptiveLayoutTests: XCTestCase {
     func testSingleColumnCalendarStaysUsableOnEveryPortraitPhone() {
         // 屏宽 / 屏高 / 顶部安全区：SE、18 Pro、更大屏、Duo 内屏（按现行判据都走单栏）。
         let devices: [(w: CGFloat, h: CGFloat, top: CGFloat)] = [
-            (375, 667, 20), (402, 874, 62), (440, 956, 62), (664, 750, 24)
+            (375, 667, 20), (402, 874, 62), (440, 956, 62), (669, 951, 82)
         ]
         for device in devices {
             let h = layout(device.w, device.h)

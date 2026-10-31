@@ -1,6 +1,6 @@
 # 设计系统与显示规范
 
-日期：2026-09-15 · 环境：Xcode 27 / iOS 27 SDK · 设备：iPhone 18 Pro 模拟器（iOS 27.0）
+日期：2026-09-15（2026-10-31 补充 Duo）· 环境：Xcode 27.2 / iOS 27.2 SDK · 设备：iPhone 18 Pro / iPhone Duo（iOS 27.1）
 
 本文记录界面层的四条规范：设计令牌、动态字体、日期/时间格式、Liquid Glass 的使用边界。
 改动界面时请先读这一篇，避免同类问题再次出现。
@@ -449,10 +449,10 @@ iOS 默认值：
    而这一档本来就不画农历），否则 iPhone SE 横屏的六行月格就放不下。
    2026-10-01：原来还有第三档「周条降级」，只判不画，已删除（见 `docs/adaptive-layout-plan.md` §3.1）。
 3. 左右安全区**分别**读取（`safeAreaInsets.leading` / `.trailing`），不假设对称。
-   折痕的「避免区」（`FoldAvoidance` 环境值）**是待做项**：iPhone Duo 之后要适配，
-   届时在 `AdaptiveLayoutReader` 里读一次 `reservedRegion` 喂给它即可
-   （`AdaptiveLayout` 的宽度分档是那套 API 的超集，不用改版面）。见
-   `docs/adaptive-layout-plan.md` §4。
+   折痕的「避免区」**已接入 P0**：`AdaptiveLayoutReader` 在 iOS 27.1+ 读
+   `GeometryProxy.reservedRegions`（`.division` / `.occlusion`），转成应用自己的
+   `FoldRegion`；`AdaptiveLayout.splitMetrics` 在半折横屏把折痕带变成 gutter。
+   见 `docs/adaptive-layout-plan.md` §4 与 `docs/iphone-duo-adaptation-todo.md`。
 
 `TabBarClearance` 在浮条悬底时留出底部空间：横屏两栏的最后一行不能被浮条压住。
 
@@ -462,9 +462,10 @@ iOS 默认值：
 改令牌要两边同步。**设计稿只有手机端**——iPad / Mac 的宽屏稿已于 2026-10-01 删除。
 
 **与折叠屏相关的 API**（`ArrangementView` / `UIArrangementViewController` / `onHingeChange` /
-`GeometryProxy.reservedRegions`）留着给 iPhone Duo 适配用，**不要在 27.0 上提前接**：
-它们都不在 Xcode 27.0 SDK 的公开接口里（SwiftUI 二进制有 `reservedRegions` 符号，
-但 `.swiftinterface` 未声明），现在源码里也写不出来。
+`GeometryProxy.reservedRegions`）在 iOS 27.1+ 已可接；本项目 P0 只用了
+`reservedRegions` 和 `toolbarVerticalEdge`，`ArrangementView` / `onHingeChange`
+留作 P2（见 `docs/iphone-duo-adaptation-todo.md`）。部署目标仍是 27.0，
+所有 27.1 独有 API 都在 `#available` / `@available` 里。
 
 ---
 

@@ -40,9 +40,9 @@ final class SplitLayoutTests: XCTestCase {
         }
     }
 
-    /// 竖屏一律单栏：年 / 月 / 周三态 morph 不动，Duo 内屏（宽但不矮）也走单栏。
+    /// 竖屏一律单栏：年 / 月 / 周三态 morph 不动，Duo 内屏竖屏也走单栏。
     func testPortraitNeverSplits() {
-        for (w, h) in [(375.0, 667.0), (402, 874), (664, 750), (440, 956)] {
+        for (w, h) in [(375.0, 667.0), (402, 874), (669, 951), (440, 956)] {
             XCTAssertFalse(layout(w, h).splitsMasterDetail,
                            "\(w)×\(h) 不是横屏，必须保持单栏")
         }
@@ -150,5 +150,76 @@ final class SplitLayoutTests: XCTestCase {
     /// 高度宽裕时农历行照旧（改动的只是「没有农历行」那一档的下限）。
     func testTallPanesStillGetTheLunarRow() {
         XCTAssertTrue(CalendarDensity.resolve(availableHeight: 380, rows: 6, wantsLunar: true).showsLunar)
+    }
+
+    // MARK: iPhone Duo
+
+    /// Duo 内屏横屏/半折：窗口 951×669，右侧 84pt 竖排栏，底部 home indicator 34pt。
+    /// 半折时 division 是窄而高的竖带，frame 455.5…495.5。
+    private var duoLandscapePartial: AdaptiveLayout {
+        AdaptiveLayout(
+            size: CGSize(width: 951, height: 669),
+            safeArea: EdgeInsets(top: 0, leading: 0, bottom: 34, trailing: 84),
+            isRegularWidth: true,
+            verticalBarEdge: .trailing,
+            divisionRegions: [FoldRegion(frame: CGRect(x: 455.5, y: 0, width: 40, height: 669),
+                                         margins: EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20),
+                                         isActive: true)]
+        )
+    }
+
+    /// 竖排系统栏时底部没有 64/83pt 的横条，只让 home indicator。
+    func testDuoVerticalBarsDoNotReserveABottomTabBar() {
+        XCTAssertEqual(duoLandscapePartial.tabBarClearance, 34, accuracy: 0.01)
+        XCTAssertEqual(duoLandscapePartial.splitPaneHeight(containerHeight: 669), 627, accuracy: 0.01,
+                       "669 − 8（顶部留白）− 34（home indicator），不再减 64")
+    }
+
+    /// 半折横屏：折痕带变成 gutter，左右两栏都在折痕之外，且总宽正好铺满容器。
+    func testDuoPartialFoldWidensTheGutterAroundTheCrease() {
+        let width: CGFloat = 867       // 951 − 右侧 84pt 竖排栏
+        let split = duoLandscapePartial.splitMetrics(containerWidth: width)
+        XCTAssertEqual(split.master, 431.5, accuracy: 0.01, "折痕 455.5 − 16 页边距 − 8 安全边")
+        XCTAssertEqual(split.gutter, 56, accuracy: 0.01, "折痕 40 + 两侧各 8")
+        XCTAssertEqual(split.detail, 347, accuracy: 0.01)
+        XCTAssertEqual(split.master + split.detail + 2 * AdaptiveLayout.pagePadding
+                       + split.separatorWidth,
+                       width, accuracy: 0.01, "分栏必须正好铺满容器")
+        XCTAssertLessThanOrEqual(split.master + AdaptiveLayout.pagePadding, 455.5 - 8 + 0.01,
+                                 "左栏内容不能在折痕带里")
+        XCTAssertGreaterThanOrEqual(AdaptiveLayout.pagePadding + split.master + split.separatorWidth,
+                                    495.5 + 8 - 0.01, "右栏内容不能在折痕带里")
+    }
+
+    /// 平放（division inactive）时仍用原来的 46% 分栏，折痕带不参与。
+    func testDuoFlatUsesTheNormalSplit() {
+        let flat = AdaptiveLayout(
+            size: CGSize(width: 951, height: 669),
+            safeArea: EdgeInsets(top: 0, leading: 0, bottom: 34, trailing: 84),
+            isRegularWidth: true,
+            verticalBarEdge: .trailing,
+            divisionRegions: [FoldRegion(frame: CGRect(x: 455.5, y: 0, width: 40, height: 669),
+                                         margins: EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20),
+                                         isActive: false)]
+        )
+        let split = flat.splitMetrics(containerWidth: 867)
+        XCTAssertEqual(split.gutter, AdaptiveLayout.splitGutter, accuracy: 0.01)
+        XCTAssertEqual(split.master, 399, accuracy: 0.01)
+        XCTAssertEqual(split.detail, 419.5, accuracy: 0.01)
+    }
+
+    /// 竖屏半折是横带，不参与左右分栏（竖屏仍走单栏）。
+    func testDuoPortraitFoldIsHorizontalAndDoesNotAffectTheSplit() {
+        let partial = AdaptiveLayout(
+            size: CGSize(width: 669, height: 951),
+            safeArea: EdgeInsets(top: 82, leading: 0, bottom: 34, trailing: 0),
+            isRegularWidth: true,
+            divisionRegions: [FoldRegion(frame: CGRect(x: 0, y: 455.5, width: 669, height: 40),
+                                         margins: EdgeInsets(top: 20, leading: 0, bottom: 20, trailing: 0),
+                                         isActive: true)]
+        )
+        XCTAssertEqual(partial.foldAxis, .horizontal)
+        XCTAssertFalse(partial.splitsMasterDetail)
+        XCTAssertEqual(partial.tabBarClearance, AdaptiveLayout.tabBarHeightPortrait, accuracy: 0.01)
     }
 }

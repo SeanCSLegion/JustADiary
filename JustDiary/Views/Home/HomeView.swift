@@ -334,11 +334,12 @@ struct HomeView: View {
 
         // 主栏固定为容器宽的一部分，其余全部给右栏；两栏之和 + 页边距 + 分隔线
         // 正好等于容器宽，所以 18 Pro 横屏是 345 / 356.5，SE 横屏是 307 / 311.5，
-        // 都不会溢出（见 `AdaptiveLayout.splitColumns`）。
-        let columns = layout.splitColumns(containerWidth: size.width)
-        let calendarW = columns.master
-        let dayW = columns.detail
-        let gutter = AdaptiveLayout.splitGutter
+        // 都不会溢出（见 `AdaptiveLayout.splitMetrics`）。iPhone Duo 半折时
+        // gutter 会扩到折痕带宽度，右栏从折痕之后开始。
+        let split = layout.splitMetrics(containerWidth: size.width)
+        let calendarW = split.master
+        let dayW = split.detail
+        let gutter = split.gutter
         let todayAction = todayTapped
 
         // 行高按**固定的 6 行**算：连续滚动里行高必须全局一致，不能跟着「当月是 5 行

@@ -1,6 +1,6 @@
 # 手机自适应布局方案（竖屏 / 横屏）
 
-环境：Xcode 27.0 / iOS 27.0 SDK · 目标：iPhone（竖屏 + 横屏）
+环境：Xcode 27.2 / iOS 27.2 SDK · 目标：iPhone（竖屏 + 横屏 + iPhone Duo）
 设计稿：`docs/design/landscape/phone.html`（可交互）· `screens/ph-*.png`
 
 本文回答一件事：**同一套代码，怎么在手机竖屏和手机横屏上都排得好看**。
@@ -476,36 +476,49 @@ y:  0 ────────────────────────�
 
 ---
 
-## 四、iPhone Duo（**之后要适配**）
+## 四、iPhone Duo（**P0 已适配**）
 
-Duo 还没上市，但**已确定后续要适配**，所以这一节保留为计划，不是历史。好消息是
-现在的实现已经是它的超集：`AdaptiveLayout` 只看可用宽高与安全区、不看 `idiom`，
-Duo 展开（≈664 × 750，宽但不矮）会自然落到**单栏**那一档，不需要专用代码。
+环境升级到 Xcode 27.2 / iOS 27.2 SDK 后，Duo 的 API 已经可以接。本节从
+「计划」改为**实现记录**；P1/P2 见 `docs/iphone-duo-adaptation-todo.md`。
 
-Apple 的适配指南（[Design for iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111466/)、
-[Raise the bar](https://developer.apple.com/videos/play/tech-talks/111462/)）里与本项目相关的四条
-与落地情况：
+实测（iPhone Duo / iOS 27.1 runtime）：
+
+| 显示 / 姿态 | 窗口 | Size Class | 备注 |
+|---|---|---|---|
+| 内屏 · 展开 | **669 × 951** 或 **951 × 669** | **Regular / Regular** | 可竖可横 |
+| 外屏 · 合上 | **466 × 678** 或 **678 × 466** | compact / regular | 系统栏竖排 |
+
+半折时 `GeometryProxy.reservedRegions(kind: .division)` 给出真实折痕带：
+横屏是 `(455.5, 0, 40, 669)`（竖带），竖屏是 `(0, 455.5, 669, 40)`（横带）。
+摄像头的 `.occlusion`、以及 `toolbarVerticalEdge` 也都能读到。
+
+Apple 的适配指南与落地情况：
 
 | 指南 | 现状 |
 |---|---|
-| **用尺寸类 / 可用宽高，不要用 idiom** | ✅ 已落地：`AdaptiveLayout` 只看 `size` + `safeAreaInsets` |
-| **左右安全区不对称** | ✅ 已落地：`contentWidth = width − leading − trailing`，页面 padding 恒为 16（不再叠安全区） |
-| **工具栏移到侧边由容器负责** | ✅ 已落地：导航用系统 `TabView`，不自绘悬浮条（见 §2.2） |
-| **让系统处理折痕** | ⏳ **待做**：见下面两条 |
+| **用尺寸类 / 可用宽高，不要用 idiom** | ✅ `AdaptiveLayout` 只看 `size` + `safeAreaInsets`，并记录 `isRegularWidth` |
+| **左右安全区不对称** | ✅ `contentWidth = width − leading − trailing`，页面 padding 恒为 16 |
+| **工具栏移到侧边由容器负责** | ✅ 系统 `TabView` 自动侧置；应用只读 `toolbarVerticalEdge` 调整底部让位 |
+| **折痕避让** | ✅ P0：半折横屏把折痕带变成 gutter，左右各留 8pt；竖屏半折仍是单栏，见下 |
 
-**待做（Duo 适配时再接，届时不用改版面）**：
+**已实现（P0）**：
 
-1. **折痕「避免区」环境值**：定义一个 `FoldAvoidance` 环境值（27.0 上恒为 `nil`），
-   页面从它拿「不能让内容跨越的区间」；现在代码里**没有**这个东西。
-2. **`reservedRegion` 接入点**：iOS 27.1 的 `GeometryProxy.reservedRegions(_:options:layoutDirectionBehavior:)`
-   （注意是复数）到位后，在 `AdaptiveLayoutReader` 里读一次、喂给上面那个环境值即可 ——
-   `AdaptiveLayout` 的宽度分档是它的超集，所以只改这一处。
-   > 现状（2026-10-01 核实）：Xcode 27.0 SDK 的两份 `SwiftUICore.swiftinterface` 都没有声明它，
-   > 源码里还写不出来；`ArrangementView` / `UIArrangementViewController` / `onHingeChange`
-   > 在 UIKit 里也只有下划线私有符号 `_UIArrangementView`。
+1. `AdaptiveLayoutReader` 在 iOS 27.1+ 读 `reservedRegions`（`.division` /
+   `.occlusion`，division 带 `.includeInactive`），转成应用自己的 `FoldRegion`。
+2. 半折横屏：`splitMetrics(containerWidth:)` 把折痕带整段当 gutter（40 + 2×8），
+   左栏在折痕前结束、右栏在折痕后开始；实测 951pt 窗口 / 867pt 内容宽下是
+   431.5 / 56 / 347。
+3. 竖排系统栏：`tabBarClearance` 在 `verticalBarEdge != nil` 时只让
+   `safeArea.bottom`，不再减 64/83。
+4. 窗口尺寸：`resolve` 用 key window bounds，而不是 `screen.bounds`，
+   50/50 分屏 / 可缩放窗口不再按整块屏算。
 
-3. Duo 的**设计稿**：它的版面与手机竖屏同一套（单栏、只是更高），所以不单独出稿；
-   要出的话按 `ph-home-portrait` 那套画即可（宽 664）。
+**仍未做（P1/P2）**：
+
+1. 半折**竖屏**的横带：月历仍横穿折痕。D2 还没拍板（加 40pt 空隙 vs 只挪浮动控件）。
+2. 内屏竖屏的常规宽度版面：目前仍是单栏；D1（限宽 vs 双列）还没定。
+3. `ArrangementView` / `onHingeChange` / 多窗口 / UI 测试矩阵。
+4. 设计稿：Duo 仍没有单独稿；如果 D1 选双列，需要补 669×951 / 951×669 的对照稿。
 
 `Screen` 这一侧同步收口：`Screen.height` 已删除、`Screen.size` 收成 private，外面只剩
 `Screen.width`（`RichTextEngine` 测量前的兜底）与 `Screen.safeAreaBottom` /

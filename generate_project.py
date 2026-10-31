@@ -420,18 +420,18 @@ content = f"""// !$*UTF8*$!
 			isa = PBXProject;
 			attributes = {{
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2700;
-				LastUpgradeCheck = 2700;
+				LastSwiftUpdateCheck = 2720;
+				LastUpgradeCheck = 2720;
 				TargetAttributes = {{
 					{APP_TARGET} = {{
-						CreatedOnToolsVersion = 27.0;
+						CreatedOnToolsVersion = 27.2;
 					}};
 					{UITEST_TARGET} = {{
-						CreatedOnToolsVersion = 27.0;
+						CreatedOnToolsVersion = 27.2;
 						TestTargetID = {APP_TARGET};
 					}};
 					{UNIT_TARGET} = {{
-						CreatedOnToolsVersion = 27.0;
+						CreatedOnToolsVersion = 27.2;
 						TestTargetID = {APP_TARGET};
 					}};
 				}};
