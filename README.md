@@ -178,6 +178,12 @@ python3 tools/film_strip.py .build/frames out.png --cols 6 --label   # 拼成胶
 python3 tools/film_compare.py <改前目录> <改后目录> <用例> out.png    # 改前/改后同一批帧并排对比
 ```
 
+## 适配路线
+
+- **已完成**：Xcode 27.2 / iOS 27.2 SDK 构建；iPhone Duo P0/P1（折痕分栏、侧置系统栏、窗口尺寸、内屏竖屏限宽）。
+- **规划中**：SDK 升级基线（27.2 runtime、27.1 UIKit 布局边距审计、CI）、Duo 内外屏逐屏 QA、Liquid Glass 审计与优化。
+- 三条工作流的优先级、验收与测试矩阵见 [docs/iphone-duo-adaptation-todo.md](docs/iphone-duo-adaptation-todo.md)。第 1 波只做审计，不改视觉。
+
 ## 数据与隐私
 
 - 所有日记、图片、搜索索引与设置都只存在**本机**（App 容器内的 SQLite + 图片目录）；
@@ -215,7 +221,8 @@ python3 tools/film_compare.py <改前目录> <改后目录> <用例> out.png    
 
 ## 文档
 
-- iOS 27 / Xcode 27.2（Swift 6.4）适配方案见 `docs/iOS27-upgrade-plan.md`
+- iOS 27.2 / Xcode 27.2（Swift 6.4）适配方案见 `docs/iOS27-upgrade-plan.md`
+- **SDK / iPhone Duo / Liquid Glass 后续适配路线**见 `docs/iphone-duo-adaptation-todo.md`
 - 界面规范（设计令牌 / 动态字体 / 日期格式 / Liquid Glass 边界）见 `docs/design-system.md`
 - **编辑页字体与段落样式**（字体模型、E1–E6 待办的处理结果、行距 / 段距 / 图片留白、往返测试）见 `docs/editor-typography.md`
 - **编辑页格式按钮的作用域**（每个按钮点一下 / 取消各影响什么、行样式换行延续、问题清单与修复记录）见 `docs/editor-format-behaviors.md`

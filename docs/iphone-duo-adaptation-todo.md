@@ -1,18 +1,323 @@
-# 一页时光 · iOS 27.2 / iPhone Duo 适配记录与后续 TODO
+# 一页时光 · SDK / iPhone Duo / Liquid Glass 适配路线（TODO）
 
-> 状态：**P0 + P1 已实现**（2026-10-31；P2 待评估）
+> 状态：**只做规划，代码改动暂停**（2026-10-31）
 >
-> 基线环境（实测）：Xcode **27.2** (27B52)、iOS **27.2** SDK、iOS 27.1 模拟器
-> runtime (24A94425)、macOS 27.2 (26B123)、Swift 6.4 工具链。
-> 工程仍是 `IPHONEOS_DEPLOYMENT_TARGET = 27.0`、`SWIFT_VERSION = 5.0`；
-> 27.1 才有的 Duo API 用 `@available` / `#available` 守住。
+> Duo 的 P0 + P1 已落地（见附录）；从现在起本文档是三条工作流的唯一路线图：
+> **① 官方 SDK 升级 · ② Duo 内外屏优化 · ③ Liquid Glass 设计优化**。
 >
-> 设备：用户已启动的 **iPhone Duo**（`iPhone19,4`，runtime 27.1）。
-> 没有新建模拟器；测试过程中只重启过这一台。
+> 基线（实测）：Xcode **27.2** (27B52)、iOS **27.2** SDK、iPhone Duo runtime
+> **27.1** (24A94425)、macOS 27.2、Swift 6.4、部署目标 **27.0**、
+> `SWIFT_VERSION = 5.0`。已推送：`f03e8d6`（Duo P0）、`0a6d335`（Duo P1）。
 >
-> 相关文档：`docs/adaptive-layout-plan.md` §4（原文把 Duo 标为「之后要适配」）、
-> `docs/design-system.md`（`FoldAvoidance` / `reservedRegions` 待做）、
-> `docs/iOS27-upgrade-plan.md`（27.0 基线）。
+> 原则：**不为了新 SDK 提高最低系统**；27.1 / 27.2 API 一律 availability 守卫；
+> 每个阶段先补可复现的测试与截图，再改视觉；不把「新 API 能编译」当成「必须用」。
+
+---
+
+## 0. 当前基线（先别重复做）
+
+| 项 | 现状 | 结论 |
+|---|---|---|
+| Xcode / SDK | Xcode 27.2 (27B52) + iOS 27.2 SDK | Build 通过，无源码警告；工程元数据已到 2720 |
+| 部署目标 | iOS 27.0，Swift 5 语言模式 | 保持；27.1 Duo API 用 `@available` / `#available` |
+| 模拟器 | Duo runtime **27.1**；27.2 runtime 未安装 | 需要一次 27.2 runtime 的兼容性验证（见 A1） |
+| Duo P0 | 折痕分栏、窗口 bounds、侧置系统栏 | 已完成，431.5 / 56 / 347 实测见附录 |
+| Duo P1 | 设置 / 足迹 / 搜索 600pt 限宽居中 | 已完成；首页保持单栏与 morph |
+| 单元测试 | `JustDiaryTests` 157 个通过 | 已包含 4 个 Duo 用例 |
+| UI 测试 | 未在 Duo 上跑 | 现有用例写死 18 Pro / SE 的浮条位置，见 B7 |
+| Liquid Glass | 已有设计边界与组件，但没有 27.2 后的系统审计 | 见工作流 C；不要先改视觉 |
+
+**已知的模拟器坑（Xcode 27.2 release notes）**：
+
+- Duo 刚启动后的几分钟内，Device Hub 截图 / 录屏可能是**全黑**（187146039）；
+- Device Hub 里 VoiceOver / Accessibility Inspector **读不到 Duo 的屏幕内容**（187148389）；
+- 内屏 / 外屏切换后，Shift / Command 等修饰键可能失效（189465196）；
+- 27.2 runtime 克隆可能因权限失败（188407822），需清掉 `*.sb-*` 临时文件。
+
+这些会伪装成 App bug。测试记录里要写明「黑帧/无障碍不可用是工具问题」。
+
+---
+
+## 1. 工作流 A：官方 SDK 升级
+
+### A1（P0）把 SDK 基线做成可复现的
+
+- 记录一份固定基线：Xcode / SDK / runtime / macOS / Swift / 部署目标 / 构建命令，
+  后续每次 Xcode 小版本更新只改这一处并同步 README。
+- 安装 **iOS 27.2 simulator runtime**（当前只有 27.1），至少在 27.1 与 27.2
+  两个 runtime 上各跑一次构建 + 单测；Duo 的 27.2 runtime 还要验证
+  `UIView` 布局边距变化（见 A2）和克隆问题。
+- 把 `xcodebuild -runFirstLaunch` 更新 CoreSimulator 的步骤写进开发说明：
+  Xcode 27.2 首次使用时旧 CoreSimulator 会导致 `simctl` 卡住 / 设备显示
+  “Connecting display…”。
+- **验收**：在一台干净机器上按文档能从 clone 到跑起 Duo；构建命令、runtime 版本、
+  已知工具坑都可查。
+
+### A2（P0）27.1 / 27.2 行为与 API 审计
+
+- **UIKit 布局边距**：iOS 27.1 起 `UIView` 默认 layout margins 为 0，
+  `UIViewController` 仍提供 `systemMinimumLayoutMargins`。本项目的
+  `DiaryTextView` / `ReadTextView` / `UIActivityViewController` 包装 / 文件选择器
+  需要逐一确认；必要时设 `preservesSuperviewLayoutMargins = true`。
+- **废弃与行为变化**：重新跑 27.2 SDK 构建，记录所有新警告；保留
+  `MKMapItem.placemark` 的 `@diagnose` 例外，不扩大全局降级。
+  已知 `UIScreen.main` 已清掉，`UIScene` / 启动屏门槛已满足。
+- **Duo 新能力**：27.2 支持 Standby、Apple Pencil（Duo）。Pencil / Scribble
+  只做冒烟测试，除非决定做手写输入；`ArrangementView` / `onHingeChange`
+  只在 B5 评估，不在本轮改。
+- **验收**：一份「27.2 SDK 新 API / 行为变化 / 警告」清单；
+  每个采用的 API 都有 availability 守卫和回退。
+
+### A3（P1）CI 与测试矩阵
+
+- 构建矩阵：Xcode 27.2 × 部署 27.0 × runtime 27.1/27.2；
+  设备矩阵：iPhone 18 Pro（普通构图）+ iPhone Duo（内屏/外屏/半折）。
+- 每次 PR：`xcodebuild build` + `JustDiaryTests`；UI 测试分批跑，
+  不把 Duo 的 Device Hub 限制当成必过门禁。
+- 考虑 `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES` 的 CI 配置（不改本地日常构建）。
+- **验收**：CI 能在一个明确版本上复现 157 个单测 + 关键 UI 冒烟。
+
+### A4（P2）工程现代化
+
+- 评估 Xcode 27.2 的 JSON `.xcproj` 项目格式（更易合并，但现在不是优先项）。
+- Swift 6 语言模式迁移单独立项（当前 `SWIFT_VERSION = 5.0`；此前实测约 72 个错误，
+  涉及 `DiaryRepository` / `L10n` / `SQLite` 的全局状态，不能顺手做）。
+- Xcode 28 / iOS 28 提前做「可用性探针」，不追 beta。
+
+### A5 版本策略
+
+- **部署目标保持 27.0**：Duo 只跑 27.1+，但没必要让非 Duo 用户丢掉 27.0。
+- 每次 Xcode 小版本：只做兼容性 + 工具链更新，不顺手改设计。
+- 大版本（28）再评估是否提高最低系统；以真实用户分布为准。
+
+---
+
+## 2. 工作流 B：Duo 内外屏优化
+
+### B0 已知几何
+
+| 显示 / 姿态 | 窗口 | Size Class | 备注 |
+|---|---|---|---|
+| 内屏 · 竖屏 | 669 × 951 | Regular / Regular | 顶部安全区 82，底部 34 |
+| 内屏 · 横屏 | 951 × 669 | Regular / Regular | 右侧竖排栏 84 |
+| 外屏 | 466 × 678 / 678 × 466 | compact（竖）/ 按宽度自适应（横） | 系统栏侧置 |
+| 半折横屏 | 951 × 669 | Regular / Regular | division `(455.5, 0, 40, 669)` |
+| 半折竖屏 | 669 × 951 | Regular / Regular | division `(0, 455.5, 669, 40)` |
+
+P0/P1 只覆盖了首页与三个设置类页面在典型姿态下的版面；**还没有逐屏 QA**。
+
+### B1（P0）全屏幕 × 全姿态 QA
+
+按下面的矩阵逐格看，先记录问题，不急着改：
+
+| 屏幕 | 内屏竖 | 内屏横 | 半折竖 | 半折横 | 外屏竖 | 外屏横 |
+|---|---|---|---|---|---|---|
+| 首页（月/年/周） | ✅ | ✅ | 待看 | ✅ | 待看 | ✅ |
+| 足迹 | ✅ | 待看 | 待看 | 待看 | 待看 | 待看 |
+| 搜索 | ✅ | 待看 | 待看 | 待看 | 待看 | 待看 |
+| 设置 | ✅ | ✅ | 待看 | 待看 | 待看 | ✅ |
+| 日记阅读 | 待看 | 待看 | 待看 | 待看 | 待看 | 待看 |
+| 日记编辑 + 键盘 | 待看 | 待看 | 待看 | 待看 | 待看 | 待看 |
+| 分享 sheet | 待看 | 待看 | 待看 | 待看 | 待看 | 待看 |
+
+重点检查：
+
+- 内容是否被侧置 TabBar / 状态栏 / 摄像头遮挡；
+- 键盘弹起时编辑器格式栏、光标、顶栏是否仍可见；
+- 分享长图 sheet 在 466×678 外屏是否够高（系统动作区至少 340pt）；
+- 动态字体 XXL / AX 下标题、筛选条、设置行是否溢出；
+- 深色 / 增强对比度 / 减弱动态效果；
+- 折叠 / 展开过程中是否丢状态（选中日、tab、滚动位置、编辑草稿）。
+
+### B2（P1）外屏专门优化
+
+外屏是 466×678 的 compact 宽度，但仍可能沿用「手机竖屏」的密度：
+
+- 首页月历每格约 50–60pt；日期、农历、选中圆是否还清楚；
+- 设置行说明在 466pt 下会不会折行 / 被侧栏挤压；
+- 足迹的 5 列统计（省市 / 城市 / 国家 / 片段 / 天数）是否太挤；
+- 搜索的时间 / 地点胶囊是否横向溢出；
+- 日记顶栏 3 个玻璃按钮 + 返回在 466pt 下是否拥挤；编辑器格式栏是否遮住正文；
+- 外屏摄像头常驻，自定义顶栏是否避开。
+
+优先用**信息密度调整**（换行、隐藏次要标签、缩短说明、改成两行统计），
+不新增一套完全不同的导航。若确实需要，再评估外屏专属 compact 版面（D7）。
+
+### B3（P1）内屏常规宽度升级（可选，需确认 D6）
+
+当前做法是「限宽 600 + 单栏」。内屏竖屏时设置 / 足迹 / 搜索都是限宽单栏；
+内屏横屏时设置仍是全宽单列，足迹已有「趋势 + 清单」分栏，搜索仍是列表单栏。
+可选的升级：
+
+1. **设置**：横屏常规宽度下分两列（通用 / 日记规则 / 提醒 / 数据 左右分栏），
+   或保持单列 600；
+2. **足迹**：竖屏是否也把趋势图 + 地点清单并排；
+3. **搜索**：结果列表 + 预览主从；
+4. **首页**：内屏竖屏是否改成「日历 + 当日」上下分栏——这会动到年/月/周
+   morph，必须单独立项，不在本轮。
+
+建议先只做 2 / 3 的低风险分栏，首页保持现状；每屏先出 669×951 与 951×669
+对照截图，再决定是否铺开。
+
+### B4（P1）折叠 / 多任务行为
+
+- **实时更新**：折痕的 `reservedRegions` 变化是否会触发 `AdaptiveLayout` 更新；
+  目前是在 `onGeometryChange` 里读，需要在半折/展开的瞬间实测（必要时用
+  `onHingeChange` 触发一次重读，但只做布局失效，不用角度做布局）。
+- **50/50 分屏**：窗口 475×951 时 `containerWidth`、`contentColumn`、
+  `isPortrait`、侧栏方向都要正确；在分屏里检查四个 tab + 日记页。
+- **多窗口**：Duo 内屏支持多个 scene，外屏不支持新建窗口；当前 Info.plist
+  已声明 multiple scenes，但没有专门的窗口管理/错误处理。先确认是否要支持，
+  不支持就明确记录。
+- **摄像头**：FaceTime 相机 active 时的 occlusion 是否与竖排栏/顶栏重叠。
+- **键盘 / sheet**：半折时系统 sheet 会滑开，但自定义分享面板和格式栏要自己确认。
+
+### B5（P2）Duo API 的下一步
+
+- `ArrangementView`：D3 已决定「暂不评估」。如果 B3 要做双列，再拿它和现有
+  `HStack` 对比；不要为了用它而改布局。
+- `onHingeChange`：只用于动效/触感/状态提示，不用于版面判断。
+- `UIHinge` / `SceneAccessory` / Apple Pencil：按产品需要评估，不默认接。
+
+### B6（P1）无障碍与性能
+
+- Device Hub 在 Duo 上读不到 VoiceOver 内容（工具限制），无障碍必须用**真机**
+  或普通 iPhone 模拟器验证；Duo 上至少验证大字体、对比度、Reduce Motion。
+- 669pt / 951pt 宽下的连续月历流、设置长列表、搜索滚动是否稳在 60/120fps；
+  玻璃层和 `Canvas` 叠加时重点看。
+- 命中区域：侧栏、半折边缘、玻璃胶囊在 466pt 外屏上是否仍 ≥44pt。
+
+### B7（P1）测试自动化
+
+- 现有 `PortraitLayoutUITests` / `LandscapeLayoutUITests` 写死了 18 Pro / SE 的
+  浮条位置；Duo 横屏的 TabBar 在右侧，直接跑会误报。要么参数化，要么新增
+  `DuoLayoutUITests`。
+- Device Hub 没有公开的 hinge 命令，姿态切换目前靠手动；UI 测试只能在
+  当前姿态下跑。考虑用「多套 destination + 预先摆好姿态」的方式做截图回归，
+  不把姿态自动化写进 App 代码。
+- 已知黑帧问题：等待几分钟或重启 Device Hub 后再截图，不要把黑帧当 App 回归。
+
+---
+
+## 3. 工作流 C：Liquid Glass 设计优化
+
+### C0 现状盘点
+
+| 区域 | 当前实现 | 下一步 |
+|---|---|---|
+| 首页返回胶囊 | 裸 `.glassEffect` Capsule | 纳入 `GlassEffectContainer` / transition |
+| 首页「今天」`InfoCapsule` | `.buttonStyle(.glass)` | 检查容器化与对比度 |
+| 搜索框 `GlassSearchField` | 透明底 + `.glassEffect` | 检查对比度与嵌套 |
+| 筛选 chip / 动作 chip | `.buttonStyle(.glass)` | 分组容器 / union |
+| 玻璃图标按钮 | `.buttonStyle(.glass)` + `.buttonBorderShape` | 统一尺寸与 hit target |
+| 主 / 次按钮 | 实底 / 半透明底 + `.glassEffect` | 保留品牌色，检查 tint 与对比 |
+| 编辑器格式栏 `FontToolbar` | 玻璃面板 + 普通按钮 | 容器化 + 出现/消失 transition |
+| 设置导出 | `.glassProminent` | 检查 spinner / 禁用态 |
+| 系统 TabBar / sheet | 系统玻璃 | Duo 侧栏 / 外屏下验证 |
+| 内容卡片 | `diaryCard`，无玻璃 | ✅ 保持；不要回退 |
+
+当前没有用 `GlassEffectContainer`、`glassEffectID` / `glassEffectUnion`、
+`glassEffectTransition`。
+
+### C1（P0）按 HIG / WWDC 做一次审计
+
+- 只列问题，不改代码：每个玻璃面是「控件层」还是「内容层」？
+  内容层出现玻璃就是 bug；控件层没有可折射内容时，裸 `.glassEffect`
+  是否应该换成 `.buttonStyle(.glass)`？
+- 检查「玻璃上叠玻璃」（搜索框里的图标按钮、格式栏里的按钮、chip 里的按钮）。
+- 检查横向滚动裁切（`.buttonStyle(.glass)` 需要上下余量）。
+- 检查 Duo：侧置 TabBar、状态栏/摄像头、半折时玻璃是否落在曲面上。
+- 检查深浅色、增强对比度、降低透明度下的文字对比度；品牌色固定是有意的。
+- **验收**：一张「区域 / 现状 / 结论（保留/换 API/删除）」清单 + 截图。
+
+### C2（P1）结构与动效
+
+- **`GlassEffectContainer`**：把首页头部、格式栏、筛选 chip 组、图标按钮组
+  收进容器，让系统合并采样、减少层数；容器 spacing 与现有间距对齐。
+- **`glassEffectID` / `glassEffectUnion`**：用于 chip / 过滤条件在展开、选中、
+  morph 时的连续形状；不为了动效硬造动画。
+- **`glassEffectTransition`**：格式栏、搜索控制条、以后新增的浮动提示的出现/消失；
+  `matchedGeometry` 只用在确实有共享形状的地方。
+- **`Glass.clear` / `.regular` / `.identity`**：区分「浮在内容上的控件」与
+  「需要强调的主行动」；保留 `GlassPrimaryButton` 的实底品牌色。
+- **不叠玻璃**：容器内只留一层玻璃；嵌套按钮改用普通样式。
+- 先做 1–2 个代表性区域（首页头 + 格式栏），出前后截图，再决定是否铺开。
+
+### C3（P1）Duo 集成
+
+- 侧置 TabBar 是系统玻璃；自定义顶栏 / 胶囊要和它的圆角、描边、层级一致，
+  不要出现「系统玻璃栏 + 自绘玻璃条」两条竞争。
+- 用 `toolbarVerticalEdge` 对齐自定义控件；外屏顶栏避开摄像头。
+- 半折时玻璃控件不要压在折痕上；sheet 的玻璃背景交给系统，不覆盖
+  `presentationBackground`。
+- 动态字体放大时，玻璃按钮的 padding / 最小高度要跟着长，不能裁字。
+
+### C4（P1）无障碍、对比度与性能
+
+- 增强对比度：玻璃边缘和文字要加深；降低透明度：内容不能被玻璃洗白。
+- 深色模式：玻璃高光不能变成灰雾；品牌色 button 的白字对比度保持。
+- VoiceOver：玻璃图标按钮必须有 label / trait；纯装饰不重复播报。
+- 性能：统计一屏玻璃层数；用 `GlassEffectContainer` 合并；在 Duo 951pt
+  和 466pt 外屏上分别滚动月历 / 设置 / 搜索，观察掉帧。
+- **验收**：无「内容层玻璃」、无嵌套玻璃、对比度通过、滚动稳定。
+
+### C5（P2）回归与设计文档
+
+- 建立玻璃区域的截图基线：浅/深、增强对比度、降低透明度、XXL、Duo 内/外屏。
+- 更新 `docs/design-system.md` §5 的边界与例外；记录「为什么保留品牌色实底」。
+- 设计令牌与 `docs/design/` 保持同步；如果引入新圆角/间距，先改令牌再改页面。
+
+---
+
+## 4. 测试与验收
+
+| 类型 | 范围 | 频率 | 备注 |
+|---|---|---|---|
+| Build | 27.2 SDK，部署 27.0 | 每次提交 | 0 源码警告 |
+| Unit | `JustDiaryTests` 157+ | 每次提交 | Duo 用例已加 |
+| UI 冒烟 | 18 Pro + Duo 典型姿态 | 每个 PR / 每日 | 先修掉写死尺寸的断言 |
+| 手动姿态 | 内/外屏 × 开/半折/合 × 横/竖 | 每个 Duo 改动 | Device Hub 按钮；记录黑帧工具问题 |
+| 截图回归 | 玻璃区域、限宽页面、分栏 | 每个视觉改动 | 浅/深/对比度/字号 |
+| 性能 | 月历滚动、设置长列表、玻璃层 | 每轮视觉改动 | Instruments / 掉帧 |
+| 无障碍 | 大字体、对比度、VoiceOver | 每轮 | Duo 的 VoiceOver 用真机 |
+
+**退出条件**：
+
+- 三条工作流的 P0 项全部有结论（做/不做/延后），不是「待看」；
+- 每个新增 API 有 availability 守卫和回退；
+- 没有内容层玻璃、没有嵌套玻璃、没有侧栏遮挡；
+- 18 Pro / SE 的既有版面数值不回归；
+- 文档、README、测试记录同步。
+
+---
+
+## 5. 建议排期
+
+| 波次 | 内容 | 产出 |
+|---|---|---|
+| **第 1 波（接下来）** | A1 基线、A2 27.2 审计、B1 外屏 QA、C1 玻璃审计 | 问题清单 + 基线文档；不改视觉 |
+| **第 2 波** | B2 外屏密度、B4 分屏/折叠、C2 玻璃结构、C3 Duo 集成 | 1–2 个代表性页面先落地 + 截图 |
+| **第 3 波** | A3 CI、B3 双列（若 D6 同意）、B6 无障碍/性能、C4/C5 | 测试门禁、设计文档收口 |
+
+第 1 波不写代码；第 2 波每项先出对照图再合入。
+
+---
+
+## 6. 还需要确认的决策
+
+| 编号 | 问题 | 建议 |
+|---|---|---|
+| **D6** | 内屏横屏的设置 / 足迹 / 搜索要不要做双列？ | 先做足迹/搜索的低风险分栏，设置保持 600 单列；首页不动 |
+| **D7** | 外屏是否做专属 compact 版面？ | 先按 B1 找到具体溢出点，只做密度调整；不新造导航 |
+| **D8** | Liquid Glass 做到什么程度？ | 保守清理 + 容器化 1–2 处；不全面重做视觉 |
+| **D9** | 是否下载 27.2 runtime 做兼容性验证？ | 建议装一次，作为 A1 的一部分 |
+| **D10** | 真机 / Pencil / VoiceOver 的测试资源？ | 需要一台真机做无障碍与 Pencil 冒烟；没有就明确写「未验证」 |
+
+---
+
+# 附录：Duo 实测与已实现记录（2026-10-28 / 10-31）
+
+> 以下保留当时的实测数据、问题清单和已落地细节；新的工作以 §1–§6 为准。
 
 > **2026-10-31 实现记录（P0 + P1）**
 >
